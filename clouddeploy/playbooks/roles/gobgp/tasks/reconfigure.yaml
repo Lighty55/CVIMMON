@@ -1,0 +1,94 @@
+- name: Getting list of available vxlan/mpls overlay networks
+  set_fact:
+      overlay_networks: "{% for net in NETWORKING.networks if net.segments[0][:5] == 'vxlan' or net.segments[0] == 'sr-mpls-tenant' %}{{ net.segments[0] }}{% if not loop.last %} {% endif %}{% endfor %}"
+
+- name: Copy new gobgp agent configs
+  template:
+    src: "gobgp_agent_config.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/gobgp-agent-{{ item.1 }}.cfg.reconfigure"
+    mode: "0644"
+  with_indexed_items:
+    - "{{ overlay_networks.split(' ') }}"
+
+- name: Copy new prepare_netns.sh
+  template:
+    src: "prepare_netns.sh.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/prepare_netns.sh.reconfigure"
+    mode: "0755"
+
+- name: Copy new supervisord.conf configs
+  template:
+    src: "supervisord.conf.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/supervisord.conf.reconfigure"
+    mode: "0644"
+  vars:
+    overlays: "{{ overlay_networks.split(' ') }}"
+
+- name: Copy gobgp wrapper scripts
+  template:
+    src: "gobgp_wrapper.sh.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/gobgp_{{ item }}.sh.reconfigure"
+    mode: "0755"
+  with_items:
+    - "{{ overlay_networks.split(' ') }}"
+
+- name: Compare old and new rendered gobgp agent config
+  command: "diff {{ docker.gobgp.host_data_dir }}/gobgp-agent-{{ item.1 }}.cfg {{ docker.gobgp.host_data_dir }}/gobgp-agent-{{ item.1 }}.cfg.reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  with_indexed_items:
+    - "{{ overlay_networks.split(' ') }}"
+  register: command_result_config
+
+- name: Compare old and new rendered prepare_netns
+  command: "diff {{ docker.gobgp.host_data_dir }}/prepare_netns.sh {{ docker.gobgp.host_data_dir }}/prepare_netns.sh.reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_prepare_netns
+
+- name: Compare old and new rendered supervisord.conf
+  command: "diff {{ docker.gobgp.host_data_dir }}/supervisord.conf {{ docker.gobgp.host_data_dir }}/supervisord.conf.reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_supervisord
+
+- name: Compare old and new rendered gobgp wrapper scripts
+  command: "diff {{ docker.gobgp.host_data_dir }}/gobgp_{{ item }}.sh {{ docker.gobgp.host_data_dir }}/gobgp_{{ item }}.sh.reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  with_items:
+    - "{{ overlay_networks.split(' ') }}"
+  register: command_result_gobgp_wrapper
+
+- name: Determine if reconfigure is needed
+  set_fact:
+    r1: "{% for result in command_result_config.results if result.rc != 0 %}{{result.item.1}} {% endfor %}"
+    r2: "{% for result in command_result_gobgp_wrapper.results if result.rc != 0 %}{{result.item}} {% endfor %}"
+
+- name: Determine if reconfigure is needed
+  set_fact:
+    need_reconfigure: "{{ r1 != \"\" or r2 != \"\" or command_result_prepare_netns.rc != 0 or command_result_supervisord.rc != 0 }}"
+
+# Now if there is a diff there is a need to reconfigure
+- name: Move the new render config
+  shell: "for f in {{ docker.gobgp.host_data_dir }}/*.reconfigure; do mv -f -- $f ${f%%.reconfigure}; done"
+  when: need_reconfigure
+
+# Now delete the template file inside the container
+- name: Delete the GoBGP config file inside container to force a reconfigure
+  shell: "docker exec gobgp_{{ docker.gobgp.image_tag }} rm -f /opt/kolla/supervisord.conf"
+  when: need_reconfigure
+
+# Now restart the service
+- name: Restart GoBGP service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-gobgp
+  when: need_reconfigure

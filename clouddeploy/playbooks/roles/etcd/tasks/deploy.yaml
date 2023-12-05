@@ -1,0 +1,9 @@
+- include: etcd_service_install.yaml
+  when: MECHANISM_DRIVERS == "vpp"
+
+- include: etcd_service_start.yaml
+  when: MECHANISM_DRIVERS == "vpp"
+
+- include: etcd_auth_configure.yaml
+  when: MECHANISM_DRIVERS == "vpp"
+  run_once: True

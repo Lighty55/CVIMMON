@@ -1,0 +1,81 @@
+---
+- shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+- name: "Create yum repofiles in /etc/yum.repos.d/"
+  uri:
+    url: http://{{ MGMT_IP.stdout }}/repofiles/{{ item }}
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - "mercury-common.repo"
+    - "mercury-rhel.repo"
+    - "mercury-buildnode.repo"
+    - "mercury-hotfixes.repo"
+    - "mercury-thirdparty-cvim-k8s.repo"
+    - "mercury-calipso-rpms.repo"
+
+- name: "Clean yum cache"
+  shell: yum clean all
+  register: version
+
+- name: "Install yum utilities"
+  yum:
+    name: "{{ item }}"
+    state: latest
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items:
+    - yum-utils
+    - yum-plugin-priorities
+
+- name: Remove exclude package on update
+  lineinfile:
+    dest: /etc/yum.conf
+    regexp: '^exclude='
+    state: absent
+
+- name: Exclude few packages including httpd on update
+  lineinfile:
+    dest: /etc/yum.conf
+    line: 'exclude=httpd* mod_ssl* mod_wsgi* python-docker* docker-python* python-websocket-client'
+
+- name: "Update all packages"
+  yum:
+    name=*
+    state=latest
+  register: check_pkg_update
+  until: check_pkg_update|success
+  retries: 5
+  delay: 3
+
+# iptables may need to be corrected from selinux standpoint
+# needed when iptables major/minor version changes
+- name: Check for existence of ipv6
+  stat:
+    path: "/var/lock/subsys/ip6tables"
+  register: ip6_tables
+
+- name: Check for existence of ipv4 default tables
+  stat:
+    path: "/var/lock/subsys/iptables"
+  register: ip4_tables
+
+- name: correct ipv4 tables restorecon
+  command: restorecon -Rv /var/lock/subsys/iptables
+  when: ip4_tables.stat.exists
+
+- name: correct ipv6 tables restorecon
+  command: restorecon -Rv /var/lock/subsys/ip6tables
+  when: ip6_tables.stat.exists
+
+- name: Make sure iptables service is started
+  service:
+    name: "iptables"
+    enabled: yes
+    state: started

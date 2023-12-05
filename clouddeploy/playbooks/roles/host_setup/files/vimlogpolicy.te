@@ -1,0 +1,13 @@
+
+module vimlogpolicy 1.0;
+
+require {
+	type syslogd_t;
+	type svirt_sandbox_file_t;
+	class file append;
+}
+
+#============= syslogd_t ==============
+
+#!!!! This avc is allowed in the current policy
+allow syslogd_t svirt_sandbox_file_t:file append;

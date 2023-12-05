@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+# {{ ansible_managed }}
+# version=0.1
+
+MAILTO=""
+INSTALLER_DIR=$(readlink -f /root/openstack-configs | sed 's,/*[^/]\+/*$,,')
+
+echo "Cron job triggered {{ FERNET_ROTATION if FERNET_ROTATION is defined else KEYSTONE_FERNET_ROTATION  }} rotates the fernet keys"
+
+ciscovim --setupfile ~/openstack-configs/setup_data.yaml rotate-fernet-keys

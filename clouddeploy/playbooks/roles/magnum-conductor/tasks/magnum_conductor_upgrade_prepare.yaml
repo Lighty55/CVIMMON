@@ -1,0 +1,34 @@
+- name: Shut off Magnum Conductor Docker service
+  service:
+    name: docker-magnumconductor
+    enabled: no
+    state: stopped
+
+- name: Remove Magnum Conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumconductor.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove Magnum Conductor Docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumconductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}" }
+
+- name: Remove Magnum Conductor Docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ MAGNUM_CONDUCTOR_PREVIOUS_NAME }}"
+    tag: "{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Magnum Conductor Directory
+  file:
+    path: "{{ docker.magnum_conductor.host_data_dir }}"
+    state: absent

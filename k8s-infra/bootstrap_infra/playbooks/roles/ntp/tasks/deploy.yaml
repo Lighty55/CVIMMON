@@ -1,0 +1,27 @@
+---
+- name: Deploy | Cleanup the RHEL ntp.conf file
+  lineinfile:
+    dest: /etc/ntp.conf
+    state: absent
+    regexp: ".*"
+
+- name: Deploy | Remove the chrony package if present
+  yum:
+    name: chrony
+    state: absent
+  ignore_errors: True
+  failed_when: False
+
+- name: Deploy | Copy the ntp config file
+  template:
+    src: "ntp.conf.j2"
+    dest: "/etc/ntp.conf"
+
+- name: Deploy | Remove the chrony package if present
+  yum:
+    name: chrony
+    state: absent
+  ignore_errors: True
+  failed_when: False
+
+- include: ntp_date.yaml

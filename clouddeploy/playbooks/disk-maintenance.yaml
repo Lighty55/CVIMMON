@@ -1,0 +1,43 @@
+###############################################################################
+# Disk maintenance playbook
+#
+# This playbook will perform the following disk(s) actions -
+# 1. Obtain the status of existing disks on any/all servers
+# 2. Look for disk(s) that have been added to the server as replacements and
+#    will add them to the Disk Group as spares.
+###############################################################################
+- name: Disk maintenance options on management node
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "disk-maintenance", tags: [ "disk-maintenance-management" ] }
+
+- name: Disk maintenance options on controller nodes
+  hosts: nova_api_all:ceph_mon_all:{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "disk-maintenance", tags: [ "disk-maintenance-control" ] }
+
+- name: Disk maintenance options on compute nodes
+  hosts: nova_compute_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "disk-maintenance", tags: [ "disk-maintenance-compute" ] }
+
+- name: Disk maintenance options on storage nodes
+  hosts: ceph_osd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "disk-maintenance", tags: [ "disk-maintenance-storage" ] }

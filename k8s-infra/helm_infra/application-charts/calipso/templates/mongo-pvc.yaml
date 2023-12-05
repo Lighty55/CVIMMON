@@ -1,0 +1,29 @@
+{{- if not .Values.calipsoMongo.statefulSet.enabled -}}
+{{- if and .Values.calipsoMongo.persistentVolume.enabled -}}
+{{- if not .Values.calipsoMongo.persistentVolume.existingClaim -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  {{- if .Values.calipsoMongo.persistentVolume.annotations }}
+  annotations:
+{{ toYaml .Values.calipsoMongo.persistentVolume.annotations | indent 4 }}
+  {{- end }}
+  labels:
+    {{- include "calipso.calipsoMongo.labels" . | nindent 4 }}
+  name: {{ template "calipso.calipsoMongo.fullname" . }}
+spec:
+  accessModes:
+{{ toYaml .Values.calipsoMongo.persistentVolume.accessModes | indent 4 }}
+{{- if .Values.calipsoMongo.persistentVolume.storageClass }}
+{{- if (eq "-" .Values.calipsoMongo.persistentVolume.storageClass) }}
+  storageClassName: ""
+{{- else }}
+  storageClassName: "{{ .Values.calipsoMongo.persistentVolume.storageClass }}"
+{{- end }}
+{{- end }}
+  resources:
+    requests:
+      storage: "{{ .Values.calipsoMongo.persistentVolume.size }}"
+{{- end -}}
+{{- end -}}
+{{- end -}}

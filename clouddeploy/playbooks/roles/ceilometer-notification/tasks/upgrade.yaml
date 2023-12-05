@@ -1,0 +1,4 @@
+- include: deploy.yaml
+  when: SKIP_UPGRADE is defined
+- include: upgrade_ceilometer.yaml
+  when: SKIP_UPGRADE is not defined

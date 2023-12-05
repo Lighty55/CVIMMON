@@ -1,0 +1,10 @@
+- name: Configure telegraf on all control nodes.
+  hosts: host_control{{server|default('')}}
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  max_fail_percentage: 0
+  roles:
+    - { role: "cvim-mon", mgmt: false, host_all: false, host_control: true, external: false }
+  tags: [ "base", "central-ceph" ]
+

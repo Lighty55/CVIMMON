@@ -1,0 +1,30 @@
+---
+- name: helm reset - helm list all apps
+  shell: helm list | tail -n +2 | awk '{print $1}'
+  register: command_results
+  ignore_errors: yes
+  changed_when: false
+
+- name: helm reset - wait till all helm apps are deleted/purged
+  shell: helm list | tail -n +2
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 30
+  delay: 3
+  changed_when: false
+  ignore_errors: yes
+
+- name: helm reset - remove/cleanup
+  shell: ( helm reset --force --remove-helm-home --tiller-connection-timeout 30 || true ) && sleep 2 && ( kubectl --namespace=kube-system delete --cascade=true --now=true --include-uninitialized=true --wait=true --ignore-not-found=true deployment tiller-deploy || true ) && sleep 2 && ( kubectl delete service --namespace=kube-system tiller-deploy  || true ) && (  kubectl delete clusterrolebinding tiller  || true ) && (  kubectl delete --namespace=kube-system sa tiller )
+  ignore_errors: yes
+
+- name: helm reset - list all k8s resources with tiller-deploy in their name
+  shell: kubectl --namespace=kube-system get all --no-headers | grep tiller-deploy | awk '{print $1}'
+  register: command_results
+  ignore_errors: yes
+  changed_when: false
+
+- name: helm reset - delete all k8s resources with tiller-deploy in their name
+  command: kubectl --namespace=kube-system delete --cascade=true --now=true --include-uninitialized=true --wait=true --ignore-not-found=true {{ item }}
+  with_items: "{{ command_results.stdout_lines }}"
+  ignore_errors: yes

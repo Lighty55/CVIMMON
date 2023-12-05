@@ -1,0 +1,103 @@
+# First remove the new container and artifacts
+- name: Shut off neutron VPP docker service
+  service:
+    name: docker-neutron_vpp
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+# Make sure to kill VPP is it does not shut off
+- name: Kill VPP if it does not shut off
+  shell:  ps -ef | grep vpp | grep -v grep| awk '{print $2}' | xargs kill -KILL
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron VPP service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_vpp.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron VPP docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_vpp_{{ docker.neutron_vpp.image_tag }}" }
+
+- name: Remove neutron vpp docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_vpp.name }}"
+    tag: "{{ docker.neutron_vpp.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron vpp volume contents
+- name: List neutron vpp volume contents
+  shell: ls -A1 /docker/neutron_vpp/
+  register: contents
+
+- name: Remove neutron vpp volume contents
+  file:
+    path: /docker/neutron_vpp/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron vpp volume contents
+- name: recover neutron vpp volume contents
+  shell: cp /docker/neutron_vpp_{{ VPP_PREVIOUS_TAG }}/* /docker/neutron_vpp/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron vpp Directory
+  file:
+    path: "/docker/neutron_vpp_{{ VPP_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_vpp/docker-neutron_vpp.service /usr/lib/systemd/system/docker-neutron_vpp.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias vpp='in_container neutron_vpp_"
+    line: "{{ item }}"
+  with_items:
+    - alias vpp='in_container neutron_vpp_{{ VPP_PREVIOUS_TAG }}'
+
+- name: Start Neutron vpp container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_vpp
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if neutron vpp  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_vpp_{{ VPP_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron vpp Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

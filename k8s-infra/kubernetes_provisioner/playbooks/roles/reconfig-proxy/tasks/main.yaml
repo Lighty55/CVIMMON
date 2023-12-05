@@ -1,0 +1,40 @@
+- name: Pausing for 1 minute
+  pause:
+    minutes: 1
+
+- name: Get config map for the kube-proxy
+  shell: kubectl get configmap -n kube-system kube-proxy -o yaml > /tmp/kube-proxy-cm.yaml
+
+- replace:
+    dest: /tmp/kube-proxy-cm.yaml
+    regexp: 'server:.*'
+    replace: "server: https://{{ internal_loadbalancer_ip }}:6443"
+    backup: no
+  when: DHCP_MODE != "v6"
+
+- replace:
+    dest: /tmp/kube-proxy-cm.yaml
+    regexp: 'server:.*'
+    replace: "server: https://[{{ external_loadbalancer_ip }}]:6443"
+    backup: no
+  when: DHCP_MODE == "v6"
+
+- replace:
+    dest: /tmp/kube-proxy-cm.yaml
+    regexp: 'healthzBindAddress:.*'
+    replace: 'healthzBindAddress: "[::]:10256"'
+    backup: no
+  when: DHCP_MODE == "v6"
+
+- replace:
+    dest: /tmp/kube-proxy-cm.yaml
+    regexp: 'metricsBindAddress:.*'
+    replace: 'metricsBindAddress: "[::1]:10249"'
+    backup: no
+  when: DHCP_MODE == "v6"
+
+- name: Apply the change to the config map
+  shell: kubectl apply -f /tmp/kube-proxy-cm.yaml --force
+
+- name: Delete all kube-proxy instances to nake them restart with the new configuration
+  shell: kubectl delete pod -n kube-system -l k8s-app=kube-proxy

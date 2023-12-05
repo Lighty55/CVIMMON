@@ -1,0 +1,26 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron vpp directory
+  #  debug: msg="Remove neutron vpp directory--/docker/neutron_vpp_<vpp previous tag>"
+  file:
+    path: "/docker/neutron_vpp_{{ VPP_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron VPP docker container.
+  #debug: msg="Stop and remove old neutron VPP docker container."
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_vpp_{{ VPP_PREVIOUS_TAG }}" }
+
+- name: Remove neutron vpp docker image
+  #debug: msg="Remove neutron vpp docker image"
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_vpp.name }}"
+    tag: "{{ VPP_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

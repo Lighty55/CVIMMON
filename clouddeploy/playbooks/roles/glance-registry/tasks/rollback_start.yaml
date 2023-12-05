@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and glance registry
+- name: Shut off glance registry docker service
+  service:
+    name: docker-glancer
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove glance registry service file
+  file:
+    path: "/usr/lib/systemd/system/docker-glancer.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove glance-registry docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "glancer_{{ docker.glance_registry.image_tag }}" }
+
+- name: Remove glance docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.glance_registry.name }}"
+    tag: "{{ docker.glance_registry.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove glance registry volume contents
+- name: List glance registry volume contents
+  shell: ls -A1 /docker/glance_registry/
+  register: contents
+
+- name: Remove glance registry volume contents
+  file:
+    path: /docker/glance_registry/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the glance registry volume contents
+- name: recover glance registry volume contents
+  shell: cp /docker/glance_registry_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}/* /docker/glance_registry/.
+
+# Now remove the backup volume
+- name: Remove back up glance registry Directory
+  file:
+    path: "/docker/glance_registry_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/glance_registry/docker-glancer.service /usr/lib/systemd/system/docker-glancer.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias glancer='in_container glancer_"
+    line: "{{ item }}"
+  with_items:
+    - alias glancer='in_container glancer_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the glance registry container
+  service:
+   name: docker-glancer
+   enabled: yes
+   state: started
+
+- name: Wait for Glance Registry to be alive
+  wait_for: host={{ GLANCE_HOST }} port={{ GLANCE_REGISTRY_PORT }}

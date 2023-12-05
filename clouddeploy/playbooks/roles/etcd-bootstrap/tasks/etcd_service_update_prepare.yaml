@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create etcd Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/etcd_{{ ETCD_PREVIOUS_TAG }}
+
+# Back up the etcd volume
+- name: back up the etcd volume
+  shell: cp /docker/etcd/* /docker/etcd_{{ ETCD_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the etcd systemd file
+  command: cp /usr/lib/systemd/system/docker-etcd.service /docker/etcd_{{ ETCD_PREVIOUS_TAG }}/docker-etcd.service
+
+#####################################################
+# Shut down the old etcd containers
+####################################################
+- name: Shut off etcd docker service
+  service:
+    name: docker-etcd
+    enabled: no
+    state: stopped
+
+- name: Remove etcd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-etcd.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of etcd volume
+- name: List the contents of etcd volume
+  shell: ls -A1 /docker/etcd/
+  register: contents
+
+- name: Remove the contents of etcd volume
+  file:
+    path: /docker/etcd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

@@ -1,0 +1,117 @@
+- name: "Create certs | Check for any historic cert/key files in the path"
+  stat:
+    path: "{{ item }}"
+  register: fpath
+  with_items:
+    - "{{ calipso_mongo_key_out_path }}"
+    - "{{ calipso_mongo_cert_out_path }}"
+    - "{{ calipso_api_key_out_path }}"
+    - "{{ calipso_api_cert_out_path }}"
+
+- name: "Create certs | Delete any past cert files if exists in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ calipso_mongo_key_out_path }}"
+    - "{{ calipso_mongo_cert_out_path }}"
+    - "{{ calipso_api_key_out_path }}"
+    - "{{ calipso_api_cert_out_path }}"
+
+- name: "Create certs | Check for Metro Namespace if it exists"
+  shell: kubectl get namespace {{ calipso_namespace }} | cat
+  register: ns_exist
+  failed_when: false
+
+- name: "Create certs | Render Metro Namespace template"
+  become: true
+  template: { src: "namespace.yaml", dest: "/tmp/namespace.yaml" }
+  register: rendering
+  when: "'{{ calipso_namespace }}' not in ns_exist.stdout"
+
+- name: "Create certs | Create a Metro Namespace"
+  kube:
+    name: "namespace"
+    kubectl: "kubectl"
+    filename: "/tmp/namespace.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+  when: "'{{ calipso_namespace }}' not in ns_exist.stdout"
+
+- name: "Create certs | Ensure Metro Namespace Created is Active."
+  register: ns_state
+  command: "kubectl get ns {{ calipso_namespace }} --output=json"
+  changed_when: false
+  until: "ns_state.stdout|default('{}')|from_json|json_query(\"status.phase\") == 'Active'"
+  retries: 10
+  delay: 5
+
+- name: "Create certs | Delete temporary namespace manifest file"
+  file:
+    path: /tmp/namespace.yaml
+    state: absent
+
+- name: "Create certs | Get secrets form the namespace and check if calipso_mongo secret exists"
+  shell: kubectl get secrets -n {{ calipso_namespace }} | grep calipso-mongo-cert | cat
+  register: mongo_secret
+
+- name: "Create certs | Get secrets form the namespace and check if calipso_api secret exists"
+  shell: kubectl get secrets -n {{ calipso_namespace }} | grep calipso-api-cert | cat
+  register: api_secret
+
+- name: "Create certs | Create Self Signed Certs with OpenSSL for calipso_mongo"
+  become: yes
+  debug:
+    msg:
+      - "days: {{ validity_days }}"
+      - "bits: {{ bits }}"
+      - "mongo key path: {{ calipso_mongo_key_out_path }}"
+      - "mongo cert path: {{ calipso_mongo_cert_out_path }}"
+      - "domain suffix: {{ cvimmon_domain_suffix }}"
+
+- name: "Create certs | Create Self Signed Certs with OpenSSL for calipso_mongo"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ calipso_mongo_key_out_path }}
+    -out {{ calipso_mongo_cert_out_path }}
+    -subj "/CN=calipso-mongo-cluster-monitor.{{ cvimmon_domain_suffix }}/O=calipso-mongo-cluster-monitor.{{ cvimmon_domain_suffix }}"
+
+- name: "Create certs | Create Self Signed Certs with OpenSSL for calipso_api"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ calipso_api_key_out_path }}
+    -out {{ calipso_api_cert_out_path }}
+    -subj "/CN=calipso-api-cluster-monitor.{{ cvimmon_domain_suffix }}/O=calipso-api-cluster-monitor.{{ cvimmon_domain_suffix }}"
+
+- name: "Create certs | Create Kubernetes TLS Secret for calipso_mongo"
+  command: kubectl create secret tls calipso-mongo-cert -n {{ calipso_namespace }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ calipso_mongo_key_out_path }}']
+    - ['{{ calipso_mongo_cert_out_path }}']
+  when: "'calipso-mongo-cert' not in mongo_secret.stdout"
+
+- name: "Create certs | Create Kubernetes TLS Secret for calipso_api"
+  command: kubectl create secret tls calipso-api-cert -n {{ calipso_namespace }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ calipso_api_key_out_path }}']
+    - ['{{ calipso_api_cert_out_path }}']
+  when: "'calipso-api-cert' not in api_secret.stdout"
+
+- set_fact:
+    calipso_mongo_key: "{{ lookup('file', vars['calipso_mongo_key_out_path']) }}"
+    calipso_mongo_cert: "{{ lookup('file', vars['calipso_mongo_cert_out_path']) }}"
+    calipso_api_key: "{{ lookup('file', vars['calipso_api_key_out_path']) }}"
+    calipso_api_cert: "{{ lookup('file', vars['calipso_api_cert_out_path']) }}"
+
+- name: "Create certs | Delete all Cert Sensitive files in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ calipso_mongo_key_out_path }}"
+    - "{{ calipso_mongo_cert_out_path }}"
+    - "{{ calipso_api_key_out_path }}"
+    - "{{ calipso_api_cert_out_path }}"

@@ -1,0 +1,5 @@
+- name: Update root password hash on all pod nodes
+  user:
+    name: root
+    password: "{{ COBBLER.admin_password_hash }}"
+    update_password: always

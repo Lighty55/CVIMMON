@@ -1,0 +1,177 @@
+- name: Copy the new Glance registry configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "glance_registry_config.j2", dest: "{{docker.glance_registry.host_data_dir }}/glance_registry_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/glance_registry/glance_registry_config /docker/glance_registry/glance_registry_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/glance_registry/glance_registry_reconfigure /docker/glance_registry/glance_registry_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/glance_registry/glance_registry_reconfigure state=absent
+  when: command_result.stdout == ""
+
+- name: Generate the reconfig credentials
+  command: docker exec glancer_{{ docker.glance_registry.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec glancer_{{ docker.glance_registry.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec glancer_{{ docker.glance_registry.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    GLANCE_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/GLANCE_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    GLANCE_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/GLANCE_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+# Now update the SQL password if the GLANCE_DB_PASSWORD is part of update
+- name: Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ GLANCE_DB_USER }}'@'%' = PASSWORD('{{ GLANCE_DB_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'GLANCE_DB_PASSWORD' in secrets_result.stdout ) or  'GLANCE_DB_PASSWORD' in command_result.stdout "
+
+# Now update the GLANCE keystone password if it is part of update
+- name: Update the glance keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ GLANCE_KEYSTONE_USER }}
+           password={{ GLANCE_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'GLANCE_KEYSTONE_PASSWORD' in secrets_result.stdout ) or  'GLANCE_KEYSTONE_PASSWORD' in command_result.stdout "
+
+- name: Updating the glance endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=glance
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ GLANCE_API_SERVICE_HOST }}:9292
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:9292
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:9292"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+# Now delete the template file inside the container
+- name: Delete the glance registry config file inside container to force a reconfigure
+  command: docker cp /docker/glance_registry/glance_registry_config glancer_{{ docker.glance_registry.image_tag }}:/opt/kolla/glance_registry_config
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart glance registry service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-glancer
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Wait for Glance Registry to be alive
+  wait_for: host={{ GLANCE_HOST }} port={{ GLANCE_REGISTRY_PORT }}
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the GLANCE_DB_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep GLANCE_DB_PASSWORD
+  register: glance_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^GLANCE_DB_PASSWORD" line="GLANCE_DB_PASSWORD{{ ":" }} {{ GLANCE_DB_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and glance_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the GLANCE_KEYSTONE_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep GLANCE_KEYSTONE_PASSWORD
+  register: glance_keystone_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^GLANCE_KEYSTONE_PASSWORD" line="GLANCE_KEYSTONE_PASSWORD{{ ":" }} {{ GLANCE_KEYSTONE_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and glance_keystone_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/GLANCE_DB_PASSWORD value={{ GLANCE_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['glance_registry_all'][0] }}"
+    - secrets_result|changed and 'GLANCE_DB_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/GLANCE_KEYSTONE_PASSWORD value={{ GLANCE_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['glance_registry_all'][0] }}"
+    - secrets_result|changed and 'GLANCE_KEYSTONE_PASSWORD' in secrets_result.stdout

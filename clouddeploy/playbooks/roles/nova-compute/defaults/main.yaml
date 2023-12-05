@@ -1,0 +1,36 @@
+# Neutron Configuration
+NETWORK_MANAGER: neutron
+NEUTRON_URL: "{{ internal_lb_vip_address }}"
+# public and flat are needed only for nova
+# kolla checks for these
+PUBLIC_INTERFACE: dummy
+FLAT_INTERFACE: dummy
+NEUTRON_SHARED_SECRET: password
+
+# Metadata Configuration
+METADATA_SHARED_SECRET: password
+
+# VOLUMES TO BE MOUNTED FOR LIBVIRT
+NOVA_VOLUME : "/var/lib/nova"
+LIBVIRT_VOLUME:  "/var/lib/libvirt"
+QEMU_VOLUME: "/etc/libvirt/qemu"
+RUN_VOLUME: "/run"
+CGROUP_VOLUME: "/sys/fs/cgroup"
+
+NOVA_HOST: "{{ control_bond }}"
+TRUSTED_VF: False
+# CEPH Secret UUID setup
+SECRET_UUID: "{{ cinder_ceph_secret }}"
+NOVA_COMPUTE_PREVIOUS_TAG:
+NOVA_COMPUTE_PREVIOUS_NAME:
+OVS_DBSERVER_PREVIOUS_TAG:
+
+# NOTE: This can be set per-compute, or if set to 0.0, the value
+# set on the scheduler node(s) or compute node(s) will be used
+# and defaulted to <see help for a certain option>'.
+NOVA_CPU_ALLOCATION_RATIO: 16.0
+NOVA_RAM_ALLOCATION_RATIO: 1.5
+
+COMPUTE_DRIVER: "libvirt.LibvirtDriver"
+NOVA_DIR: "/var/lib/nova/instances"
+PASSWORD_VARS: ADMIN_USER_PASSWORD,DB_ROOT_PASSWORD,NOVA_DB_PASSWORD,NOVA_KEYSTONE_PASSWORD,NEUTRON_KEYSTONE_PASSWORD,RABBITMQ_PASSWORD,METADATA_PROXY_SHARED_SECRET,VOLUME_ENCRYPTION_KEY

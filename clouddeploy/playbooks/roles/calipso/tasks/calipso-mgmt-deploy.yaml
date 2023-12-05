@@ -1,0 +1,120 @@
+- name: Mgmt Deploy | Include docker vars
+  include_vars: "{{ playbook_dir }}/../../openstack-configs/docker.yaml"
+  delegate_to: localhost
+
+- name: Mgmt Deploy | Capture build node IPv4
+  shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IPV4
+  delegate_to: localhost
+  failed_when: not MGMT_IPV4.stdout
+
+- name: Mgmt Deploy | Capture build node IPv6
+  shell: python /opt/cisco/scripts/get_mgmtip.py ipv6 | head -1
+  register: MGMT_IPV6
+  delegate_to: localhost
+  when: internal_lb_vip_ipv6_address is defined or (PODTYPE is defined and PODTYPE == "ceph")
+
+# Temporary workaround to avoid changing the code too much
+- name: Mgmt Deploy | Selecting preferred Mgmt IP
+  shell: echo {{ MGMT_IPV6.stdout|default(MGMT_IPV4.stdout) }}
+  register: MGMT_IP
+  delegate_to: localhost
+
+- set_fact:
+    build_node_ip: "{{ MGMT_IP.stdout }}"
+  delegate_to: localhost
+
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is not defined or VAULT.enabled == False
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CALIPSO_API_SERVICE_PWD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CALIPSO_API_SERVICE_PWD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CALIPSO_MONGO_SERVICE_PWD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CALIPSO_MONGO_SERVICE_PWD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Mgmt Deploy | Create calipso library directory
+  file:
+    path: "/var/lib/calipso"
+    state: directory
+    owner: root
+    group: 2033
+    mode: "0770"
+  delegate_to: localhost
+
+- name: Mgmt Deploy | Manage ssl certs for calipso
+  include: manage-ssl-certs.yaml
+
+- name: Mgmt Deploy | Copy cloudpulse ssh key
+  copy: src={{ lookup('env','HOME') }}/.ssh/cloudpulse_id_rsa dest={{ CALIPSO_SSH_KEY_LOCATION }} owner="2033" group="2033" mode="0600"
+  delegate_to: localhost
+  ignore_errors: true
+
+- name: Deploy | Find out if calipso-mongo auth is enabled
+  shell: "cat /var/lib/calipso/calipso_config | grep CALIPSO_MONGO_SERVICE_AUTH_ENABLED | awk -F '=' '{print $NF}' | awk '{$1=$1};1'  | tr '[:upper:]' '[:lower:]'"
+  register: mongo_auth_enabled
+  delegate_to: localhost
+
+- set_fact:
+    CALIPSO_MONGO_SERVICE_AUTH_ENABLED: "true"
+  delegate_to: localhost
+  when: "mongo_auth_enabled.stdout == 'true'"
+
+- name: Mgmt Deploy | Render calipso configuration files
+  template:
+    src: "{{ item.name }}.j2"
+    dest: /var/lib/calipso/{{ item.name }}{{ item.ext }}
+    mode: 0600
+    owner: 2033
+    group: 2033
+  with_items:
+    - { name: calipso_config, ext: "" }
+    - { name: mercury_environment_config, ext: ".json" }
+    - { name: api_auth_config, ext: ".json" }
+  delegate_to: localhost
+
+- name: Mgmt Deploy | Cleanup mongo db directory if it exists on mgmt node
+  file:
+    path: "/var/lib/calipso/db"
+    state: absent
+  delegate_to: localhost
+
+#########################################################
+# Install calipso clients                               #
+#########################################################
+
+- name: Mgmt Deploy | Check if calipso repo file exists
+  stat:
+    path:  /etc/yum.repos.d/mercury-calipso-rpms.repo
+  register: mercury_calipso_rpms_repo
+  delegate_to: localhost
+
+- name: Mgmt Deploy | Download calipso repofile
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/mercury-calipso-rpms.repo"
+    dest: /etc/yum.repos.d/mercury-calipso-rpms.repo
+    return_content: yes
+    status_code: 200,304
+  delegate_to: localhost
+  when: mercury_calipso_rpms_repo.stat.exists == False
+
+- name: Mgmt Deploy | Install python-elasticsearch rpm
+  yum:
+    name: python-elasticsearch-{{ CALIPSO_PYTHON_ELASTICSEARCH_VERSION }}
+    state: present
+  delegate_to: localhost
+
+- name: Mgmt Deploy | Install calipso API and replication clients
+  yum:
+    name: calipso-{{ CALIPSO_RPM_VERSION }}
+    state: present
+  delegate_to: localhost

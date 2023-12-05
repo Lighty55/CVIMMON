@@ -1,0 +1,33 @@
+##############################################################
+# The Runner config file.
+##############################################################
+
+[STAGE_VALIDATION]
+id = 1
+module = "bootstrap_infra.orchestrator"
+
+[STAGE_BOOTSTRAP_INFRA]
+id = 2
+module = "bootstrap_infra.orchestrator"
+tags = "mgmt_setup"
+
+[STAGE_SETUP_ARGUS]
+id = 3
+module = "argus.bootstrap.orchestrator"
+
+[STAGE_ARGUS_BAREMETAL]
+id = 4
+module = "argus.baremetal.orchestrator"
+
+[STAGE_COMMON_CVIM_MON_INFRA]
+id = 5
+module = "bootstrap_infra.orchestrator"
+tags = "common_setup"
+
+[STAGE_KUBERNETES_PROVISIONER]
+id = 6
+module = "kubernetes_provisioner.orchestrator"
+
+[STAGE_HELM_INFRA]
+id = 7
+module = "helm_infra.orchestrator"

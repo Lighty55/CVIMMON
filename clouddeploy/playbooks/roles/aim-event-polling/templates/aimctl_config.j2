@@ -1,0 +1,37 @@
+[DEFAULT]
+apic_system_id={{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}
+single_tenant_mode = False
+apic_name_mapping = use_uuid
+enable_optimized_metadata = {{ ACI_OPTIMIZED_METADATA }}
+enable_optimized_dhcp = {{ ACI_OPTIMIZED_DHCP }}
+enable_aci_routing = True
+apic_arp_flooding = True
+apic_provision_hostlinks = False
+apic_provision_infra = True
+[apic]
+[apic_vmdom:{{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}]
+vlan_ranges={{ ALL_VLAN_TUPLES|default('') }}
+
+{% if INTEL_SRIOV_PHYS_PORTS is defined or CISCO_VIC_INTEL_SRIOV is defined %}
+{% set phys_ports = 0 %}
+{% if INTEL_SRIOV_PHYS_PORTS is defined %}
+{% set phys_ports = INTEL_SRIOV_PHYS_PORTS|int %}
+{% endif %}
+{% if CISCO_VIC_INTEL_SRIOV is defined and sriov_phys_ports|int > 0 %}
+{% set phys_ports = sriov_phys_ports|int %}
+{% endif %}
+{% set all_sriov_physnets = [] %}
+{% for sriov_num in range(phys_ports|int) %}
+{% set sriov_physdom = "pdom_"+SRIOV_PHYSNET_NAME+sriov_num|string %}
+{{ all_sriov_physnets.append(SRIOV_PHYSNET_NAME+sriov_num|string) }}
+[apic_physdom:{{ sriov_physdom }}]
+encap_mode=vlan
+{% endfor %}
+
+{% for sriov_physnet in all_sriov_physnets %}
+[apic_physical_network:{{ sriov_physnet }}]
+hosts={% if aim_computes is defined %}{{ aim_computes|join(',') }}{% else %}{{ groups['compute']|join(',') }}{% endif %}
+
+segment_type=vlan
+{% endfor %}
+{% endif %}

@@ -1,0 +1,3 @@
+- include: magnum_api_install.yaml
+- include: magnum_api_config.yaml
+- include: magnum_api_start.yaml

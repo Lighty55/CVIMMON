@@ -1,0 +1,117 @@
+- set_fact:
+    HAPROXY_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HAPROXY_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HAPROXY_OLD_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/HAPROXY_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy the new haproxy configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "haproxy.cfg.j2", dest: "{{docker.haproxy.host_data_dir }}/haproxy_reconfigure.cfg" }
+
+- name: Copy TLS Certificate
+  when: HAPROXY_TLS|bool and HAPROXY_CERT
+  template:
+    src: "{{ HAPROXY_CERT }}"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy_reconfigure.pem"
+    mode: "0400"
+
+- name: Compare old and new certificate
+  command: diff -N /docker/haproxy/haproxy.pem /docker/haproxy/haproxy_reconfigure.pem
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_cert
+  when: HAPROXY_TLS|bool and HAPROXY_CERT
+
+- name: Compare old and new rendered template
+  command: diff /docker/haproxy/haproxy.cfg /docker/haproxy/haproxy_reconfigure.cfg
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/haproxy/haproxy_reconfigure.cfg /docker/haproxy/haproxy.cfg
+  when: command_result.stdout != ""
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new rendered cert
+  command: mv /docker/haproxy/haproxy_reconfigure.pem /docker/haproxy/haproxy.pem
+  when: command_result_cert is defined and command_result_cert.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/haproxy/haproxy_reconfigure.cfg state=absent
+  when: command_result.stdout == ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/haproxy/haproxy_reconfigure.pem state=absent
+  when: command_result_cert is defined and command_result_cert.stdout == ""
+
+# Now restart the service
+- name: Restart haproxy service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-haproxy
+  when: (command_result.stdout != "") or (command_result_cert is defined and command_result_cert.stdout != "")
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: (command_result.stdout != "") or (command_result_cert is defined and command_result_cert.stdout != "")
+
+- name: Check if haproxy Docker container has started running
+  shell: docker ps -a | grep Up | grep haproxy_{{ docker.haproxy.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: (command_result.stdout != "") or (command_result_cert is defined and command_result_cert.stdout != "")
+
+- name: Fail if container is not UP.
+  fail: msg="Haproxy Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HAPROXY_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HAPROXY_PASSWORD
+  register: haproxy_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HAPROXY_PASSWORD" line="HAPROXY_PASSWORD{{ ":" }} {{ HAPROXY_PASSWORD }}"
+  when: staging_exists.stat.exists == True and haproxy_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+# TODO: Haproxy password is always copied from cvim-regen-secrets to cvim-secrets engine
+# Because haproxy password is read on the host for haproxy.cfg rather than reading it
+# and rendering inside the container
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HAPROXY_PASSWORD value={{ HAPROXY_PASSWORD }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - HAPROXY_OLD_PASSWORD != HAPROXY_PASSWORD

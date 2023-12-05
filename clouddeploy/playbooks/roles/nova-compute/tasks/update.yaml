@@ -1,0 +1,4 @@
+- include: nova_compute_service_update_prepare.yaml
+- include: nova_compute_service_install.yaml
+- include: nova_compute_service_config.yaml
+- include: nova_compute_service_start.yaml

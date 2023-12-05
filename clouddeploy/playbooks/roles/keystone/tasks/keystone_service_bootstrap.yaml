@@ -1,0 +1,107 @@
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    KEYSTONE_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/KEYSTONE_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Setting up Keystone Database
+  shell: >
+          docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }} bash -c
+          "export TERM=xterm; mysql -h {{ MARIADB_SERVICE_HOST }} -u root -p{{ DB_ROOT_PASSWORD }} mysql -e
+          \"CREATE DATABASE IF NOT EXISTS {{ KEYSTONE_DB_NAME }};
+          SET GLOBAL wsrep_debug = 'OFF';
+          GRANT ALL PRIVILEGES ON {{ KEYSTONE_DB_NAME }}.* TO '{{ KEYSTONE_DB_USER }}'@'%' IDENTIFIED BY '{{ KEYSTONE_DB_PASSWORD }}';
+          SET GLOBAL wsrep_debug = 'ON';\""
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Bootstrap | Bootstrap the Keystone Service
+  docker_container:
+    name: "keystone_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"
+    volumes:
+      - "{{ docker.keystone.host_data_dir }}:{{ docker.keystone.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/keystone:/var/log/keystone:z
+      - /var/log/httpd:/var/log/httpd:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "5000:5000, 35357:35357"
+    network_mode: "host"
+    env:
+      BOOTSTRAP:
+  run_once: True
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Bootstrap | Waiting for keystone bootstrap container to exit
+  command: docker wait keystone_bootstrap
+  failed_when: bootstrap_result.stdout != "0"
+  register: bootstrap_result
+  run_once: True
+
+- name: Bootstrap | Copy the fernet keys from the bootstrap keystone container into its controller node
+  shell: >
+    docker cp keystone_bootstrap:{{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }} \
+           {{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}
+  with_items:
+    - "0"
+    - "1"
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+  when: ACTION is undefined
+
+- name: Bootstrap | Get fernet keys from 1st controller node into management node
+  fetch:
+    src:  "{{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}"
+    dest: "{{ KEYSTONE_FERNET_BUILD_DIR }}/fernet-key_{{ item }}"
+    flat: yes
+    validate_checksum: yes
+    fail_on_missing: yes
+  with_items:
+    - "0"
+    - "1"
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+  when: ACTION is undefined
+
+- name: Bootstrap | Check that fernet keys got copied into the management node
+  file:
+    path: "{{ KEYSTONE_FERNET_BUILD_DIR }}/fernet-key_{{ item }}"
+    mode: "u=rw,g=r,o=r"
+  with_items:
+    - "0"
+    - "1"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: ACTION is undefined
+
+- name: Bootstrap | Distribute the fernet keys into the other controllers
+  copy:
+    src:  "{{ KEYSTONE_FERNET_BUILD_DIR }}/"
+    dest: "{{ docker.keystone.host_data_dir }}"
+    force: yes
+    owner: root
+    group: root
+    mode: "u=rw,g=r,o=r"
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['keystone_all'] }}"
+  when: ACTION is undefined
+
+- name: Bootstrap | Remove Keystone fernet directory in management node
+  file:
+    path: "{{ KEYSTONE_FERNET_BUILD_DIR }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: ACTION is undefined
+
+- name: Bootstrap | Cleaning up Keystone bootstrap container
+  docker_container:
+    name: keystone_bootstrap
+    image: "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  run_once: True

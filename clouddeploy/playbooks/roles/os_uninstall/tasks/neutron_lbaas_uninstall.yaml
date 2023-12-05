@@ -1,0 +1,47 @@
+- name: Shut off neutron lbaas agent docker service
+  service:
+    name: docker-neutronlbaas
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronlbaas_uninstall
+
+- name: Remove neutron lbaas agent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronlbaas.service"
+    state: absent
+  tags:
+    - neutronlbaas_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronlbaas_uninstall
+
+- name: Stop and remove neutron lbaas agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag}}" }
+  tags:
+    - neutronlbaas_uninstall
+
+- name: Remove neutron lbaas agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_lbaas_agent.name }}"
+    tag: "{{ docker.neutron_lbaas_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronlbaas_uninstall
+
+- name: Remove Lbaas Agent Directory
+  file:
+    path: "{{ docker.neutron_lbaas_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronlbaas_uninstall

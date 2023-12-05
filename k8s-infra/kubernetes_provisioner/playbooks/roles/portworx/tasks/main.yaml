@@ -1,0 +1,8 @@
+- include: px_deploy_v1.yaml
+  when: node_operation_host is not defined and ACTION is not defined
+- include: pwx_node_maintence.yaml
+  when: node_operation_host is defined and node_operation_host == inventory_hostname
+- include: pwx_remove_node.yaml
+  when: node_operation_host is defined and node_operation_host != inventory_hostname
+- include: pwx_update.yaml
+  when: ACTION is defined and ACTION == "update"

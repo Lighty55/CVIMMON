@@ -1,0 +1,87 @@
+#Playbook to get disk partition and journal details
+- name: Get fqdn hostname
+  shell: hostname --fqdn
+  register: host_name_fqdn
+
+- name: Get hostname
+  shell: hostname
+  register: host_name
+
+- name: get ceph disk details
+  shell: ceph-disk list --format json
+  register: result
+  ignore_errors: True
+  failed_when: false
+
+- fail:
+    msg: "The testbed doesn't have the correct version of ceph to proceed"
+  when: result.stdout == ""
+
+- name: Save ceph-disk JSON output
+  set_fact:
+    ceph_disk_detail: "{{ result.stdout | from_json }}"
+
+- wait_for:
+    path: "{{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout }}"
+    timeout: 30
+  delegate_to: localhost
+
+- name: Save ceph-disk details
+  shell: "echo {{ ceph_disk_detail | get_ceph_details(host_name_fqdn.stdout) }} >> {{ CEPH_DISK_DETAILS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+
+- name: Check if Raid or Passthrough
+  shell: "lsmod | grep megaraid"
+  register: raid_type_hw
+  ignore_errors: True
+  failed_when: false
+
+- name: Get controller details
+  shell: "/opt/MegaRAID/storcli/storcli64 show J"
+  register: result
+  when: raid_type_hw.stdout != ""
+
+- name: Save storcli JSON output
+  set_fact:
+    storcli_result: "{{ result.stdout | from_json }}"
+  when: raid_type_hw.stdout != ""
+
+- name: Get controller number if raid card is present
+  set_fact:
+    control_num: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['Ctl'] }}"
+  when: raid_type_hw.stdout != ""
+
+- name: Save raid controller number
+  shell:
+    cmd: "echo 'controller_num: {{ control_num }}' >> {{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout }}"
+  when: raid_type_hw.stdout != ""
+  delegate_to: localhost
+
+- name: show storcli for controller
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ control_num }} show J"
+  register: result
+  when: raid_type_hw.stdout != ""
+
+- name: Save storcli controller JSON output
+  set_fact:
+    storcli_disk_result: "{{ result.stdout | from_json }}"
+  when: raid_type_hw.stdout != ""
+
+- name: Get controller status
+  set_fact:
+    command_status: "{{ storcli_result.Controllers[0]['Command Status']['Status'] }}"
+    eid: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'][0]['EID:Slt'] }}"
+  when: raid_type_hw.stdout != ""
+
+- name: Save controller status
+  shell:
+    cmd: |
+      echo 'Command_status: {{ command_status }}' >> {{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout }}
+      echo 'Enclosure_ID: {{ eid }}' | cut -d \: -f 1,2 >> {{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout }}
+  when: raid_type_hw.stdout != ""
+  delegate_to: localhost
+
+- name: Rename OSD details file to include full hostname
+  shell: mv {{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout }} {{ OSD_DETAILS_FILE }}_{{ host_name.stdout }}
+  delegate_to: localhost
+  when: host_name_fqdn.stdout != host_name.stdout

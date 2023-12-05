@@ -1,0 +1,25 @@
+{{- if .Values.service }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "fluentd-elasticsearch.fullname" . }}
+  labels:
+    app: {{ template "fluentd-elasticsearch.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    heritage: "{{ .Release.Service }}"
+    release: "{{ .Release.Name }}"
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - name: monitor-tcp
+    port: 7081
+    protocol: TCP
+    targetPort: 7081
+  - name: monitor-udp
+    port: 7081
+    protocol: UDP
+    targetPort: 7081
+  selector:
+    app: {{ template "fluentd-elasticsearch.fullname" . }}
+    release: {{ .Release.Name }}
+{{- end }}

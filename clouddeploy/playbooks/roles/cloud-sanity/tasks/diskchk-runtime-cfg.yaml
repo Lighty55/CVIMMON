@@ -1,0 +1,4 @@
+- name: Set disk check runtime config
+  set_fact:
+     RUN_DISK_CHECK: True
+  delegate_to: localhost

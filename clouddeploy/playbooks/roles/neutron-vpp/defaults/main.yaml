@@ -1,0 +1,19 @@
+LOCAL_IP: "{{ tenant_bond }}"
+tenant_bond: "{{ tenant_bond }}"
+tenant_cidr: "{{ tenant_cidr }}"
+tenant_if: "{{ tenant_if_name }}"
+tenant_slave0: "{{ tenant_if_slave0 }}"
+tenant_slave1: "{{ tenant_if_slave1 }}"
+prov_if: "p"
+prov_slave0: "p0"
+prov_slave1: "p1"
+external_if: "e"
+external_slave0: "e0"
+external_slave1: "e1"
+ENABLE_JUMBO_FRAMES: False
+DEFAULT_MTU_SIZE: 1500
+JUMBO_MTU_SIZE: 9000
+VPP_INIT_DELAY: 5
+VPP_IF_STATS_REST_PORT: 7670
+VPP_PREVIOUS_TAG:
+PASSWORD_VARS: VPP_ETCD_PASSWORD

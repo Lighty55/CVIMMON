@@ -1,0 +1,40 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep cinderapi_{{ docker.cinder_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderapi='in_container cinderapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderapi='in_container cinderapi_{{ docker.cinder_api.image_tag }}'
+
+- name: Start the Cinder API Docker Service
+  docker_container:
+    name: "cinderapi_{{ docker.cinder_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.cinder_api.name }}:{{ docker.cinder_api.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.cinder_api.host_data_dir }}:{{ docker.cinder_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/cinder:/var/log/cinder:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "8776:8776"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Wait for Cinder API to be alive
+  wait_for: host={{ CINDER_HOST }} port={{ CINDER_API_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cinderapi
+  tags:
+    - reboot-on-failure

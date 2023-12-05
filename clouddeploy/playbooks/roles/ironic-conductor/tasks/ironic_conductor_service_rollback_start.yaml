@@ -1,0 +1,105 @@
+# First remove the new container and artifacts
+- name: Shut off Ironic Conductor docker service
+  service:
+    name: docker-ironiccond
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove Ironic Conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironiccond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove Ironic Conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_conductor_{{ docker.ironic_conductor.image_tag }}" }
+
+- name: Remove Ironic Conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}"
+    tag: "{{ docker.ironic_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove ironic volume contents
+- name: List Ironic Conductor volume contents
+  shell: ls -A1 {{ docker.ironic_conductor.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic Conductor volume contents
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the ironic volume contents
+- name: recover Ironic Conductor volume contents
+  shell: "cp -r {{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}/. {{ docker.ironic_conductor.host_data_dir }}/"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: "cp {{ docker.ironic_conductor.host_data_dir }}/docker-ironiccond.service /usr/lib/systemd/system/docker-ironiccond.service"
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicconductor='in_container ironic_conductor_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicconductor='in_container ironic_conductor_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}'
+
+- name: Start Ironic Conductor container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironiccond
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic Conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_conductor_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if Ironic Conductor container is not UP.
+  fail: msg="Ironic Conductor Container does not seem to be running"
+  when: command_result.stdout == ""
+
+# Now remove the backup volume
+- name: Remove back up Ironic Conductor Directory
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Reset systemctl failures
+  shell: systemctl reset-failed docker-ironicnovacpu
+
+- name: Make sure nova-compute is started again after rollback
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicnovacpu

@@ -1,0 +1,202 @@
+- name: Check if cloudpulse_server container is already running
+  shell: docker ps -a | grep Up | grep cloudpulse_server_{{ docker.cloudpulse_server.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CPULSE_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CPULSE_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CLOUDPULSE_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CLOUDPULSE_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Setting up cloudpulse database
+  shell: >
+          docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+          bash -c
+          "export TERM=xterm; mysql -h {{ MARIADB_SERVICE_HOST }}
+          -u root -p{{ DB_ROOT_PASSWORD }} mysql -e
+          \"CREATE DATABASE IF NOT EXISTS {{ CPULSE_DB_NAME }} DEFAULT CHARACTER SET utf8;
+          SET GLOBAL wsrep_debug = 'OFF';
+          GRANT ALL PRIVILEGES ON {{ CPULSE_DB_NAME }}.* TO '{{ CPULSE_DB_USER }}'@'%' IDENTIFIED BY '{{ CPULSE_DB_PASSWORD }}';
+          SET GLOBAL wsrep_debug = 'ON';
+          FLUSH PRIVILEGES\""
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Creating cloudpulse tables
+  shell: >
+          docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+          bash -c
+          "export TERM=xterm; mysql -h {{ MARIADB_SERVICE_HOST }} -u root -p{{ DB_ROOT_PASSWORD }} mysql -e
+          \"use {{ CPULSE_DB_NAME }};
+          create table IF NOT EXISTS cpulse ( id int NOT NULL AUTO_INCREMENT,
+          uuid VARBINARY(128), name VARCHAR(128), state VARCHAR(128),
+          created_at timestamp default 0,
+          updated_at timestamp default 0,testtype VARBINARY(128),
+          result TEXT ,primary key (id));\""
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Creating cloudpulse tables
+  shell: >
+           docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+           bash -c
+           "export TERM=xterm; mysql -h {{ MARIADB_SERVICE_HOST }} -u root -p{{ DB_ROOT_PASSWORD }} mysql -e
+           \"use {{ CPULSE_DB_NAME }};
+           create table IF NOT EXISTS cpulselock ( id int NOT NULL AUTO_INCREMENT,
+           test_name VARBINARY(128), conductor_id VARBINARY(128),
+           created_at timestamp default current_timestamp,
+           updated_at timestamp default 0 , primary key (id));\""
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Creating cloudpulse user
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ CLOUDPULSE_KEYSTONE_USER }}
+           password={{ CLOUDPULSE_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Creating the cloudpulse service
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=service_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=cloudpulse
+           service_type=health
+           service_description=health"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Creating cloudpulse endpoint
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=cloudpulse
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ CLOUDPULSE_SERVER_SERVICE_HOST }}:9999
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:9999
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:9999"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Generate a token
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack token issue -f value -c id
+  register: token
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Find cloudpulse user
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack user list | grep -w " {{ CLOUDPULSE_KEYSTONE_USER }} " | awk '{print $2}'
+  register: user
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Ignore lockout for service accounts
+  uri:
+    method: PATCH
+    url: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3/users/{{ user.stdout }}"
+    headers:
+      Content-Type: "application/json"
+      X-Auth-Token: "{{ token.stdout }}"
+    body: '{"user": {"options": {
+            "ignore_lockout_failure_attempts": true,
+            "ignore_change_password_upon_first_use": true,
+            "ignore_password_expiry": true
+            }}}'
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Bootstrap the cloudpulse_server Service
+  docker_container:
+    name: "cloudpulse_server_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.cloudpulse_server.name }}:{{ docker.cloudpulse_server.image_tag }}"
+    volumes:
+      - "{{ docker.cloudpulse_server.host_data_dir }}:{{ docker.cloudpulse_server.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/cloudpulse:/var/log/cloudpulse:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "3306:3306, 9999:9999"
+    network_mode: "host"
+    env:
+      BOOTSTRAP:
+  run_once: True
+  when: command_result.stdout == ""
+
+- name: Waiting for cloudpulse_server bootstrap container to exit
+  command: docker wait cloudpulse_server_bootstrap
+  failed_when: bootstrap_result.stdout != "0"
+  register: bootstrap_result
+  run_once: True
+  when: command_result.stdout == ""
+
+- name: Cleaning up cloudpulse_server bootstrap container
+  docker_container:
+    name: cloudpulse_server_bootstrap
+    image: "{{ docker.common.registry }}/{{ docker.cloudpulse_server.name }}:{{ docker.cloudpulse_server.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  run_once: True
+  when: command_result.stdout == ""

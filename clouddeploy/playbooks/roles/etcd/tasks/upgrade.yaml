@@ -1,0 +1,6 @@
+- include: etcd_service_upgrade_prepare.yaml
+  when: SKIP_UPGRADE is not defined
+- include: etcd_service_install.yaml
+- include: etcd_service_start.yaml
+- include: etcd_auth_configure.yaml
+  run_once: True

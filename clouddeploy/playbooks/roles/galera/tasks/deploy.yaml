@@ -1,0 +1,2 @@
+- include: galera_service_install.yaml
+- include: galera_service_clustercheck.yaml

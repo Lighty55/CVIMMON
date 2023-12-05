@@ -1,0 +1,9 @@
+- name: "{{ metro_name }} Deploy| Apply snmp manifest"
+  command: kubectl apply -f {{ SNMP_STACK_PATH }}/snmp_manifest.yaml -n {{ metro_name }}
+
+- name: "{{ metro_name }} Deploy | Check pod status"
+  shell: kubectl get pods -n {{ metro_name }} -o wide | grep -e 'snmp' | grep -e '{{ metro_name }}' | awk '{ print $3 }'
+  register: s_up
+  until: (not s_up.rc and (s_up.stdout == "Running"))
+  retries: 15
+  delay: 5

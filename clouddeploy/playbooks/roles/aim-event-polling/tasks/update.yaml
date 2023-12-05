@@ -1,0 +1,7 @@
+# ACI Plugin 3.1.2 related updates
+# include: aim_event_polling_update_prepare.yaml and aim_event_polling_config.yaml
+# is now called in the neutron-server role due to a cycle dependency between
+# neutron-server service, neutron db and aim schema tables
+
+- include: aim_event_polling_start.yaml
+  when: MECHANISM_DRIVERS == "aci"

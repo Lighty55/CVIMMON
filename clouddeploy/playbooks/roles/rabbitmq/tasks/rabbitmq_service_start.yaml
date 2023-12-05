@@ -1,0 +1,43 @@
+- name: Check if RabbitMQ Docker container is already running
+  shell: docker ps -a | grep Up | grep rabbitmq_{{ docker.rabbitmq.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias rabbit='in_container rabbitmq_"
+    line: "{{ item }}"
+  with_items:
+    - alias rabbit='in_container rabbitmq_{{ docker.rabbitmq.image_tag }}'
+
+- name: Start the RabbitMQ Docker Service
+  docker_container:
+    name: "rabbitmq_{{ docker.rabbitmq.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.rabbitmq.name }}:{{ docker.rabbitmq.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.rabbitmq.host_data_dir }}:{{ docker.rabbitmq.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/rabbitmq:/var/log/rabbitmq:z
+      - rabbitmq:/var/lib/rabbitmq
+    ports: "5672:5672,15672:15672"
+    network_mode: "host"
+    interactive: yes
+    env:
+      LC_ALL: "en_US.UTF-8"
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: command_result.stdout == ""
+
+- name: Wait for Rabbitmq to be alive
+  wait_for: host={{ RABBITMQ_SERVICE_HOST }} port={{ RABBITMQ_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-rabbitmq
+  tags:
+    - reboot-on-failure

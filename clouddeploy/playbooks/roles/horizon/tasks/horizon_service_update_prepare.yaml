@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Horizon Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/horizon_{{ HORIZON_PREVIOUS_TAG }}
+
+# Backup the horizon volume contents
+- name: back up the horizon volume contents
+  shell: cp /docker/horizon/* /docker/horizon_{{ HORIZON_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the horizon systemd file
+  command: cp /usr/lib/systemd/system/docker-horizon.service /docker/horizon_{{ HORIZON_PREVIOUS_TAG }}/docker-horizon.service
+
+#####################################################
+# Shut down the old horizon containers
+####################################################
+# Horizon.
+- name: Shut off horizon docker service
+  service:
+    name: docker-horizon
+    enabled: no
+    state: stopped
+
+- name: Remove horizon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-horizon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# List and Remove horizon volume contents
+- name: List horizon volume contents
+  shell: ls -A1 /docker/horizon/
+  register: contents
+
+- name: Remove horizon volume contents
+  file:
+    path: /docker/horizon/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

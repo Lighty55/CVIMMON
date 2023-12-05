@@ -1,0 +1,163 @@
+- name: Update Nova Common Containerized service.
+  hosts: host_common
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-common", tags: [ "nova-update", "nova-common" ] }
+  serial: "30%"
+
+- name: Update Nova Conductor Containerized service.
+  hosts: nova_conductor_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-conductor", tags: [ "nova-update", "nova-conductor" ] }
+  serial: "30%"
+
+- name: Update Nova Libvirt Containerized service.
+  hosts: nova_libvirt_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-libvirt", tags: [ "nova-update", "nova-libvirt" ] }
+  serial: "30%"
+
+- hosts: nova_compute_all
+  tasks:
+  - name: Start all nova compute services
+    service:
+      name: docker-novacpu
+      enabled: yes
+      state: started
+    tags:
+      - nova-libvirt
+
+- hosts: nova_compute_all
+  tasks:
+  - name: Start all nova ssh services
+    service:
+      name: docker-novassh
+      enabled: yes
+      state: started
+    tags:
+      - nova-libvirt
+      - nova-compute
+      - nova-compute-ovs
+    when: NETAPP is not defined
+
+- name: Update Nova API Containerized service.
+  hosts: nova_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-api", tags: [ "nova-update", "nova-api" ] }
+  serial: "30%"
+
+- name: Update Nova Placement API Containerized service.
+  hosts: nova_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-placement-api", tags: [ "nova-update", "nova-placement-api" ] }
+  serial: "30%"
+
+- name: Update Nova ConsoleAuth Containerized service.
+  hosts: nova_consoleauth_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-consoleauth", tags: [ "nova-update", "nova-consoleauth" ] }
+  serial: "30%"
+
+- name: Update Nova NOVNCproxy Containerized service.
+  hosts: nova_novncproxy_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-novncproxy", tags: [ "nova-update", "nova-novncproxy" ] }
+  serial: "30%"
+
+- name: Update Nova Scheduler Containerized service.
+  hosts: nova_scheduler_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-scheduler", tags: [ "nova-update", "nova-scheduler" ] }
+  serial: "30%"
+
+- name: Update Nova Compute Containerized service.
+  hosts: nova_compute_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-compute", tags: [ "nova-update", "nova-compute", "nova-compute-ovs" ] }
+  serial: "30%"
+
+- name: Update Nova SSH Containerized service.
+  hosts: nova_ssh_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-ssh", tags: [ "nova-update", "nova-ssh" ] }
+  serial: "30%"
+
+# NOTE: Only handle CVIM update case, not on rollback
+- name: Update Nova cells if address family changes
+  hosts: nova_conductor_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Check RABBIT_HOSTS configuration
+      shell: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} awk '/RABBITMQ_HOSTS:/ && match($0,/@([0-9A-Fa-f:\[\]\.]+):5672/,rabbit_host) {print rabbit_host[1]}' /opt/kolla/nova_conductor_config
+      register: rabbit_config
+      run_once: True
+      when: ACTION is defined and ACTION == "update"
+
+    - name: Check cell1 Rabbit host connection
+      shell: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 list_cells | awk '/ cell1 / && match($0,/@([0-9A-Fa-f:\[\]\.]+):5672/,rabbit_host) {print rabbit_host[1]}'
+      register: cell_config
+      run_once: True
+      when: ACTION is defined and ACTION == "update"
+
+    - set_fact:
+        rabbit_config_v6: "{{ true if ':' in rabbit_config.stdout else false }}"
+        cell_config_v6: "{{ true if ':' in cell_config.stdout else false }}"
+      when: ACTION is defined and ACTION == "update"
+
+    - name: Get cell1's UUID if address family is different
+      shell: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 list_cells | awk '/ cell1 / {print $4}'
+      register: cell1_uuid
+      run_once: True
+      when: ACTION is defined and ACTION == "update" and rabbit_config_v6 != cell_config_v6
+
+    - name: Update cell1 if address family is different
+      shell: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 update_cell --cell_uuid {{ cell1_uuid.stdout }}
+      run_once: True
+      when: ACTION is defined and ACTION == "update" and cell1_uuid.stdout is defined and cell1_uuid.stdout != ""
+
+    - name: Restart nova conductor if cell1 address family was updated
+      service:
+        name: "{{ item }}"
+        state: restarted
+      with_items:
+        - docker-novaapi
+        - docker-novacond
+        - docker-novaconsoleauth
+        - docker-novanovncproxy
+        - docker-novaplacementapi
+        - docker-novasch
+      when: ACTION is defined and ACTION == "update" and cell1_uuid.stdout is defined and cell1_uuid.stdout != ""
+  tags:
+    - nova-update
+    - nova-conductor

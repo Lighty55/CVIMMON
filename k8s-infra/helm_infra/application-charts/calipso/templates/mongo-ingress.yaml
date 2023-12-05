@@ -1,0 +1,34 @@
+{{- if .Values.calipsoMongo.ingress.enabled -}}
+{{- $releaseName := .Release.Name | quote -}}
+{{- $serviceName := .Values.calipsoMongo.name -}}
+{{- $servicePort := .Values.calipsoMongo.service.servicePort -}}
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+{{- if .Values.calipsoMongo.ingress.annotations }}
+  annotations:
+{{ toYaml .Values.calipsoMongo.ingress.annotations | indent 4 }}
+{{- end }}
+  labels:
+    {{- include "calipso.calipsoMongo.labels" . | nindent 4 }}
+{{- range $key, $value := .Values.calipsoMongo.ingress.extraLabels }}
+    {{ $key }}: {{ $value }}
+{{- end }}
+  name: {{ $serviceName }}
+spec:
+  rules:
+  {{- range .Values.calipsoMongo.ingress.hosts }}
+    {{- $url := splitList "/" . }}
+    - host: {{ first $url }}
+      http:
+        paths:
+          - path: /{{ rest $url | join "/" }}
+            backend:
+              serviceName: {{ $serviceName }}
+              servicePort: {{ $servicePort }}
+  {{- end -}}
+{{- if .Values.calipsoMongo.ingress.tls }}
+  tls:
+{{ toYaml .Values.calipsoMongo.ingress.tls | indent 4 }}
+  {{- end -}}
+{{- end -}}

@@ -1,0 +1,236 @@
+- name: Reconfigure | Check if gnocchi api is already running
+  shell: docker ps -a | grep Up | grep gnocchiapi_{{ docker.gnocchi_api.image_tag }} | cut -f1 -d " "
+  register: command_result_gapi
+  failed_when: not command_result_gapi.stdout
+
+- name: Reconf | Copy the new Gnocchi api configuration file
+  template:
+    src: "gnocchi_api_config.j2"
+    dest: "{{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_reconfigure.j2"
+    mode: "0644"
+
+- name: Reconf | Compare old and new rendered template
+  command: diff {{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_config.j2 {{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_reconfigure.j2
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new render config
+  command: mv {{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_reconfigure.j2 {{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_config.j2
+  when: command_result.stdout
+
+# Remove the reconfigure file when there is no diff
+- name: Reconf | Remove reconfigure file
+  file: path={{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_reconfigure.j2 state=absent
+  when: not command_result.stdout
+
+- name: Reconf | Copy Gnocchi Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/gnocchi-api/templates/gnocchi_policy.json"
+    dest: "{{docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json_reconfigure"
+
+- name: Reconf | Compare old and new rendered policy
+  command: diff {{ docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json {{ docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: policy_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new render config
+  command: mv {{ docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json_reconfigure {{ docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json
+  when: policy_diff.stdout
+
+# Remove the reconfigure policy when there is no diff
+- name: Reconf | Remove reconfigure file
+  file: path={{ docker.gnocchi_api.host_data_dir }}/gnocchi_policy.json_reconfigure state=absent
+  when: not policy_diff.stdout
+
+- name: Reconf | Reset the SELinux labelling for new policy files
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.gnocchi_api.host_data_dir }}"
+  when: policy_diff.stdout
+
+- name: Reconf | Copy Gnocchi ceph.conf file
+  template:
+    src: "{{ playbook_dir }}/roles/gnocchi-common/files/ceph.conf"
+    dest: "{{docker.gnocchi_api.host_data_dir }}/ceph.conf_reconfigure"
+
+- name: Reconf | Compare old and new rendered policy
+  command: diff {{ docker.gnocchi_api.host_data_dir }}/ceph.conf {{ docker.gnocchi_api.host_data_dir }}/ceph.conf_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: ceph_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new render config
+  command: mv {{ docker.gnocchi_api.host_data_dir }}/ceph.conf_reconfigure {{ docker.gnocchi_api.host_data_dir }}/ceph.conf
+  when: ceph_diff.stdout
+
+- name: Reconf | Modify owner and group of ceph.conf
+  file: path={{ docker.gnocchi_api.host_data_dir }}/ceph.conf owner=gnocchi group=mercury
+  when: ceph_diff.stdout
+
+# Remove the reconfigure ceph.conf when there is no diff
+- name: Reconf | Remove reconfigure file
+  file: path={{ docker.gnocchi_api.host_data_dir }}/ceph.conf_reconfigure state=absent
+  when: not ceph_diff.stdout
+
+- name: Generate the reconfig credentials
+  command: docker exec gnocchiapi_{{ docker.gnocchi_api.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec gnocchiapi_{{ docker.gnocchi_api.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec gnocchiapi_{{ docker.gnocchi_api.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    GNOCCHI_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/GNOCCHI_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    GNOCCHI_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/GNOCCHI_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+# Now update the SQL password if the GNOCCHI_DB_PASSWORD is part of update
+- name: Reconf | Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ GNOCCHI_DB_USER }}'@'%' = PASSWORD('{{ GNOCCHI_DB_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'GNOCCHI_DB_PASSWORD' in secrets_result.stdout ) or  'GNOCCHI_DB_PASSWORD' in command_result.stdout "
+
+# Now update the Gnocchi keystone password if it is part of update
+- name: Reconf | Update the gnocchi keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ GNOCCHI_KEYSTONE_USER }}
+           password={{ GNOCCHI_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'GNOCCHI_KEYSTONE_PASSWORD' in secrets_result.stdout ) or  'GNOCCHI_KEYSTONE_PASSWORD' in command_result.stdout "
+
+# Now delete the template file inside the container
+- name: Reconf | Delete the gnocchi api config file inside container to force a reconfigure
+  command: docker cp {{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_config.j2 gnocchiapi_{{ docker.gnocchi_api.image_tag }}:/opt/kolla/gnocchi_api_config.j2
+  when: command_result.stdout != ""
+
+- name: Reconf | Delete the gnocchi api ceph.conf file inside container to force a reconfigure
+  command: docker cp {{ docker.gnocchi_api.host_data_dir }}/ceph.conf gnocchiapi_{{ docker.gnocchi_api.image_tag }}:/etc/gnocchi/ceph.conf
+  when: ceph_diff.stdout != ""
+
+- name: Reconf | Updating the gnocchi api endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=gnocchi
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ GNOCCHI_API_SERVICE_HOST }}:8041
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:8041
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:8041"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+  # Now restart the service
+- name: Reconf | Restart gnocchi api service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-gnocchi-api
+  when: (command_result.stdout or policy_diff.stdout or ceph_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Reconf | Wait for Gnocchi API to be alive
+  wait_for: host={{ GNOCCHI_API_HOST }} port={{ GNOCCHI_API_PORT }}
+  when: (command_result.stdout or policy_diff.stdout or ceph_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Reconf | Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: Reconf | Find if the GNOCCHI_DB_PASSWORD has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep GNOCCHI_DB_PASSWORD
+  register: gnocchi_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Reconf | Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^GNOCCHI_DB_PASSWORD" line="GNOCCHI_DB_PASSWORD{{ ":" }} {{ GNOCCHI_DB_PASSWORD }}"
+  when: staging_exists.stat.exists == True and gnocchi_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Reconf | Find if the GNOCCHI_KEYSTONE_PASSWORD has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep GNOCCHI_KEYSTONE_PASSWORD
+  register: gnocchi_key_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Reconf | Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^GNOCCHI_KEYSTONE_PASSWORD" line="GNOCCHI_KEYSTONE_PASSWORD{{ ":" }} {{ GNOCCHI_KEYSTONE_PASSWORD }}"
+  when: staging_exists.stat.exists == True and gnocchi_key_password.stdout
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/GNOCCHI_DB_PASSWORD value={{ GNOCCHI_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['gnocchi_api_all'][0] }}"
+    - secrets_result|changed and 'GNOCCHI_DB_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/GNOCCHI_KEYSTONE_PASSWORD value={{ GNOCCHI_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['gnocchi_api_all'][0] }}"
+    - secrets_result|changed and 'GNOCCHI_KEYSTONE_PASSWORD' in secrets_result.stdout

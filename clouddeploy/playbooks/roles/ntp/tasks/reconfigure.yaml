@@ -1,0 +1,47 @@
+- name: Reconf | Set variables for regular deployments
+  set_fact:
+    ntp_ctrl_role: "control"
+    ntp_ctrl_ips: "{{ groups['host_control_mgmt_ip'] }}"
+    ntp_all_mgmt_ipv4s: "{{ groups['host_all_mgmt_ip'] }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != "ceph")
+
+- name: Reconf | Set variables for central ceph deployments
+  set_fact:
+    ntp_ctrl_role: "cephcontrol"
+    ntp_ctrl_ips: "{{ groups['ceph_mon_all'] }}"
+    ntp_all_mgmt_ipv4s: "{{ groups['host_all_mgmt_ip'] }}"
+  when: PODTYPE is defined and PODTYPE == "ceph"
+
+- name: Reconf | Copy the new ntp configuration file
+  template:
+    src: "ntp.conf.j2"
+    dest: "/tmp/ntp_reconfig"
+
+- name: Reconf | Compare old and new rendered template
+  command: diff /etc/ntp.conf /tmp/ntp_reconfig
+  ignore_errors: True
+  failed_when: False
+  register: diff_result
+
+- name: Reconf | Stop service if running
+  service:
+    name: ntpd
+    state: stopped
+  when: diff_result.rc
+
+- name: Reconf | Copy the new rendered config if there is a change
+  command: mv /tmp/ntp_reconfig /etc/ntp.conf
+  when: diff_result.rc
+
+- name : Reconf | Restore selinux permissions
+  command: chcon system_u:object_r:net_conf_t:s0 /etc/ntp.conf
+  when: diff_result.rc
+
+- name: Reconf | Remove reconfigure file if there is no change
+  file: path=/tmp/ntp_reconfig state=absent
+  when: not diff_result.rc
+
+- include: ntp_date.yaml
+  when: diff_result.rc
+
+- include: set_mgmt.yaml

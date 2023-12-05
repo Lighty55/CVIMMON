@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Glance API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/glance_api_{{ GLANCE_API_PREVIOUS_TAG }}
+
+# Backup the glance api volume
+- name: backup the glance api volume
+  shell: cp /docker/glance_api/* /docker/glance_api_{{ GLANCE_API_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the glance api systemd file
+  command: cp /usr/lib/systemd/system/docker-glanceapi.service /docker/glance_api_{{ GLANCE_API_PREVIOUS_TAG }}/docker-glanceapi.service
+
+#####################################################
+# Shut down the old glance api containers
+####################################################
+# Glance API.
+- name: Shut off glance api docker service
+  service:
+    name: docker-glanceapi
+    enabled: no
+    state: stopped
+
+- name: Remove glanceapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-glanceapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove glance API volume contents
+- name: List glance API volume contents
+  shell: ls -A1 /docker/glance_api/
+  register: contents
+
+- name: Remove glance API volume contents
+  file:
+    path: /docker/glance_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

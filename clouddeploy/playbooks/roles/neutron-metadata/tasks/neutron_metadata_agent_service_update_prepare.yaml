@@ -1,0 +1,61 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron metadata Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_metadata_agent_{{ METADATA_AGENT_PREVIOUS_TAG }}
+
+- stat: path=/docker/neutron_metadata_agent/
+  register: dir_check
+
+
+# Back up the neutron metadata volume contents
+- name: back up the neutron metadata volume contents
+  shell: cp -r /docker/neutron_metadata_agent/* /docker/neutron_metadata_agent_{{ METADATA_AGENT_PREVIOUS_TAG }}/.
+  when: dir_check.stat.exists
+
+# Backup the systemd file
+- name: back up the neutron metadata systemd file
+  command: cp /usr/lib/systemd/system/docker-neutronmeta.service /docker/neutron_metadata_agent_{{ METADATA_AGENT_PREVIOUS_TAG }}/docker-neutronmeta.service
+  when: dir_check.stat.exists
+
+#####################################################
+# Shut down the old neutron metadata containers
+####################################################
+
+# Handle case for metadata agent not being present on VTS
+- stat: path=/usr/lib/systemd/system/docker-neutronmeta.service
+  register: systemd_check
+
+- name: Shut off neutron metadata docker service
+  service:
+    name: docker-neutronmeta
+    enabled: no
+    state: stopped
+  when: systemd_check.stat.exists
+
+- name: Remove neutron metadata service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronmeta.service"
+    state: absent
+  when: systemd_check.stat.exists
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove neutron metadata volume contents
+- name: List neutron metadata volume contents
+  shell: ls -A1 /docker/neutron_metadata_agent/
+  register: contents
+  when: systemd_check.stat.exists
+
+- name: Remove neutron metadata volume contents
+  file:
+    path: /docker/neutron_metadata_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+  when: systemd_check.stat.exists

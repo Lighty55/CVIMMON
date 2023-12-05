@@ -1,0 +1,58 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep cinderscheduler_{{ docker.cinder_scheduler.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderscheduler='in_container cinderscheduler_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderscheduler='in_container cinderscheduler_{{ docker.cinder_scheduler.image_tag }}'
+
+- name: Start the Cinder Scheduler Docker Service
+  docker_container:
+    name: "cinderscheduler_{{ docker.cinder_scheduler.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.cinder_scheduler.name }}:{{ docker.cinder_scheduler.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.cinder_scheduler.host_data_dir }}:{{ docker.cinder_scheduler.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/cinder:/var/log/cinder:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "8776:8776"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Cinder Scheduler Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderscheduler_{{ docker.cinder_scheduler.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start cinderscheduler_{{ docker.cinder_scheduler.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Cinder Scheduler Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderscheduler_{{ docker.cinder_scheduler.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Cinder Scheduler Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cindersch
+  tags:
+    - reboot-on-failure

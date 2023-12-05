@@ -1,0 +1,4 @@
+- include: ceilometer_notification_update_prepare.yaml
+- include: ceilometer_notification_install.yaml
+- include: ceilometer_notification_config.yaml
+- include: ceilometer_notification_start.yaml

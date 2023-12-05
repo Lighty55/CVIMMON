@@ -1,0 +1,86 @@
+- name: Re-render aimctl.conf for neutron
+  hosts: neutron_server_all{{ server|default('') }}:!{{ removed_controller_ip|default('') }}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Render template for aimctl config.
+      template:
+        src: roles/neutron-server/templates/aimctl_config.j2
+        dest: "{{docker.neutron_server.host_data_dir }}/aimctl_config"
+        mode: "0644"
+    - name: Replace aimctl.conf
+      command: |
+        docker cp {{docker.neutron_server.host_data_dir }}/aimctl_config
+        neutron_server_{{ docker.neutron_server.image_tag }}:/etc/aim/aimctl.conf
+
+- name: Re-render aimctl.conf for aim-event-polling
+  hosts: neutron_server_all{{ server|default('') }}:!{{ removed_controller_ip|default('') }}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Render template for aimctl config.
+      template:
+        src: roles/aim-event-polling/templates/aimctl_config.j2
+        dest: "{{docker.aim_event_polling.host_data_dir }}/aimctl_config"
+        mode: "0644"
+    - name: Replace aimctl.conf
+      command: |
+        docker cp {{docker.aim_event_polling.host_data_dir }}/aimctl_config
+        aimeventpolling_{{ docker.aim_event_polling.image_tag }}:/etc/aim/aimctl.conf
+
+- name: Re-render aimctl.conf for aim-rpc
+  hosts: neutron_server_all{{ server|default('') }}:!{{ removed_controller_ip|default('') }}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Render template for aimctl config.
+      template:
+        src: roles/aim-event-rpc/templates/aimctl_config.j2
+        dest: "{{docker.aim_event_rpc.host_data_dir }}/aimctl_config"
+        mode: "0644"
+    - name: Replace aimctl.conf
+      command: |
+        docker cp {{docker.aim_event_rpc.host_data_dir }}/aimctl_config
+        aimeventrpc_{{ docker.aim_event_rpc.image_tag }}:/etc/aim/aimctl.conf
+
+- name: Re-render aimctl.conf for aim-aid and update hostlinks
+  hosts: neutron_server_all{{ server|default('') }}:!{{ removed_controller_ip|default('') }}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Render template for aimctl config.
+      template:
+        src: roles/aim-aid/templates/aimctl_config.j2
+        dest: "{{docker.aim_aid.host_data_dir }}/aimctl_config"
+        mode: "0644"
+    - name: Replace aimctl.conf
+      command: |
+        docker cp {{docker.aim_aid.host_data_dir }}/aimctl_config
+        aimaid_{{ docker.aim_aid.image_tag }}:/etc/aim/aimctl.conf
+
+    - name: Check if aimctl hostlinks config file exists
+      stat: path=/opt/cisco/data/tor/aim_hostlink.cfg
+      register: aimctl_cfg_file
+      delegate_to: localhost
+    - name: Copy hostlink configuration into aim container
+      copy:
+        src: /opt/cisco/data/tor/aim_hostlink.cfg
+        dest: "{{docker.aim_aid.host_data_dir }}/aim_hostlink.cfg"
+        mode: "0755"
+      run_once: True
+      when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True
+    - name: Copy file into container
+      command: |
+        docker cp {{docker.aim_aid.host_data_dir }}/aim_hostlink.cfg
+        aimaid_{{ docker.aim_aid.image_tag }}:/opt/kolla/aim_hostlink.cfg
+      run_once: True
+      when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True
+    - name: Run the host link configuration
+      shell: docker exec -u root aimaid_{{ docker.aim_aid.image_tag }} /bin/sh -c '/aimctl_exec.sh'
+      register: aimctl_out
+      run_once: True
+      when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True

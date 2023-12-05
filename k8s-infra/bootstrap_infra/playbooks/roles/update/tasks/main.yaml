@@ -1,0 +1,26 @@
+- copy: src=update_scope.py dest=/opt/cisco/scripts/update_scope.py owner=root mode=0544
+
+- copy: src={{ sl_insdir }}/ dest=/opt/cisco/update/openstack-configs/
+  when: ACTION == 'update'
+
+- name: Generate update_scope
+  command: python /opt/cisco/scripts/update_scope.py {{ sl_insdir }}/  {{ playbook_dir }}/../../../../openstack-configs/
+  when: ACTION == 'update'
+
+- copy: src={{ playbook_dir }}/roles/common/files/get_mgmtip.py dest=/opt/cisco/scripts/get_mgmtip.py owner=root mode=0544
+
+- shell: python /opt/cisco/scripts/get_mgmtip.py  | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+- copy: src={{ playbook_dir }}/roles/common/files/docker_render.py dest=/opt/cisco/scripts/docker_render.py owner=root mode=0544
+
+- name: Generate docker.yaml for update
+  command: python /opt/cisco/scripts/docker_render.py -a update -o {{ sl_insdir }}/../ -n "{{ playbook_dir }}/../../../../" -m "{{ MGMT_IP.stdout }}"
+  when: ACTION == "update"
+
+- include_vars: "{{ sl_insdir }}/cvim_mon_ha.yaml"
+  when: ACTION == 'update'
+
+- template: src=update.yaml.template dest={{ playbook_dir }}/../../../../openstack-configs/update.yaml
+  when: ACTION == 'update'

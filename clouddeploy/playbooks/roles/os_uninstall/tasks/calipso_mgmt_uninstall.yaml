@@ -1,0 +1,20 @@
+- name: Uninstall calipso API and replication clients
+  yum:
+    name: calipso
+    state: absent
+  delegate_to: localhost
+  run_once: true
+
+- name: Uninstall python-elasticsearch rpm
+  yum:
+    name: python-elasticsearch
+    state: absent
+  delegate_to: localhost
+  run_once: true
+
+- name: Remove calipso lib directory from mgmt node
+  file:
+    path: "/var/lib/calipso/"
+    state: absent
+  delegate_to: localhost
+  run_once: true

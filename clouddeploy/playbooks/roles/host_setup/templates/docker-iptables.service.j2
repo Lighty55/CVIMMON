@@ -1,0 +1,16 @@
+[Unit]
+Description=Iptables Docker
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sed -i '/neutron/d' /etc/sysconfig/iptables-saved
+ExecStart=/usr/sbin/iptables-restore -w 10 /etc/sysconfig/iptables-saved
+{% if management_ipv6 is defined and management_ipv6 != "" %}
+ExecStartPre=/usr/bin/sed -i '/neutron/d' /etc/sysconfig/ip6tables-saved
+ExecStart=/usr/sbin/ip6tables-restore -w 10 /etc/sysconfig/ip6tables-saved
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

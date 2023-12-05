@@ -1,0 +1,127 @@
+- name: Set NFVIMON Admin Backup File Location
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    backup_nfvimon_filename: "{{ playbook_dir }}/../../openstack-configs/.backup_nfvimon_admin.yaml"
+
+- name: Ensure NFVIMON Admin Backup File exists
+  delegate_to: localhost
+  run_once: true
+  local_action:
+    module: copy
+    content: "{{ [] | to_yaml }}"
+    dest: "{{ backup_nfvimon_filename }}"
+    force: no
+
+- name: Read Backup Copy of NFVIMON Admin
+  delegate_to: localhost
+  run_once: true
+  shell: "cat {{ backup_nfvimon_filename }}"
+  register: backup_nfvimon_admin
+
+- name: Read List of Configured Linux Users
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    old_nfvimon_admin: "{{ backup_nfvimon_admin.stdout | from_yaml }}"
+
+- name: Initialize List of New NFVIMON Admin
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    new_nfvimon_names: []
+
+- name: Make List of New NFVIMON Admin
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    new_nfvimon_names: "{{ new_nfvimon_names + [ item ] }}"
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: Delete Removed NFVIMON Linux Users From Mgmt node
+  delegate_to: localhost
+  run_once: true
+  user:
+    name: "{{ item }}"
+    state: absent
+    remove: yes
+    force: yes
+  when:
+    item not in new_nfvimon_names
+  with_items:
+    "{{ old_nfvimon_admin }}"
+
+- name: Delete Removed NFVIMON Linux Users From All Hosts
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  user:
+    name: "{{ item }}"
+    state: absent
+    remove: yes
+    force: yes
+  when:
+    item not in new_nfvimon_names
+  with_items:
+    "{{ old_nfvimon_admin }}"
+
+- name: Add or Change Configured NFVIMON Linux Users to Mgmt node
+  delegate_to: localhost
+  run_once: true
+  user:
+    name: "{{ item }}"
+    generate_ssh_key: yes
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/id_rsa
+    groups: wheel
+    createhome: yes
+    state: present
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Add the linux user nfvimon public key to Mgmt node authorized keys file"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=present
+  delegate_to: localhost
+  run_once: True
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: Add or Change Configured NFVIMON Linux Users to All Hosts
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  user:
+    name: "{{ item }}"
+    groups: wheel
+    createhome: yes
+    state: present
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Add the linux user nfvimon public key to All Hosts authorized keys file"
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=present
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: Ensure All hosts have passwordless sudo privileges
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  lineinfile:
+    dest: /etc/sudoers
+    line: "Defaults     !authenticate"
+    state: present
+
+- name: Save List of Configured NFVIMON Linux Users
+  delegate_to: localhost
+  run_once: true
+  local_action:
+    module: copy
+    content: "{{ NFVIMON.NFVIMON_ADMIN | to_yaml }}"
+    dest: "{{ backup_nfvimon_filename }}"

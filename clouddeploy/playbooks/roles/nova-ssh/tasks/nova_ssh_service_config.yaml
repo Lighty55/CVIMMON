@@ -1,0 +1,19 @@
+- name: Copy Nova SSH config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_ssh_config.j2",
+        dest: "{{ docker.nova_ssh.host_data_dir }}/nova_ssh_config" }
+
+- name: Copy Nova SSH keys
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "{{ lookup('env','HOME') }}/openstack-configs/nova_private_key",
+        dest: "{{ docker.nova_ssh.host_data_dir }}/id_rsa" }
+    - { src: "{{ lookup('env','HOME') }}/openstack-configs/nova_public_key",
+        dest: "{{ docker.nova_ssh.host_data_dir }}/authorized_keys" }

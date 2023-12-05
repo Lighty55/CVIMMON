@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old neutron ovs containers
+####################################################
+# Neutron openvswitch Agent.
+- name: Shut off neutron openvswitch docker service
+  service:
+    name: docker-neutron_ovsagent
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove neutron openvswitch service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_ovsagent.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron openvswitch docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron openvswitch docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ OVS_AGENT_PREVIOUS_NAME }}"
+    tag: "{{ OVS_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Neutron openvswitch Directory
+  file:
+    path: "{{ docker.neutron_ovsagent.host_data_dir }}"
+    state: absent

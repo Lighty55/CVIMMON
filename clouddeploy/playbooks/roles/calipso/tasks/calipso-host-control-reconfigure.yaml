@@ -1,0 +1,42 @@
+- include: reconfigure-secrets.yaml
+  when: VAULT is not defined or VAULT.enabled == False
+
+- include: reconfigure-secrets-vault.yaml
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Ctrl Reconf | Check if calipso-mongo Docker container is running
+  shell: docker ps -a | grep Up | grep calipso_mongo_{{ docker.calipso_mongo.image_tag }} | cut -f1 -d " "
+  register: calipso_mongo_running
+
+- name: Ctrl Reconf | Stop calipso-scan and calipso-api docker containers
+  service:
+    name: "{{ item }}"
+    state: stopped
+  with_items:
+    - docker-calipso-api
+    - docker-calipso-scan
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Ctrl Reconf | Change mongo db password in container
+  shell: docker exec -e CALIPSO_MONGO_SERVICE_OLD_PWD={{ calipso_mongo_old_pwd }} -e CALIPSO_MONGO_SERVICE_NEW_PWD={{ CALIPSO_MONGO_SERVICE_PWD }} calipso_mongo_{{ docker.calipso_mongo.image_tag }} bash -c "source /data/calipso_config && export CALIPSO_MONGO_SERVICE_HOST=127.0.0.1 && python /set_new_password.py > /var/log/calipso/set_new_password.log 2>&1"
+  when: calipso_mongo_running.stdout != "" and calipso_mongo_restart is defined and calipso_mongo_restart == True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+# Workaround for docker file permissions bug
+- name: Ctrl Reconf | Stop calipso-mongo docker container
+  service:
+    name: docker-calipso-mongo
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+#######
+####### Re-render config files on mgmt node
+#######
+
+- include: calipso-mgmt-deploy.yaml
+  delegate_host: localhost
+  run_once: true

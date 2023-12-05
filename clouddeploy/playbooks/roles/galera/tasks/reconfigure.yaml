@@ -1,0 +1,165 @@
+- name: Copy the new galera configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "galera_config.j2", dest: "{{docker.mariadb.host_data_dir }}/galera_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/mariadb/galera_config /docker/mariadb/galera_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+- name: Now capture the old DB root password from the galera config
+  shell: cat /docker/mariadb/galera_config | grep DB_ROOT_PASSWORD | cut -d ':' -f 2 | sed -e 's/^[ \t]*//'
+  register: DB_OLD_ROOT_PASSWORD
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False)
+
+- set_fact:
+    OLD_PASSWORD: "{{ DB_OLD_ROOT_PASSWORD.stdout }}"
+  when: DB_OLD_ROOT_PASSWORD|changed
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Capture the old DB password when VAULT is enabled
+  set_fact:
+    OLD_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+  delegate_to: localhost
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/mariadb/galera_reconfigure /docker/mariadb/galera_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/mariadb/galera_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Since we don't restart mariadb during reconfigure, install_secrets.yaml
+# doesn't get generated. Following tasks generates the file
+- name: Generate the install credentials
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True and command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    WSREP_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/WSREP_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+# Now update the DB_ROOT_PASSWORD the DB_ROOT_PASSWORD is part of update
+- name: Update the DB_ROOT_PASSWORD password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ OLD_PASSWORD }} -e "SET PASSWORD FOR root@'%' = PASSWORD('{{ DB_ROOT_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when:
+    - inventory_hostname == "{{ groups['mariadb_all'][0] }}"
+    - "( 'DB_ROOT_PASSWORD' in command_result.stdout  or (secrets_result|changed and  'DB_ROOT_PASSWORD' in secrets_result.stdout ))"
+
+# Now update the WSREP_PASSWORD the WSREP_PASSWORD is part of update
+- name: Update the WSREP_PASSWORD password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ WSREP_USERNAME }}'@'{{ item }}' = PASSWORD('{{ WSREP_PASSWORD }}');flush privileges"
+  with_items:
+    - '%'
+    - 'localhost'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and ('WSREP_PASSWORD' in secrets_result.stdout)) or 'WSREP_PASSWORD' in command_result.stdout"
+
+# Now delete the template file inside the mariadb container
+- name: Delete the mariadb config file inside container to force a reconfigure
+  command: docker cp /docker/mariadb/galera_config mariadb_{{ docker.mariadb.image_tag }}:/opt/kolla/galera_config
+  when: command_result.stdout != ""
+
+- name: Bring galera backend into service
+  file:
+    path: "/var/tmp/clustercheck.disabled"
+    state: absent
+
+- include: galera_service_clustercheck.yaml
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the DB_ROOT_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep DB_ROOT_PASSWORD
+  register: db_root_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^DB_ROOT_PASSWORD" line="DB_ROOT_PASSWORD{{ ":" }} {{ DB_ROOT_PASSWORD }}"
+  when: staging_exists.stat.exists == True and db_root_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the WSREP_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep WSREP_PASSWORD
+  register: wsrep_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^WSREP_PASSWORD" line="WSREP_PASSWORD{{ ":" }} {{ WSREP_PASSWORD }}"
+  when: staging_exists.stat.exists == True and wsrep_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/DB_ROOT_PASSWORD value={{ DB_ROOT_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['mariadb_all'][0] }}"
+    - secrets_result|changed and 'DB_ROOT_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/WSREP_PASSWORD value={{ WSREP_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['mariadb_all'][0] }}"
+    - secrets_result|changed and 'WSREP_PASSWORD' in secrets_result.stdout

@@ -1,0 +1,80 @@
+- name: Download repofiles from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-common.repo
+    - mercury-rhel.repo
+    - mercury-osp.repo
+    - mercury-hotfixes.repo
+    - mercury-thirdparty-hw-binary-utilities.repo
+
+- name: Download repofiles from management node for Real Time repo for edge POD and compute Role
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-rhel-rt.repo
+  when: ENABLE_RT_KERNEL
+
+- name: Download telegraf repofile from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-telegraf.repo
+  when: CVIM_MON is defined and CVIM_MON.enabled
+
+- name: Install yum utilities
+  yum:
+    name: "{{ item }}"
+    state: latest
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items:
+    - yum-utils
+    - yum-plugin-priorities
+
+- name: Disable all repos (start clean)
+  command: yum-config-manager --disable \*
+  register: validation_status
+  until: validation_status.rc == 0
+  retries: 5
+  delay: 5
+
+- name: Enable telegraf repo
+  command: yum-config-manager --enable mercury-telegraf-rhel7-osp10-rpms
+  register: telegraf_validation_status
+  until: telegraf_validation_status.rc== 0
+  retries: 5
+  delay: 5
+  when: CVIM_MON is defined and CVIM_MON.enabled
+
+- name: Enable the rhel rt repo
+  command: yum-config-manager --enable rhel-7-server-rt-rpms
+  register: rt_validation_status
+  until: rt_validation_status.rc == 0
+  retries: 5
+  delay: 5
+  when: ENABLE_RT_KERNEL
+
+- name: Enable all provided repos
+  command: yum-config-manager --enable {{item}}
+  with_items: "{{ REDHAT_REPOS.repos }}"
+  register: validation_status
+  until: validation_status.rc == 0
+  retries: 5
+  delay: 5
+
+- name: Clean yum cache
+  shell: yum clean all
+  register: version

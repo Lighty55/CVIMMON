@@ -1,0 +1,7 @@
+- name: Check if Ironic iPXE Docker container is already running
+  shell: docker ps -a | grep ironic_ipxe_{{ docker.ironic_ipxe.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+# Workaround a bug in ansible for equality operation in templates
+# https://github.com/ansible/ansible/issues/17428
+- include: "{%if command_result.stdout !\\= '' %}ironic_ipxe_service_reconfigure.yaml{% else %}deploy.yaml{% endif %}"

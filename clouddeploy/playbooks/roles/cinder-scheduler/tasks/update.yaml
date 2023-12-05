@@ -1,0 +1,5 @@
+- include: cinder_scheduler_service_update_prepare.yaml
+- include: cinder_scheduler_service_install.yaml
+- include: cinder_scheduler_service_config.yaml
+- include: cinder_scheduler_service_start.yaml
+

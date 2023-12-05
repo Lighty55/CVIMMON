@@ -1,0 +1,45 @@
+# Assumes:
+#  - run on hosts == build-node
+#  - MECHANISM_DRIVER == 'vts'
+#  - "install_dir" variable set (via config_manager.py / generate_inventory.py)
+
+- block:
+    - name: Ping VTC from management node
+      shell: "ping -c 2 {{ VTS_PARAMETERS.VTS_NCS_IP }} > /dev/null 2>&1"
+      register: vtc_ping_result
+
+    # TODO: VTC check could validate the current list of compute nodes are only VTFs
+    #       the VTC has in its forwarding group.  I __think__ this would cover both
+    #       the add and remove compute case.
+    - name: Execute VTC Check
+      shell: "python {{ install_dir }}/tools/vtc_check.py --controller --all"
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      register: vtc_validate_result
+      when: vtc_ping_result.rc == 0
+
+    - name: Check Result of VTC validate Output
+      fail: msg="{{ vtc_validate_result.stdout }}"
+      when: (vtc_ping_result.rc == 0) and (vtc_validate_result.rc != 0)
+
+    - name: Check all VTF are registered with VTC
+      shell: "python {{ install_dir }}/tools/vtc_check.py --compute --all --installed"
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      register: vtf_validate_result
+      when: vtc_ping_result.rc == 0
+
+    - name: Check Result of VTC validate Output
+      fail: msg="{{ vtf_validate_result.stdout }}"
+      when: (vtc_ping_result.rc == 0) and (vtf_validate_result.rc != 0)
+  when: "{{ VTS_PARAMETERS.VTS_DAY0 | default(False) }}"

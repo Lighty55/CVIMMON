@@ -1,0 +1,65 @@
+# Default values for repomirror.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: cloud-docker.cisco.com:8443/cvim24-rhel7-osp10/dockbler-web
+  tag: 16206
+  pullPolicy: IfNotPresent
+  pullSecrets:
+    - regcred
+
+repos:
+  - name: dockbler-rhel-7-server-rpms
+    image: cloud-docker.cisco.com:8443/cvim24-rhel7-osp10/dockbler-rhel-7-server-rpms
+    tag: 16206
+    repodir: /var/www/html/repo/rhel-7-server-rpms--x86_64
+
+repofiles:
+  name: dockbler-repofiles
+  image: cloud-docker.cisco.com:8443/cvim24-rhel7-osp10/dockbler-repofiles
+  tag: 16206
+  repodir: /var/www/html/repofiles
+
+resources: {}
+#  limits:
+#    cpu: 100m
+#    memory: 128Mi
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+
+## Node labels for pod assignment
+## ref: https://kubernetes.io/docs/user-guide/node-selection/
+#
+nodeSelector: {}
+
+## Tolerations for pod assignment
+## ref: https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+##
+tolerations: []
+
+## Affinity for pod assignment
+## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
+##
+affinity: {}
+
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+  labels: {}
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  labels: {}
+  path: /
+  hosts:
+    - repos.cisco.com
+  tls: []

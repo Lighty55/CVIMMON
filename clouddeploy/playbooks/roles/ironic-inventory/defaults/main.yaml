@@ -1,0 +1,5 @@
+DEFAULT_NETWORK_INTERFACE: "neutron"
+DEFAULT_NODE_DRIVER: "ipmi"
+
+tor_data_dir: /opt/cisco/data/ironic-tor
+interfaces_conf: interfaces

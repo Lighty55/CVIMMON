@@ -1,0 +1,25 @@
+- name: Ntp date | Stop ntpd service if running
+  service:
+    name: ntpd
+    state: stopped
+
+- name: Ntp date | Set date and time via NTP
+  command: ntpdate "{{ build_node_ip }}"
+  ignore_errors: True
+  register: ntp_result
+  until: not ntp_result.rc
+  # NOTE: large retries and delay value to workaround potential race condition
+  #       if someone decides to just re-run step 2 and 5, since it can take
+  #       some time for the management node to be ready for ntp syncing
+  retries: 60
+  delay: 5
+
+- name: Ntp date | Check if NTP configuration passed
+  fail: msg="All calls to ntpdate failed"
+  when: ntp_result|failed
+
+- name: Ntp date | Enable ntpd service
+  service:
+    name: ntpd
+    enabled: yes
+    state: started

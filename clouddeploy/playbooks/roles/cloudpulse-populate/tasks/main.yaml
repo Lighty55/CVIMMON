@@ -1,0 +1,27 @@
+- set_fact:
+    WSREP_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/WSREP_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Create Cloudpulse Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/cloudpulse
+
+- name: Copy Cloudpulse configuration template.
+  template:
+    src: nodes_config.yaml
+    dest: "{{docker.cloudpulse_server.host_data_dir }}/nodes_config.yaml"
+    mode: "0755"
+
+- name: Restart Cloudpulse service
+  service:
+    name: docker-cloudpulse
+    state: restarted
+
+- name: Wait for cloudpulse to be alive
+  wait_for: host={{ CLOUDPULSE_SERVER_BIND_IP }} port={{ CLOUDPULSE_PORT }}

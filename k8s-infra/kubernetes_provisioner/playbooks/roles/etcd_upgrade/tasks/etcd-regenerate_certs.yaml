@@ -1,0 +1,44 @@
+---
+- name: Configure | Check if etcd cluster is healthy
+  shell: "/usr/bin/etcdctl --endpoints=https://localhost:2379 --ca-file=/etc/kubernetes/pki/etcd/ca.crt --key-file=/etc/kubernetes/pki/etcd/peer.key --cert-file=/etc/kubernetes/pki/etcd/peer.crt cluster-health"
+  register: etcd_cluster_is_healthy
+  ignore_errors: true
+  changed_when: false
+  check_mode: no
+  until: etcd_cluster_is_healthy.rc == 0
+  retries: 10
+  delay: 5
+
+- name: "Get Validity Period for all k8s components"
+  shell: "kubeadm alpha certs check-expiration | grep {{ item }}"
+  register: etcd_cert_val_pre_renew
+  changed_when: false
+  with_items: "{{ etcd_certificates }}"
+
+- name: "Renew Validity Period for all k8s components"
+  shell: "kubeadm alpha certs renew {{ item }}"
+  with_items: "{{ etcd_certificates }}"
+
+- name: "Get Validity Period for all k8s components post renewal"
+  shell: "kubeadm alpha certs check-expiration | grep {{ item }}"
+  register: etcd_cert_val_post_renew
+  changed_when: false
+  with_items: "{{ etcd_certificates }}"
+
+- name: "Fail if any of the ceritficates are not renewed"
+  fail:
+    msg: "Error: {{ item[0].item }} certificate is not renewed on {{ inventory_hostname }}"
+  when: item[0].stdout == item[1].stdout
+  with_together:
+    - "{{ etcd_cert_val_pre_renew.results }}"
+    - "{{ etcd_cert_val_post_renew.results }}"
+
+- name: Configure | Check if etcd cluster is healthy
+  shell: "/usr/bin/etcdctl --endpoints=https://localhost:2379 --ca-file=/etc/kubernetes/pki/etcd/ca.crt --key-file=/etc/kubernetes/pki/etcd/peer.key --cert-file=/etc/kubernetes/pki/etcd/peer.crt cluster-health"
+  register: etcd_cluster_is_healthy
+  ignore_errors: true
+  changed_when: false
+  check_mode: no
+  until: etcd_cluster_is_healthy.rc == 0
+  retries: 10
+  delay: 5

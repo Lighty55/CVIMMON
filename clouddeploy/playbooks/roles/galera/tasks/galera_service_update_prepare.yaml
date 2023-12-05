@@ -1,0 +1,57 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create mariadb Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}
+
+# Backup the mariadb volume
+- name: backup the mariadb volume
+  shell: cp /docker/mariadb/* /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/.
+
+# Backup the xinetd script
+- name: backup the xinetd script
+  command: cp /etc/xinetd.d/mysqlchk /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/mysqlchk
+
+# Backup the clustercheck script
+- name: backup the clustercheck script
+  command: cp /usr/bin/clustercheck /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/clustercheck
+
+# Backup the systemd file
+- name: back up the mariadb systemd file
+  command: cp /usr/lib/systemd/system/docker-mariadb.service /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/docker-mariadb.service
+
+#####################################################
+# Shut down the old mariadb containers
+####################################################
+# Rabbitmq.
+- name: Shut off mariadb docker service
+  service:
+    name: docker-mariadb
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove mariadb service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mariadb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove mariadb volume contents
+- name: List mariadb volume contents
+  shell: ls -A1 /docker/mariadb/
+  register: contents
+
+- name: Remove mariadb volume contents
+  file:
+    path: /docker/mariadb/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

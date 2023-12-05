@@ -1,0 +1,33 @@
+- name: identify  portworx storage disks
+  shell: /usr/sbin/blkid  | grep gpt |  cut -f1 -d':'
+  register: disks_with_gpt
+  ignore_errors: true
+  failed_when: false
+
+- name:  Cleanup portworx storage disks
+  shell: /usr/sbin/blkid  | grep gpt | cut -f1 -d':'  | xargs wipefs -fa
+  when: disks_with_gpt.stdout !=  ""
+
+- name: Now dd the disk
+  shell: dd if=/dev/zero of={{ item }} bs=1M count=1000
+  with_items: "{{ disks_with_gpt.stdout_lines | default([]) }}"
+  when: disks_with_gpt.stdout !=  ""
+
+- name: Run the sync command
+  shell: sync
+  when: disks_with_gpt.stdout !=  ""
+
+- name: Create a directory if it does not exist
+  file:
+    path: /opt/cisco
+    state: directory
+
+- name: Create a File for PX Product License
+  file:
+    path: "/opt/cisco/cvimmon.sku"
+    state: touch
+
+- name: Add PX Licensing SKU
+  lineinfile:
+    dest: /opt/cisco/cvimmon.sku
+    line: 'CVIM-MON-CTR'

@@ -1,0 +1,15 @@
+- include: ansiblehost-prep.yaml
+- include: check-conn-hosts.yaml
+- include: setup-ntp.yaml
+- include: prepare-hosts.yaml
+- include: prepare-disks.yaml
+- include: ha-etcd.yaml
+- include: kubernetes-masters.yaml
+- include: podpreset.yaml
+- include: kubernetes-add-workers.yaml
+- include: masters-post-tasks.yaml
+- include: flexvol-plugin.yaml
+####Optional####
+#- include: encrypting-secrets.yaml
+#- include: heapster.yaml
+#- include: smoke-test.yaml

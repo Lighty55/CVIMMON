@@ -1,0 +1,463 @@
+##################################################
+# Openstack Configuration
+###################################################
+ADMIN_USER: admin
+ADMIN_USER_PASSWORD: password
+ADMIN_TENANT_NAME: admin
+SERVICE_TENANT_NAME: service
+REGION_NAME: RegionOne
+OPENSTACK_READONLY_ROLE: "{{ ENABLE_READONLY_ROLE|default('False') }}"
+
+# Common Logging options
+VERBOSE_LOGGING: true
+DEBUG_LOGGING: true
+VTS_PARAMETERS.VTS_DAY0: 'false'
+
+##################################################
+# RabbitMQ Configuration
+##################################################
+RABBITMQ_USER: guest
+RABBITMQ_PASSWORD: guest
+RABBITMQ_SERVICE_HOST: "{{ ansible_host }}"
+RABBITMQ_LOG_BASE: /var/log/rabbitmq
+RABBITMQ_ERLANG_COOKIE: "YUIGIJQZYEWJXSLNZGHW"
+RABBITMQ_PORT: 5672
+RABBITMQ_NODES: "{%for host in groups['rabbitmq_all'] %}'rabbit@{{ hostvars[host]['ansible_hostname'] }}'{% if not loop.last %}, {% endif %}{% endfor %}"
+RABBITMQ_HOSTS: "{% if VAULT is defined and VAULT.enabled == True%}{% for host in groups['rabbitmq_mgmt_ip'] %}{{ RABBITMQ_USER }}:RABBITMQ_PASSWORD@{{ hostvars[host]['ansible_host'] | ipwrap }}:{{ RABBITMQ_PORT }}{% if not loop.last %},{% endif %}{% endfor %}{% else %}{% for host in groups['rabbitmq_mgmt_ip'] %}{{ RABBITMQ_USER }}:{{ RABBITMQ_PASSWORD}}@{{ hostvars[host]['ansible_host'] | ipwrap }}:{{ RABBITMQ_PORT }}{% if not loop.last %},{% endif %}{% endfor %}{% endif %}"
+RABBITMQ_CLUSTER: "{% for host in groups['rabbitmq_mgmt_ip'] %}{{ hostvars[host]['ansible_host'] | ipwrap }}:{{ RABBITMQ_PORT }}{% if not loop.last %},{% endif %}{% endfor %}"
+
+# Specify partition recovery strategy: autoheal, pause_minority, or ignore
+RABBITMQ_CLUSTER_PARTITION_HANDLING: autoheal
+
+##################################################
+# MariaDB Configuration
+##################################################
+WSREP_DEBUG: 1
+WSREP_CLUSTER_NAME: cluster1
+MARIADB_DATADIR: /var/lib/mysql
+WSREP_USERNAME: username
+WSREP_PASSWORD: password
+WSREP_CLUSTER_ADDRESS: "{% if groups['mariadb_all'] | length > 1 %}{% for host in groups['mariadb_mgmt_ip'] %}{{ host }}{% if not loop.last %},{% endif %}{% endfor %}{% else %}0.0.0.0{% endif %}"
+WSREP_SST_METHOD: rsync
+# SST donors are in reverse order of haproxy active/backup order
+# this is to avoid choosing an active node as donor(temporary read only)
+# and trigger an unnecessary switchover to backup node
+WSREP_SST_DONOR: "{% for host in groups['mariadb_mgmt_ip'] | reverse %}{{ hostvars[host].ansible_nodename }},{% endfor %}"
+WSREP_NODE_ADDRESS: "{{ control_bond }}"
+WSREP_PRIMARY_NODE: "{{ groups['mariadb_mgmt_ip'][0] }}"
+MARIADB_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) }}"
+DB_ROOT_PASSWORD: password
+MARIADB_PORT: 3306
+
+################################################
+# HAProxy and KeepAlived
+################################################
+virtual_router_id: 35
+
+HAPROXY_TLS: "{{ external_lb_vip_tls|default('False') }}"
+HAPROXY_CERT: "{{ external_lb_vip_cert|default() }}"
+HAPROXY_CACERT: "{{ external_lb_vip_cacert|default() }}"
+PUBLIC_PROTOCOL: "{% if HAPROXY_TLS|bool %}https{% else %}http{% endif %}"
+INTERNAL_PROTOCOL: http
+
+HAPROXY_USERNAME: haproxy
+HAPROXY_PASSWORD: password
+
+CACERT_LOCATION: /etc/pki/tls/certs
+CACERT_FILE: haproxy-ca.crt
+
+#################################################
+# Memcached.
+#################################################
+MEMCACHED_PORT: 11211
+MEMCACHED_SERVICE_HOST: "{{ control_bond }}"
+MEMCACHED_SERVERS: "{% for host in groups['keystone_mgmt_ip'] %}{{ host }}:{{ MEMCACHED_PORT }}{% if not loop.last %},{% endif %}{% endfor %}"
+
+#################################################
+# Keystone
+#################################################
+
+# Keystone Credentials
+KEYSTONE_USER: keystone
+
+KEYSTONE_PUBLIC_SERVICE_HOST: "{{ external_lb_vip_fqdn|default(external_lb_vip_ipv6_address|default(external_lb_vip_address)) | ipwrap }}"
+KEYSTONE_ADMIN_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+KEYSTONE_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+KEYSTONE_PUBLIC_SERVICE_PORT: 5000
+KEYSTONE_ADMIN_SERVICE_PORT: 35357
+KEYSTONE_API_VERSION: 3
+KEYSTONE_DB_NAME: keystone
+KEYSTONE_DB_USER: keystone
+KEYSTONE_DB_PASSWORD: keystonedbpass
+KEYSTONE_FERNET_BUILD_DIR: "/var/tmp/keystone-fernet-keys"
+KEYSTONE_FERNET_KEYS_REPO: "/etc/keystone/fernet-keys"
+KEYSTONE_FERNET_ROTATION_DIR: "/opt/cisco/scripts/keystone"
+KEYSTONE_FERNET_ROTATION_SCRIPT: "keystone-fernet-rotate-keys.sh"
+KEYSTONE_FERNET_ROTATION: "weekly"
+KEYSTONE_FERNET_CRONJOB: "Disabled"
+ldap: "False"
+LDAP_TLS_REQ_CERT: allow
+
+# security hardening defaults
+#msg: "{{ ((a | default({})).nested | default({}) ).var | default('bar') }}"
+KEYSTONE_LOCKOUT_FAILURE_ATTEMPTS: "{{ (cloud_settings|default({})).keystone_lockout_failure_attempts|default(0) }}"
+KEYSTONE_LOCKOUT_DURATION: "{{ (cloud_settings|default({})).keystone_lockout_duration|default(1800) }}"
+KEYSTONE_UNIQUE_LAST_PASSWORD_COUNT: "{{ (cloud_settings|default({})).keystone_unique_last_password_count|default(0) }}"
+KEYSTONE_MINIMUM_PASSWORD_AGE: "{{ (cloud_settings|default({})).keystone_minimum_password_age|default(0) }}"
+KEYSTONE_DAYS_INACTIVE: "{{ (cloud_settings|default({})).keystone_disable_inactive_account|default(0) }}"
+KEYSTONE_CHANGE_FIRST: "{{ (cloud_settings|default({})).keystone_change_password_on_first_use|default(False) }}"
+KEYSTONE_PASSWORD_EXPIRES_DAYS: "{{ (cloud_settings|default({})).keystone_password_expires_days|default(0) }}"
+
+
+#################################################
+# Glance.
+#################################################
+# Glance Database Configuration
+GLANCE_DB_NAME: glance
+GLANCE_DB_USER: glance
+GLANCE_DB_PASSWORD: glancedbpass
+
+# Glance Keystone Configuration
+GLANCE_KEYSTONE_USER: glance
+GLANCE_KEYSTONE_PASSWORD: glancekeypass
+
+# Glance store
+GLANCE_RBD_POOL: images
+STORE_BACKEND: ceph # ceph or file
+GLANCE_CLIENT_KEY: "{{ ceph_glance_client_key }}"
+CEPH_GLANCE_USER: glance
+
+# Glance Service Address Ports
+GLANCE_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+GLANCE_REGISTRY_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+
+GLANCE_API_PORT: 9292
+GLANCE_REGISTRY_PORT: 9191
+
+#Number of workers for Openstack
+WORKERS: '{% if PODTYPE is defined and PODTYPE == "nano" %}2{% else %}8{% endif %}'
+
+#################################################
+# Nova.
+#################################################
+# Nova Database Configuration
+NOVA_DB_NAME: nova
+NOVA_API_DB_NAME: nova_api
+NOVA_DB_USER: nova
+NOVA_DB_PASSWORD: novadbpass
+NOVA_CELL_DB_NAME: nova_cell0
+
+# Nova Keystone Configuration
+NOVA_KEYSTONE_USER: nova
+NOVA_KEYSTONE_PASSWORD: novakeypass
+NOVA_PLACEMENT_USER: placement
+
+# Nova Service Address Ports
+NOVA_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+
+# Nova boot
+NOVA_BOOT_FROM: local #ceph or local
+NOVA_RBD_POOL: vms
+NOVA_API_PORT: 8774
+NOVA_NOVNCPROXY_PORT: 6080
+NOVA_PLACEMENT_API_PORT: 8778
+
+# Nova port for VM resize/migration
+NOVA_SSH_PORT: 8022
+
+# Disable VM emulator threads pool
+ENABLE_VM_EMULATOR_PIN: False
+# Number of physical cores reserved for VM emulator threads
+VM_EMULATOR_PCORES_PER_SOCKET: 1
+
+# Additional real-time optimizations in OpenStack NOVA
+NOVA_OPT_FOR_LOW_LATENCY: False
+
+# Enable RT Kernel
+ENABLE_RT_KERNEL: "{% if PODTYPE is defined and PODTYPE == 'edge' %}True{% else %}False{% endif %}"
+
+# Intel RDT (Resource Director Technology) configurations
+INTEL_RDT:
+    ENABLE_CAT: False
+    RESERVED_L3_CACHELINES_PER_SOCKET: 3
+
+#####################################################
+# IRONIC
+#####################################################
+IRONIC_DB_NAME: ironic
+IRONIC_DB_USER: ironic
+IRONIC_DB_PASSWORD: ironicdbpass
+
+IRONIC_INSPECTOR_DB_NAME: ironicinspector
+IRONIC_INSPECTOR_DB_USER: ironicinspector
+IRONIC_INSPECTOR_DB_PASSWORD: ironicinspectordbpass
+
+# Ironic Keystone Configuration
+IRONIC_KEYSTONE_USER: ironic
+IRONIC_KEYSTONE_PASSWORD: ironickeypass
+
+IRONIC_INSPECTOR_KEYSTONE_USER: ironicinspector
+IRONIC_INSPECTOR_KEYSTONE_PASSWORD: ironicinspectorkeypass
+
+# Ironic Service Address
+IRONIC_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+IRONIC_API_PORT: 6385
+
+IRONIC_INSPECTOR_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+IRONIC_INSPECTOR_PORT: 5050
+
+IRONIC_PXE_TFTP_PORT: 69
+IRONIC_PXE_HTTP_PORT: 8080
+
+IRONIC_PROVISION_NETWORK_NAME: "IRONIC-NETWORK"
+IRONIC_DEPLOY_IMAGE_KERNEL: "/var/cisco/artifacts/ironic-images/centos/deploy-image-centos.kernel"
+IRONIC_DEPLOY_IMAGE_INITRAMFS: "/var/cisco/artifacts/ironic-images/centos/deploy-image-centos.initramfs"
+IRONIC_INVENTORY_PATH: "/root/openstack-configs/ironic_inventory.yaml"
+IRONIC_HOST_AGGREGATE: baremetal
+IRONIC_AVAILABILITY_ZONE: ironic
+
+# Disable self-discovery globally
+IRONIC_INSPECTOR_SELF_DISCOVERY: False
+#############################################
+# NFV Hosts
+#############################################
+# CPU Pinning and Huge Page support will be enabled on the hosts in the list,
+# which can be overrided in setup_data.yaml.
+NFV_HOSTS: ""
+
+# Cinder DB Configuration
+CINDER_DB_NAME: cinder
+CINDER_DB_USER: cinder
+CINDER_DB_PASSWORD: cinderdbpass
+
+# Cinder Keystone Configuration
+CINDER_KEYSTONE_USER: cinder
+CINDER_KEYSTONE_PASSWORD: cinderkeypass
+
+# Cinder Image cache configuration
+CINDER_IMAGE_CACHE_USER: cinder-internal
+CINDER_IMAGE_CACHE_TENANT: cinder-internal
+
+# Cinder Service Address Ports
+CINDER_API_PORT: 8776
+
+CINDER_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+VOLUME_GROUP: vg_root
+
+VOLUME_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+
+#################################################
+# Neutron.
+#################################################
+# Neutron DB Configuration
+NEUTRON_DB_NAME: neutron
+NEUTRON_DB_USER: neutron
+NEUTRON_DB_PASSWORD: neutrondbpass
+
+# Neutron Keystone Configuration
+NEUTRON_KEYSTONE_USER: neutron
+NEUTRON_KEYSTONE_PASSWORD: neutronkeypass
+
+# Neutron Service Address Ports
+NEUTRON_SERVER_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+
+# Neutron.conf File
+CORE_PLUGIN: neutron.plugins.ml2.plugin.Ml2Plugin
+NEUTRON_PLUGIN_LOADED_BASE: "{% for plugin in NEUTRON_PLUGIN_BASE %}{% if MECHANISM_DRIVERS == 'vts' and plugin == 'router' %}cisco_vts_router{% else %}{{ plugin }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}"
+ALLOW_OVERLAPPING_IPS: False
+
+# ML2 Conf File
+TYPE_DRIVERS: flat,vlan
+TENANT_NETWORK_TYPES: "VXLAN"
+MECHANISM_DRIVERS: linuxbridge
+EXTENSION_DRIVERS: port_security
+NETWORK_VLAN_RANGES: "physnet1:1000:1500"
+ENABLE_SECURITY_GROUP: True
+FIREWALL_DRIVER: neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
+VNI_RANGE: "65537:69999"
+
+METADATA_PROXY_SHARED_SECRET: password
+NEUTRON_SERVER_PORT: 9696
+
+# MTU
+MAX_MTU_SIZE: "{% if ENABLE_JUMBO_FRAMES is defined and ENABLE_JUMBO_FRAMES %}{{ JUMBO_MTU_SIZE }}{% else %}{{ DEFAULT_MTU_SIZE }}{% endif %}"
+
+# VPP
+VPP_ENABLE_AVF: false
+
+#################################################
+# CINDER
+#################################################
+
+# Cinder Volume
+#VOLUME_GROUP: vg_root
+CINDER_RBD_POOL: volumes
+VOLUME_DRIVER: ceph
+CINDER_CLIENT_KEY: "{{ ceph_cinder_client_key }}"
+CEPH_CINDER_USER: cinder
+SECRET_UUID: "{{ cinder_ceph_secret }}"
+
+#################################################
+# CEPH
+#################################################
+CLUSTER_ID: "{{ ceph_cluster_id }}"
+MON_HOSTS: "{{ ceph_mon_hosts }}"
+MON_MEMBERS: "{{ ceph_mon_members }}"
+
+#################################################
+# Container Services
+#################################################
+LOGSERVER_NODE_IP: "{{ build_node_ip }}"
+
+#################################################
+# Container Services
+#################################################
+RESTART_OPTION: always
+RESTART_INTERVAL: 10m
+RESTART_LIMIT: 10
+RESTART_LIMIT_VPP: 20
+# Change killmode from "control-group" to "none" to let Docker stop
+# work correctly.
+KILLMODE: none
+
+#################################################
+# External Bridge configuration
+#################################################
+VETH_0: veth0
+VETH_1: veth-lb
+BRIDGE_EX: br-ex
+L3_PHYSICAL_INTERFACE: e
+
+#################################################
+# Cloudpulse
+#################################################
+CPULSE_DB_NAME: cloudpulse
+CPULSE_DB_PASSWORD: password
+CPULSE_DB_USER: cloudpulse
+CLOUDPULSE_SERVER_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+CLOUDPULSE_SERVER_BIND_IP: "{{ control_bond }}"
+CLOUDPULSE_MARIA_DB_SERVICE_HOST: "{{ groups['cloudpulse_server_mgmt_ip'][0] }}"
+CLOUDPULSE_KEYSTONE_USER: cloudpulse
+CLOUDPULSE_KEYSTONE_PASSWORD: password
+CLOUDPULSE_PORT: 9999
+CPULSE_MGMT_POD_TYPE: "{{ PODTYPE | default('fullon') }}"
+
+##############################################
+# Horizon
+##############################################
+HORIZON_PORT: 80
+HORIZON_HOST: "{{ control_bond }}"
+HORIZON_SECRET_KEY: horizonsecretkey
+HORIZON_BACKEND_LOC: "{% for host in groups['keystone_mgmt_ip'] %}'{{ host }}:{{ MEMCACHED_PORT }}'{% if not loop.last %},{% endif %}{% endfor %}"
+HORIZON_ALLOWED_HOST_LIST: "{{ HORIZON_ALLOWED_HOSTS|default([])|join(' ') }}"
+HORIZON_SESSION_TIMEOUT: "{{ (cloud_settings|default({})).horizon_session_timeout|default(1800) }}"
+
+###############################################
+# Heat
+##############################################
+HEAT_DB_NAME: heat
+HEAT_DB_PASSWORD: heatpass
+HEAT_DB_USER: heat
+HEAT_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+HEAT_API_CFN_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+HEAT_KEYSTONE_USER: heat
+HEAT_KEYSTONE_PASSWORD: heatpass
+HEAT_STACK_USER_DOMAIN_NAME: heat
+HEAT_STACK_DOMAIN_ADMIN: heat_domain_admin
+HEAT_STACK_DOMAIN_ADMIN_PASSWORD: heatdomainadminpass
+HEAT_API_PORT: 8004
+HEAT_API_CFN_PORT: 8000
+
+###############################################
+# Ceilometer
+##############################################
+CEILOMETER_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+CEILOMETER_API_PORT: 8777
+CEILOMETER_DB_NAME: ceilometer
+CEILOMETER_DB_PASSWORD: changeme
+CEILOMETER_DB_USER: ceilometer
+CEILOMETER_EVENTS: True
+CEILOMETER_HOST: "{{ control_bond }}"
+CEILOMETER_KEYSTONE_PASSWORD: changeme
+CEILOMETER_KEYSTONE_USER: ceilometer
+CEILOMETER_METERING_SECRET: ceilometer
+CEILOMETER_NOTIFICATION_TOPICS: notifications
+CEILOMETER_POLLING_INTERVAL: 300
+# Zenoss integration, set to True when NFVIMON section is defined in setup_data
+nfvimon: False
+
+###############################################
+# Gnocchi
+##############################################
+GNOCCHI_DB_NAME: gnocchi
+GNOCCHI_DB_USER: gnocchi
+GNOCCHI_DB_PASSWORD: changeme
+GNOCCHI_KEYSTONE_USER: gnocchi
+GNOCCHI_KEYSTONE_PASSWORD: changeme
+GNOCCHI_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+GNOCCHI_API_PORT: 8041
+GNOCCHI_API_HOST: "{{ control_bond }}"
+
+# Gnocchi backend storage
+GNOCCHI_RBD_POOL: metric
+GNOCCHI_STORE_BACKEND: ceph # ceph or file for now. ceph for production
+GNOCCHI_CLIENT_KEY: "{{ ceph_gnocchi_client_key }}"
+CEPH_GNOCCHI_USER: gnocchi
+
+# Gnocchi Customized Archive Policy:
+#     5 min intervals and keep metric for 2 days
+GNOCCHI_ARCHIVE_POLICY_TAG: ap_5m_2d
+GNOCCHI_ARCHIVE_POLICY_INTERVAL: granularity:5m,points:576
+
+###############################################
+# Magnum
+##############################################
+MAGNUM_DOMAIN_ADMIN_PASSWORD: magnumpass
+MAGNUM_DB_NAME: magnum
+MAGNUM_DB_PASSWORD: magnumpass
+MAGNUM_DB_USER: magnum
+MAGNUM_API_SERVICE_HOST: "{{ internal_lb_vip_ipv6_address|default(internal_lb_vip_address) | ipwrap }}"
+MAGNUM_KEYSTONE_USER: magnum
+MAGNUM_KEYSTONE_PASSWORD: magnumpass
+MAGNUM_API_PORT: 9511
+
+##############################################
+# Intel SRIOV
+##############################################
+INTEL_SRIOV_VFS: 0
+INTEL_VC_SRIOV_VFS: 0
+INTEL_SRIOV: "{% if INTEL_SRIOV_VFS|int > 0 or INTEL_VC_SRIOV_VFS|int > 0 %}True{% else %}False{% endif %}"
+
+##############################################
+# Intel FPGA
+##############################################
+INTEL_FPGA_VFS: 0
+
+##############################################
+# SwiftStack
+##############################################
+# protocol defaults to https
+SWIFTSTACK_PROTOCOL: "{{ (SWIFTSTACK|default({})).protocol|default('https') }}"
+SWIFTSTACK_API_ENDPOINT: "{{ SWIFTSTACK.cluster_api_endpoint }}"
+SWIFTSTACK_RESELLER_PREFIX: "{{ SWIFTSTACK.reseller_prefix }}"
+SWIFTSTACK_ADMIN_USER: "{{ SWIFTSTACK.admin_user }}"
+SWIFTSTACK_ADMIN_PASSWORD: "{{ SWIFTSTACK.admin_password }}"
+SWIFTSTACK_ADMIN_TENANT: "{{ SWIFTSTACK.admin_tenant }}"
+SWIFTSTACK_SERVICE_NAME: "object-store"
+swift_service: False
+SWIFTSTACK_CONFIG_EXISTS: False
+BACKUP_SWIFT_TENANT: "{{ SWIFTSTACK.admin_tenant }}"
+BACKUP_SWIFT_USER: "{{ SWIFTSTACK.admin_user }}"
+BACKUP_SWIFT_KEY: "{{ SWIFTSTACK.admin_password }}"
+
+#####################################################
+# nfvbench Defaults
+#####################################################
+USER_VOLUME_PATH: /root/nfvbench
+
+#####################################################
+# vim-admins Defaults
+#####################################################
+vim_admins: []
+permit_root_login: True
+ssh_banner: ""

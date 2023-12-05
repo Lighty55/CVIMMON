@@ -1,0 +1,3 @@
+- include: neutron_upgrade_reg.yaml
+  when: MECHANISM_DRIVERS == "vts"
+

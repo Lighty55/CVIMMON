@@ -1,0 +1,39 @@
+---
+- name: "Install Telegraf RPM"
+  yum:
+    name: telegraf-{{ telegraf_agent_version }}
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install sysstat
+  yum:
+    name: sysstat
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Copy the template
+  template:
+    src: telegraf.conf.j2
+    dest: /etc/telegraf/telegraf.conf
+    owner: telegraf
+    group: telegraf
+    mode: 0644
+
+- name: Add Telegraf to Docker Users
+  command: usermod -aG docker telegraf
+  become: yes
+
+- name: Start service Telegraf, if not started
+  service:
+    name: telegraf
+    state: started
+
+- name: Enable Telegraf Service
+  service:
+    name: telegraf
+    enabled: yes
+
+- name: restart telegraf
+  service:
+    name: telegraf
+    state: restarted

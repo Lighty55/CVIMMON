@@ -1,0 +1,54 @@
+---
+
+# Cluster Monitor Namespace
+clustermon_namespace: "cvimmon-monitor"
+
+#Helm Directory Information
+helm_parent_directory: "application-charts"
+grafana_app_directory: "grafana"
+grafana_deployment_name: "grafana-cvimmon-monitor"
+grafana_namespace: "cvimmon-monitor"
+conf_bin_path: "/opt/cisco/cvimmon-k8s"
+grafana_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor"
+grafana_helm_upgrade_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/grafana"
+grafana_metro_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/grafana/grafana-values.yaml"
+
+#Grafana Image Tag
+#sidecar_image: "kiwigrid/k8s-sidecar:0.0.16"
+
+#For Dashboard Reloaders
+downld_dash_repository: "appropriate/curl"
+downld_dash_tag: "latest"
+
+
+#Grafana Ingress
+ingress_class_grafana: "nginx"
+ingress_cert_grafana: "cvimmon-monitor/cvimmon-grafana-cert"
+ingress_secret_name: "cvimmon-grafana-cert"
+ingress_host_grafana: "{{ CLUSTER_NAME }}-cvimmon-grafana.{{ cvimmon_domain_suffix }}"
+
+#Grafana Certificates
+stackcert_pemfile: "{{ stack_ca_cert | default('') }}"
+domaincert_pemfile: "{{ cvimmon_domain_ca_cert | default('') }}"
+
+#Grafana Storage Class
+grafana_storage_class: "portworx-sc"
+grafana_storage_size: "10Gi"
+
+#Grafana ReplicaSet Size
+grafana_replicaset_size: "1"
+
+##Passwords File Path
+password_file_path: /root/openstack-configs/secrets.yaml
+
+##Temporary Cert File Paths
+cvimmon_key_out_path: /tmp/cvimmon.key
+cvimmon_cert_out_path: /tmp/cvimmon.crt
+
+##Temporary Key File Paths
+efk_key_out_path: /tmp/efk.key
+efk_cert_out_path: /tmp/efk.crt
+
+##Certificate Specific
+validity_days: 365
+bits: 2048

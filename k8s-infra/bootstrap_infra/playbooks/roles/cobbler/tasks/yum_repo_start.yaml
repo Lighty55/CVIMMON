@@ -1,0 +1,72 @@
+---
+- shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+- name: Check if yum repo_mirror container is already running
+  shell: docker ps -a | grep Up | grep repo_mirror_{{ docker.repo_mirror.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Start the http data containers
+  docker_container:
+    name: "{{ item.name }}"
+    image: "{{ docker.common.registry }}/{{ item.image }}"
+    state: present
+    timeout: 420
+  with_items: "{{ CURRENT_REPO_CONTAINERS | list }}"
+  when: command_result.stdout == ""
+
+- name: Start repo mirror
+  docker_container:
+    name: "repo_mirror_{{ docker.repo_mirror.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.repo_mirror.name }}:{{ docker.repo_mirror.image_tag }}"
+    interactive: yes
+    privileged: yes
+    timeout: 420
+    network_mode: "host"
+    state: started
+    env:
+      COBBLER_IP: "{{ MGMT_IP.stdout }}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    volumes_from: "{{ CURRENT_REPO_VOLUMES | list }}"
+  when: command_result.stdout == ""
+
+- name: Wait for repo mirror container to be alive
+  wait_for:
+    host: "{{ MGMT_IP.stdout }}"
+    port: 80
+
+- name: Check if yum repo_mirror container has started running
+  shell: docker ps -a | grep Up | grep repo_mirror_{{ docker.repo_mirror.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Yum repo_mirror Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-cobbler-web.service",
+        dest: "/usr/lib/systemd/system/docker-cobbler-web.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cobbler-web
+  tags:
+    - reboot-on-failure

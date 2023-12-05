@@ -1,0 +1,75 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Create ldap domain
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=domain_create
+            domain_to_create={{ LDAP.domain }}
+            os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+            os_username={{ ADMIN_USER }}
+            os_password={{ ADMIN_USER_PASSWORD }}
+            os_tenant_name={{ ADMIN_TENANT_NAME }}
+            domainname=default"
+  run_once: true
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Get admin user uuid
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_TENANT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION=3;
+        openstack user list --domain default | grep -w ' admin ' | cut -f2 -d ' '"
+  register: admin_uuid
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Assign admin for ldap domain
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_TENANT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION=3;
+        openstack role add --domain {{ LDAP.domain }} --user {{ admin_uuid.stdout }} admin"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Restart keystone service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-keystone
+
+- pause: seconds=10 prompt="Pause for haproxy to forward traffic"
+
+- name: Check if Keystone Docker container has started running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: container_status
+
+- name: Fail if container is not UP.
+  fail: msg="Keystone Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

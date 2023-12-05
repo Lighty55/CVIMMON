@@ -1,0 +1,47 @@
+- name: Copy the new Ironic DNSMASQ configuration file
+  include: ironic_dnsmasq_service_config.yaml
+  vars:
+    IRONIC_DNSMASQ_CONFIG_FILE: ironic_dnsmasq_config_reconfigure
+
+- name: Compare old and new rendered template
+  command: "diff {{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config {{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config_reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+- block:
+      # Now if there is a diff there is a need to reconfigure
+      - name: Copy the new render config
+        command: "mv {{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config_reconfigure {{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config"
+
+      # Remove the reconfigure file when there is no diff
+      - name: Remove reconfigure file
+        file:
+          path: "{{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config_reconfigure"
+          state: absent
+
+      # Now delete the template file inside the container
+      - name: Copy the Ironic DNSMASQ config file inside container to force a reconfigure
+        command: "docker cp {{ docker.ironic_dnsmasq.host_data_dir }}/ironic_dnsmasq_config ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }}:/opt/kolla/"
+
+      # Now restart the service
+      - name: Restart Ironic DNSMASQ service
+        service:
+          name: "{{ item }}"
+          enabled: yes
+          state: restarted
+        with_items:
+          - docker-ironicdnsmasq
+
+      - pause: seconds=5 prompt="Waiting for sometime"
+
+      - name: Check if Ironic DNSMASQ Docker container has started running
+        shell: docker ps -a | grep Up | grep ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }} | cut -f1 -d " "
+        register: container_status
+
+      - name: Fail if container is not UP.
+        fail: msg="Ironic DNSMASQ Container does not seem to be running"
+        when: container_status.stdout == ""
+
+  when: command_result.stdout != ""

@@ -1,0 +1,94 @@
+# First remove the new container and artifacts and ironic nova compute
+- name: Shut off Ironic Nova Compute docker service
+  service:
+    name: docker-ironicnovacpu
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove ironicnovacpu service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicnovacpu.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove Ironic Nova Compute docker container
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }}" }
+
+- name: Remove Ironic Nova Compute docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_nova_compute.name }}"
+    tag: "{{ docker.ironic_nova_compute.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove Ironic Nova Compute volume contents
+- name: List Ironic Nova Compute volume contents
+  shell: "ls -A1 {{ docker.ironic_nova_compute.host_data_dir }}/"
+  register: contents
+
+- name: Remove Ironic Nova Compute volume contents
+  file:
+    path: "{{ docker.ironic_nova_compute.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the Ironic Nova Compute volume contents
+- name: Recover Ironic Nova Compute volume contents
+  shell: "cp -r {{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}/. {{ docker.ironic_nova_compute.host_data_dir }}/"
+
+# Now remove the backup volume
+- name: Remove back up Ironic Nova Compute directory
+  file:
+    path: "{{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files
+  command: "cp {{ docker.ironic_nova_compute.host_data_dir }}/docker-ironicnovacpu.service /usr/lib/systemd/system/docker-ironicnovacpu.service"
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Systemctl reset-failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias compute='in_container ironic_novacompute_"
+    line: "{{ item }}"
+  with_items:
+    - alias compute='in_container ironic_novacompute_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}'
+
+# Start the Ironic Nova Compute docker service
+- name: Start the Ironic Nova Compute docker service
+  service:
+    name: docker-ironicnovacpu
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic Nova Compute container has started and running
+  shell: docker ps | egrep ' ironic_novacompute_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}$' | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP
+  fail: msg="Ironic Nova Compute container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Systemctl reset-failed
+  shell: systemctl reset-failed

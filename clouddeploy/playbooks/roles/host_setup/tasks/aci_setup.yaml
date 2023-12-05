@@ -1,0 +1,59 @@
+- name: Determine mac address in case of Intel interfaces
+  shell: cat /etc/sysconfig/network-scripts/ifcfg-{{ control_if }}0 | grep HWADDR | cut -f2 -d '='
+  register: mac_addr
+  when: '("compute" in server_role or "control" in server_role) and use_intel'
+
+- name: Set fact for host_mac
+  set_fact:
+      host_mac: "{{ mac_addr.stdout }}"
+  when: '("compute" in server_role or "control" in server_role) and use_intel'
+
+- name: Get the mac address of o opflex interface for Cisco VIC
+  shell: cat /etc/sysconfig/network-scripts/ifcfg-o0 | grep HWADDR | cut -f2 -d '='
+  register: mac_addr
+  when: '("compute" in server_role or "control" in server_role) and not use_intel'
+
+- name: Set fact for host_mac
+  set_fact:
+      host_mac: "{{ mac_addr.stdout }}"
+  when: '("compute" in server_role or "control" in server_role) and not use_intel'
+
+- name: Default the opflex interface name to o
+  set_fact:
+      opflex_intf_name: "o"
+
+- name: Determine name of opflex interface used for aci infra traffic
+  set_fact:
+      opflex_intf_name: "{{ control_if }}.{{ aci_infra_vlan }}"
+  when: '("compute" in server_role or "control" in server_role) and use_intel'
+
+- name: Copy and render opflex interface file.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "interface-o.conf.j2", dest: "/etc/sysconfig/network-scripts/ifcfg-{{ opflex_intf_name }}" }
+  when: '"compute" in server_role or "control" in server_role'
+
+- name: Copy and render dhclient interface file.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "dhclient-o.conf.j2", dest: "/etc/dhcp/dhclient-{{ opflex_intf_name }}.conf" }
+  when: '"compute" in server_role or "control" in server_role'
+
+- name: Copy and render multicast route file.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "route-o.conf.j2", dest: "/etc/sysconfig/network-scripts/route-{{ opflex_intf_name }}" }
+  when: '"compute" in server_role or "control" in server_role'
+
+- name: ifdown and ifup the interface
+  shell: ifdown {{ opflex_intf_name }}; ifup {{ opflex_intf_name }}
+  when: '"compute" in server_role or "control" in server_role'

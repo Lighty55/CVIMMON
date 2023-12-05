@@ -1,0 +1,52 @@
+{
+    "type" : "environment",
+    "environment_type" : "OpenStack",
+    "distribution" : "Mercury",
+    "distribution_version" : "{{ CALIPSO_MONGO_PREVIOUS_TAG }}",
+    "type_drivers" : "{{ TENANT_NETWORK_TYPES|lower }}",
+    "mechanism_drivers" : [
+        {% with mechanism_driver = MECHANISM_DRIVERS|upper %}
+            {% if mechanism_driver == 'OPENVSWITCH' %} "OVS"
+            {% else %} "{{ mechanism_driver }}"
+            {% endif %}
+        {% endwith %}
+        {% if "INTEL_SRIOV_PHYS_PORTS" in vars or "INTEL_SRIOV_VFS" in vars %}
+            , "SRIOV"
+        {% endif %}
+    ],
+    "configuration" : [
+        {
+            "user" : "root",
+            "pwd" : "{{ DB_ROOT_PASSWORD }}",
+            "port" : "3306",
+            "host" : "{{ internal_lb_vip_address }}",
+            "name" : "mysql"
+        },
+        {
+            "user" : "admin",
+            "pwd" : "{{ ADMIN_USER_PASSWORD }}",
+            "port" : "5000",
+            "host" : "{{ internal_lb_vip_address }}",
+            "name" : "OpenStack"
+        },
+        {
+            "user" : "root",
+            "key" : "{{ CALIPSO_SSH_KEY_LOCATION }}",
+            "host" : "127.0.0.1",
+            "name" : "CLI"
+        }{% if "APICINFO" in vars %},
+        {
+            "user" : "{{ APICINFO.apic_username }}",
+            "pwd" : "{{ APICINFO.apic_password }}",
+            "host" : "{{ APICINFO.apic_hosts[0] }}",
+            "name" : "ACI"
+        }{% endif %}
+
+    ],
+    "name" : "cvim-{{ PODNAME|lower }}",
+    "app_path" : "/calipso",
+    "scanned": false,
+    "enable_monitoring" : false,
+    "aci_enabled" : {% if "APICINFO" in vars %}true{% else %}false{% endif %},
+    "listen" : false
+}

@@ -1,0 +1,556 @@
+{% set tls_bind_info = "ssl crt /etc/pki/haproxy/private/haproxy.pem" if HAPROXY_TLS|bool else "" %}
+global
+    daemon
+    maxconn {{ HAPROXY_MAXCONN }}
+    pidfile /var/run/haproxy.pid
+    log     127.0.0.1 local0 notice
+{% if HAPROXY_TLS|bool %}
+    ssl-default-bind-ciphers DEFAULT:!MEDIUM:!3DES:!CAMELLIA:!ECDHE-RSA-AES256-SHA:!AES256-SHA:!DHE-RSA-AES256-SHA
+    ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11
+    tune.ssl.default-dh-param 4096
+{% endif %}
+
+defaults
+    log  global
+    mode http
+    option forwardfor
+    timeout connect  {{ HAPROXY_CONNECT_TIMEOUT }}
+    timeout client   {{ HAPROXY_CLIENT_TIMEOUT }}
+    timeout server   {{ HAPROXY_SERVER_TIMEOUT }}
+    option redispatch
+    balance          {{ HAPROXY_DEFAULT_BALANCE_ALGORITHM }}
+
+listen stats
+    bind {{ external_lb_vip_address }}:1936 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:1936 transparent {{ tls_bind_info }}
+{% endif %}
+    bind {{ internal_lb_vip_address }}:1936 transparent
+    mode http
+    stats enable
+    stats hide-version
+    stats refresh 15s
+    stats uri /
+    stats auth {{ HAPROXY_USERNAME }}:{{ HAPROXY_PASSWORD }}
+
+listen keystone_public_cluster-external_vip
+    bind {{ external_lb_vip_address }}:5000 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:5000 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['keystone_mgmt_ip'] %}
+    server keystone-active{{ loop.index }} {{ server }}:5000 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen glance_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:9292 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:9292 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['glance_api_mgmt_ip'] %}
+    server glance-active{{ loop.index }} {{ server }}:9292 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen nova_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8774 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8774 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['nova_api_mgmt_ip'] %}
+    server nova_api-active{{ loop.index }} {{ server }}:8774 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if optional_service_ironic is defined %}
+listen ironic_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:{{ IRONIC_API_PORT }} transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:{{ IRONIC_API_PORT }} transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['ironic_mgmt_ip'] %}
+    server ironic_api-active{{ loop.index }} {{ server }}:{{ IRONIC_API_PORT }} source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen ironic_inspector_cluster-external_vip
+    bind {{ external_lb_vip_address }}:{{ IRONIC_INSPECTOR_PORT }} transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:{{ IRONIC_INSPECTOR_PORT }} transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['ironic_mgmt_ip'] %}
+    server ironic_inspector-active{{ loop.index }} {{ server }}:{{ IRONIC_INSPECTOR_PORT }} source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+listen nova_placement_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8778 transparent {{ tls_bind_info }}
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8778 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['nova_api_mgmt_ip'] %}
+    server nova_placement_api-active{{ loop.index }} {{ server }}:8778 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen neutron_server_cluster-external_vip
+    bind {{ external_lb_vip_address }}:9696 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:9696 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['neutron_server_mgmt_ip'] %}
+    server neutron_server-active{{ loop.index }} {{ server }}:9696 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen nova_novncproxy_cluster-external_vip
+    bind {{ external_lb_vip_address }}:6080 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:6080 transparent {{ tls_bind_info }}
+{% endif %}
+{% if HAPROXY_TLS|bool %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-response set-header Strict-Transport-Security max-age=31536000
+{% endif %}
+    http-response set-header Cache-Control "no-cache,no-store,must-revalidate,max-age=0"
+    http-response set-header X-Content-Type-Options nosniff
+    http-response set-header X-XSS-Protection 1
+    balance source
+    timeout tunnel 1h
+    log     127.0.0.1 local0 info
+{% for server in groups['nova_novncproxy_mgmt_ip'] %}
+    server nova_novncproxy-active{{ loop.index }} {{ server }}:6080 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+
+{% if HAPROXY_TLS|bool %}
+frontend horizon_cluster-external_vip-unsecured *:80
+   log     127.0.0.1 local0 info
+   redirect scheme https code 301 if !{ ssl_fc }
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+
+frontend horizon_cluster-external_vip-unsecured :::80
+   log     127.0.0.1 local0 info
+   redirect scheme https code 301 if !{ ssl_fc }
+{% endif %}
+{% endif %}
+
+listen horizon_cluster-external_vip
+{% if HAPROXY_TLS|bool %}
+    bind {{ external_lb_vip_address }}:443 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:443 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-response set-header Strict-Transport-Security max-age=31536000
+{% else %}
+    bind {{ external_lb_vip_address }}:80 transparent
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:80 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+{% endif %}
+    http-response set-header Cache-Control "no-cache,no-store,must-revalidate,max-age=0"
+    http-response set-header X-Content-Type-Options nosniff
+    http-response set-header X-XSS-Protection 1
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['horizon_mgmt_ip'] %}
+    server horizon-active{{ loop.index }} {{ server }}:80 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"] %}
+listen cinder_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8776 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8776 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['cinder_api_mgmt_ip'] %}
+    server cinder_api-active{{ loop.index }} {{ server }}:8776 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+listen cloudpulse_server_cluster-external_vip
+    bind {{ external_lb_vip_address }}:9999 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:9999 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['cloudpulse_server_mgmt_ip'] %}
+    server cloudpulse_server-active{{ loop.index }} {{ server }}:9999 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if optional_service_gnocchi is defined %}
+listen gnocchi_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8041 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8041 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['gnocchi_api_mgmt_ip'] %}
+    server gnocchi_api-active{{ loop.index }} {{ server }}:8041 source {{ internal_lb_vip_address
+ }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if optional_service_heat is defined %}
+listen heat_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8004 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8004 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['heat_api_mgmt_ip'] %}
+    server heat_api-active{{ loop.index }} {{ server }}:8004 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen heat_api_cfn_cluster-external_vip
+    bind {{ external_lb_vip_address }}:8000 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8000 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['heat_api_cfn_mgmt_ip'] %}
+    server heat_api_cfn-active{{ loop.index }} {{ server }}:8000 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if optional_service_magnum is defined %}
+listen magnum_api_cluster-external_vip
+    bind {{ external_lb_vip_address }}:9511 transparent {{ tls_bind_info }}
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:9511 transparent {{ tls_bind_info }}
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+    log     127.0.0.1 local0 info
+{% for server in groups['magnum_api_mgmt_ip'] %}
+    server magnum_api-active{{ loop.index }} {{ server }}:9511 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+listen galera_cluster-internal_vip
+    mode tcp
+    bind {{ internal_lb_vip_address }}:3306 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:3306 transparent
+{% endif %}
+    balance source
+    option httpchk
+    timeout client 3600s
+    timeout server 3600s
+    default-server on-marked-down shutdown-sessions on-marked-up shutdown-backup-sessions
+{% for server in groups['mariadb_mgmt_ip'] %}
+{% if server == inventory_hostname %}
+    server galera-active{{ loop.index }} {{ server }}:3306 source {{ internal_lb_vip_address }} check port 9200 inter 2s rise 3 fall 2
+{% endif %}
+{% endfor %}
+{% for server in groups['mariadb_mgmt_ip'] %}
+{% if server != inventory_hostname %}
+    server galera{{ loop.index }} {{ server }}:3306 source {{ internal_lb_vip_address }} check port 9200 inter 2s rise 3 fall 2 backup
+{% endif %}
+{% endfor %}
+
+listen keystone_admin_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:35357 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:35357 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['keystone_mgmt_ip'] %}
+    server keystone-active{{ loop.index }} {{ server }}:35357 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen keystone_public_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:5000 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:5000 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['keystone_mgmt_ip'] %}
+    server keystone-active{{ loop.index }} {{ server }}:5000 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen glance_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:9292 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9292 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['glance_api_mgmt_ip'] %}
+    server glance-active{{ loop.index }} {{ server }}:9292 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen glance_registry_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:9191 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9191 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['glance_registry_mgmt_ip'] %}
+    server glance-active{{ loop.index }} {{ server }}:9191 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen nova_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8774 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8774 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['nova_api_mgmt_ip'] %}
+    server nova_api-active{{ loop.index }} {{ server }}:8774 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if optional_service_ironic is defined %}
+listen ironic_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:{{ IRONIC_API_PORT }} transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:{{ IRONIC_API_PORT }} transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['ironic_mgmt_ip'] %}
+    server ironic_api-active{{ loop.index }} {{ server }}:{{ IRONIC_API_PORT }} source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen ironic_inspector_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:{{ IRONIC_INSPECTOR_PORT }} transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:{{ IRONIC_INSPECTOR_PORT }} transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['ironic_mgmt_ip'] %}
+    server ironic_inspector-active{{ loop.index }} {{ server }}:{{ IRONIC_INSPECTOR_PORT }} source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+listen nova_placement_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8778 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8778 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['nova_api_mgmt_ip'] %}
+    server nova_placement_api-active{{ loop.index }} {{ server }}:8778 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen neutron_server_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:9696 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9696 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['neutron_server_mgmt_ip'] %}
+    server neutron_server-active{{ loop.index }} {{ server }}:9696 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen nova_metadata_service_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8775 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8775 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['neutron_metadata_agent_mgmt_ip'] %}
+    server nova_metadata_service-active{{ loop.index }} {{ server }}:8775 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen nova_novncproxy_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:6080 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:6080 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+    timeout tunnel 1h
+{% for server in groups['nova_novncproxy_mgmt_ip'] %}
+    server nova_novncproxy-active{{ loop.index }} {{ server }}:6080 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen horizon_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:80 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:80 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['horizon_mgmt_ip'] %}
+    server horizon-active{{ loop.index }} {{ server }}:80 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"]  %}
+listen cinder_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8776 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8776 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['cinder_api_mgmt_ip'] %}
+    server cinder_api-active{{ loop.index }} {{ server }}:8776 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+listen cloudpulse_server_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:9999 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9999 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['cloudpulse_server_mgmt_ip'] %}
+    server cloudpulse_server-active{{ loop.index }} {{ server }}:9999 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+{% if optional_service_heat is defined %}
+listen heat_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8004 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8004 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['heat_api_mgmt_ip'] %}
+    server heat_api-active{{ loop.index }} {{ server }}:8004 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen heat_api_cfn_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8000 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8000 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['heat_api_cfn_mgmt_ip'] %}
+    server heat_api_cfn-active{{ loop.index }} {{ server }}:8000 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if optional_service_gnocchi is defined %}
+listen gnocchi_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:8041 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8041 transparent
+{% endif %}
+    balance source
+{% for server in groups['gnocchi_api_mgmt_ip'] %}
+    server gnocchi_api-active{{ loop.index }} {{ server }}:8041 source {{ internal_lb_vip_address}} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if optional_service_magnum is defined %}
+listen magnum_api_cluster-internal_vip
+    bind {{ internal_lb_vip_address }}:9511 transparent
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9511 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    balance source
+{% for server in groups['magnum_api_mgmt_ip'] %}
+    server magnum_api-active{{ loop.index }} {{ server }}:9511 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON %}
+listen cvimproxy_server-external_vip
+    bind {{ external_lb_vip_address }}:9283 transparent {{ tls_bind_info }}
+    bind {{ internal_lb_vip_address }}:9283 transparent
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:9283 transparent {{ tls_bind_info }}
+{% endif %}
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:9283 transparent
+{% endif %}
+    http-request del-header X-Forwarded-Proto
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    balance source
+{% for server in groups['cvim_proxy_mgmt_ip'] %}
+    server cvimproxy_server-active{{ loop.index }} {{ server }}:9283 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}
+
+{% if CALIPSO_ENABLED %}
+listen calipso-api-ext_int_vip
+    bind {{ external_lb_vip_address }}:8747 transparent
+    bind {{ internal_lb_vip_address }}:8747 transparent
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:8747 transparent
+{% endif %}
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:8747 transparent
+{% endif %}
+    mode tcp
+    balance first
+    default-server maxconn 10000
+    log     127.0.0.1 local0 info
+{% for server in groups['calipso_mgmt_ip'] %}
+    server calipso_api-active{{ loop.index }} {{ server }}:8747 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+
+listen calipso-mongo-ext_int_vip
+    bind {{ external_lb_vip_address }}:27017 transparent
+    bind {{ internal_lb_vip_address }}:27017 transparent
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+    bind {{ external_lb_vip_ipv6_address }}:27017 transparent
+{% endif %}
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+    bind {{ internal_lb_vip_ipv6_address }}:27017 transparent
+{% endif %}
+    mode tcp
+    balance first
+    default-server maxconn 10000
+    log     127.0.0.1 local0 info
+{% for server in groups['calipso_mgmt_ip'] %}
+    server calipso_mongo-active{{ loop.index }} {{ server }}:27017 source {{ internal_lb_vip_address }} check inter 2s rise 3 fall 2
+{% endfor %}
+{% endif %}

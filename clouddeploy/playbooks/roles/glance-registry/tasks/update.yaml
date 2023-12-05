@@ -1,0 +1,4 @@
+- include: glance_registry_service_update_prepare.yaml
+- include: glance_registry_service_install.yaml
+- include: glance_registry_service_config.yaml
+- include: glance_registry_service_start.yaml

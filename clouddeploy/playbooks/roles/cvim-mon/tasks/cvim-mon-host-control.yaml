@@ -1,0 +1,75 @@
+- name: Check if central CVIM-MON is enabled
+  set_fact:
+    CENTRAL_CVIM_MON: '{{ CVIM_MON.central is defined and CVIM_MON.central == True }}'
+
+- name: Find admin source network for iptables firewall
+  set_fact:
+    ipv4_admin_source_network: "{{ NETWORKING.admin_source_networks | ipv4 }}"
+    ipv6_admin_source_network: "{{ NETWORKING.admin_source_networks | ipv6 }}"
+  when: NETWORKING.admin_source_networks is defined
+
+- name: Default admin source network for iptables firewall
+  set_fact:
+    ipv4_admin_source_network: [0.0.0.0/0]
+    ipv6_admin_source_network: ["::0/0"]
+  when: NETWORKING.admin_source_networks is not defined
+
+- name: Enable CVIM Proxy access over IPv4
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item[0] }}"
+    source: "{{ item[1] }}"
+    jump: ACCEPT
+    action: insert
+    ip_version: ipv4
+  become: yes
+  with_nested:
+    - 9283
+    - "{{ ipv4_admin_source_network }}"
+  when: CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == True
+
+- name: Enable CVIM Proxy access over IPv6
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item[0] }}"
+    source: "{{ item[1] }}"
+    jump: ACCEPT
+    action: insert
+    ip_version: ipv6
+  become: yes
+  with_nested:
+    - 9283
+    - "{{ ipv6_admin_source_network }}"
+  when: CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == True
+
+- name: Disable CVIM Proxy access over IPv4
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item[0] }}"
+    source: "{{ item[1] }}"
+    jump: ACCEPT
+    state: absent
+    ip_version: ipv4
+  become: yes
+  with_nested:
+    - 9283
+    - "{{ ipv4_admin_source_network }}"
+  when: CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == False
+
+- name: Disable CVIM Proxy access over IPv6
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item[0] }}"
+    source: "{{ item[1] }}"
+    jump: ACCEPT
+    state: absent
+    ip_version: ipv6
+  become: yes
+  with_nested:
+    - 9283
+    - "{{ ipv6_admin_source_network }}"
+  when: CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == False

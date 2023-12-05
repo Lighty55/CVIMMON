@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old cinder volume containers
+####################################################
+# Cinder Volume.
+- name: Shut off cinder volume docker service
+  service:
+    name: docker-cindervolume
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove cindervolume service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindervolume.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove cinder volume docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cindervolume_{{ CINDER_VOLUME_PREVIOUS_TAG }}" }
+
+- name: Remove cinder volume docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ CINDER_VOLUME_PREVIOUS_NAME }}"
+    tag: "{{ CINDER_VOLUME_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Cinder volume Directory
+  file:
+    path: "{{ docker.cinder_volume.host_data_dir }}"
+    state: absent

@@ -1,0 +1,11 @@
+- include: deploy.yaml
+  when: ACTION is undefined and MECHANISM_DRIVERS == "aci"
+- include: update.yaml
+  when: MECHANISM_DRIVERS == "aci" and ACTION is defined and ACTION == "update"
+- include: commit.yaml
+  when: MECHANISM_DRIVERS == "aci" and ACTION is defined and ACTION == "commit"
+- include: rollback.yaml
+  when: MECHANISM_DRIVERS == "aci" and ACTION is defined and ACTION == "rollback"
+- include: reconfigure.yaml
+  when: MECHANISM_DRIVERS == "aci" and ACTION is defined and ACTION == "reconfigure"
+

@@ -1,0 +1,21 @@
+- name: Check for secret file
+  stat: path={{ docker.nova_libvirt.host_data_dir }}/secret.xml
+  register: file_status
+
+- name: Define Secret for volume
+  shell: docker exec -t novalibvirt_{{ docker.nova_libvirt.image_tag }} bash -c "virsh secret-define --file /etc/ceph/secret.xml"
+  when: file_status.stat.exists == True
+
+- name: Set the secret value
+  shell: docker exec -t novalibvirt_{{ docker.nova_libvirt.image_tag }} bash -c "virsh secret-set-value --secret {{ SECRET_UUID }} --base64 {{ CINDER_CLIENT_KEY }}"
+  when: file_status.stat.exists == True
+
+- name: Remove the secret file
+  shell: docker exec novalibvirt_{{ docker.nova_libvirt.image_tag }} bash -c "rm -f /etc/ceph/secret.xml"
+  when: file_status.stat.exists == True
+
+- name: Remove the secret file from host
+  file:
+    dest: "{{ docker.nova_libvirt.host_data_dir }}/secret.xml"
+    state: absent
+  when: file_status.stat.exists == True

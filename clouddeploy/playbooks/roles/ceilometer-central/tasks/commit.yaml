@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove ceilometer central Directory
+  file:
+    path: "/docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old ceilometer-central docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometercentral_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}" }
+
+- name: Remove ceilometer central docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_central.name }}"
+    tag: "{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,26 @@
+- name: Heat Engine Update
+  hosts: heat_engine_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-engine", tags: ["heat_update", "heat_upgrade", "heat-engine"] }
+  serial: "30%"
+
+- name: Heat API Update
+  hosts: heat_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-api", tags: ["heat_update", "heat_upgrade", "heat-api"] }
+  serial: "30%"
+
+- name: Heat API CFN Update
+  hosts: heat_api_cfn_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-api-cfn", tags: ["heat_update", "heat_upgrade", "heat-api-cfn"] }
+  serial: "30%"

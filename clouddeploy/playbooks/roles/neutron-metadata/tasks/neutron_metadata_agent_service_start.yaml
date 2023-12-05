@@ -1,0 +1,60 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias metadataagent='in_container neutron_metadata_agent_"
+    line: "{{ item }}"
+  with_items:
+    - alias metadataagent='in_container neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}'
+
+- name: Start the Neutron Metadata Agent Docker Service
+  docker_container:
+    name: "neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_metadata_agent.name }}:{{ docker.neutron_metadata_agent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+        - "{{ docker.neutron_metadata_agent.host_data_dir }}:{{ docker.neutron_metadata_agent.host_data_dir }}:ro,z"
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/neutron:/var/log/neutron:z
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron Metadata Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Neutron Metadata Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron Metadata Agent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutronmeta
+  tags:
+    - reboot-on-failure

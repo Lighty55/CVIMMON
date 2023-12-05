@@ -1,0 +1,7 @@
+- include: dns_reconfigure.yaml
+  static: no
+  when: ACTION is defined and ACTION == "reconfigure" and (mgmt or host_all)
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure" and host_all
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "upgrade" and host_all

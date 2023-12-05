@@ -1,0 +1,119 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_vtf_{{ docker.neutron_vtf.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias vtf='in_container neutron_vtf_"
+    line: "{{ item }}"
+  with_items:
+    - alias vtf='in_container neutron_vtf_{{ docker.neutron_vtf.image_tag }}'
+#############################################
+# This Block has the fix for duplicate
+# Tenant route causing VPP forwarding issue
+# Fix involves turning down the tenant route
+# before the VTF container starts as VPP will
+# add the tenant route pointing to the vnet
+#############################################
+- name: Delete tenant route
+  shell: ip route del {{ vts_tenant_network }}
+  ignore_errors: True
+  failed_when: false
+
+- name: Start the Neutron VTF Docker Service
+  docker_container:
+    name: "neutron_vtf_{{ docker.neutron_vtf.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_vtf.name }}:{{ docker.neutron_vtf.image_tag }}"
+    cpuset_cpus: "{{ vswitch_container_cpus }}"
+    volumes:
+      - "{{ docker.neutron_vtf.host_data_dir }}:{{ docker.neutron_vtf.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron-vtf:/var/log/neutron-vtf:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      # /dev/vfio is needed to be mapped if vfio-pci is used as DPDK driver
+      - /dev/vfio:/dev/vfio
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update")
+
+- pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron VTF Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_vtf_{{ docker.neutron_vtf.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron vtf Container does not seem to be running"
+  when: command_result.stdout == ""
+
+##################################
+# Setup specific iptable rules to
+# prevent forwarding through VTF
+# the vnet interface is an interface
+# created by the vtf code to "punt"
+# packets to the host.  We don't
+# want to allow any forwarding
+# through it in either direction
+##################################
+- name: IPTable Rule block management to VTF
+  command: iptables -C FORWARD -o vnet -j DROP
+  register: vnet_odrop_exists
+  ignore_errors: yes
+  failed_when: false
+
+- name: IPTable Rule block management to VTF
+  command: iptables -A FORWARD -o vnet -j DROP
+  when: vnet_odrop_exists.rc != 0
+
+- name: IPTable Rule block VTF to management
+  command: iptables -C FORWARD -i vnet -j DROP
+  register: vnet_idrop_exists
+  ignore_errors: yes
+  failed_when: false
+
+- name: IPTable Rule block management to VTF
+  command: iptables -A FORWARD -i vnet -j DROP
+  when: vnet_idrop_exists.rc != 0
+
+- name: Save IPTable Rules
+  shell: /usr/sbin/iptables-save | /usr/bin/grep -v neutron > /etc/sysconfig/iptables-saved
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_vtf
+  tags:
+    - reboot-on-failure
+# Now restart the service
+- name: Restart VTF service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-neutron_vtf
+  tags:
+    - reboot-on-failure
+
+- name: Check if bond_lacp interface exist
+  shell: ip link show bond_lacp && teamdctl bond_lacp state
+  register: bond_lacp_exist
+  ignore_errors: true
+  failed_when: false
+
+- name: Restart bond_lacp-monitor.service
+  service:
+    name: bond_lacp-monitor.service
+    enabled: yes
+    state: restarted
+  when: bond_lacp_exist.rc == 0

@@ -1,0 +1,26 @@
+- name: Create HAProxy Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/haproxy
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-haproxy.service",
+        dest: "/usr/lib/systemd/system/docker-haproxy.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

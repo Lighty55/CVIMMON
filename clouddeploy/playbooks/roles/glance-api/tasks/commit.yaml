@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove glance API Directory
+  file:
+    path: "/docker/glance_api_{{ GLANCE_API_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old glance-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "glanceapi_{{ GLANCE_API_PREVIOUS_TAG }}" }
+
+- name: Remove glance docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.glance_api.name }}"
+    tag: "{{ GLANCE_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,30 @@
+[
+  {rabbit, [
+    {cluster_nodes, {[@RABBITMQ_NODES@], disc}},
+    {cluster_partition_handling, @RABBITMQ_CLUSTER_PARTITION_HANDLING@},
+    {loopback_users, []},
+    {collect_statistics_interval, 30000},
+    {tcp_listen_options,
+       [binary,
+         {packet,raw},
+         {reuseaddr,true},
+         {backlog,128},
+         {nodelay,true},
+         {exit_on_close,false},
+         {keepalive,true}]}
+  ]},
+  {rabbitmq_management, [
+    {rates_mode, none},
+    {listener, [
+      {ip, "@RABBITMQ_SERVICE_HOST@"},
+      {port, 15672}
+    ]},
+    {load_definitions, "/etc/rabbitmq/definitions.json"}
+  ]},
+  {kernel, [
+    {inet_dist_listen_max, 35672},
+    {inet_dist_listen_min, 35672}
+  ]}
+].
+% EOF
+

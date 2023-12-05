@@ -1,0 +1,98 @@
+# First remove the new container and artifacts
+- name: Shut off neutron VTF docker service
+  service:
+    name: docker-neutron_vtf
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron VTF service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_vtf.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron VTF docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_vtf_{{ docker.neutron_vtf.image_tag }}" }
+
+- name: Remove neutron vtf docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_vtf.name }}"
+    tag: "{{ docker.neutron_vtf.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron vtf volume contents
+- name: List neutron vtf volume contents
+  shell: ls -A1 /docker/neutron_vtf/
+  register: contents
+
+- name: Remove neutron vtf volume contents
+  file:
+    path: /docker/neutron_vtf/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+#  Recover the neutron vtf volume contents
+- name: recover neutron vtf volume contents
+  shell: cp -r /docker/neutron_vtf_{{ VTF_PREVIOUS_TAG }}/* /docker/neutron_vtf/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron vtf Directory
+  file:
+    path: "/docker/neutron_vtf_{{ VTF_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_vtf/docker-neutron_vtf.service /usr/lib/systemd/system/docker-neutron_vtf.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias vtf='in_container neutron_vtf_"
+    line: "{{ item }}"
+  with_items:
+    - alias vtf='in_container neutron_vtf_{{ VTF_PREVIOUS_TAG }}'
+
+- name: Start Neutron vtf container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_vtf
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if neutron vtf  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_vtf_{{ VTF_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron vtf Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

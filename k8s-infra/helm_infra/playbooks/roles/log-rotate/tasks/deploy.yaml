@@ -1,0 +1,24 @@
+- name: "{{ metro_name }} Deploy | Check if namespace exist"
+  command: kubectl get namespace {{ metro_name }}
+  register: ns_exists
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+
+- name: "{{ metro_name }} Deploy | Create if namespace doesn't exist"
+  command: kubectl create namespace {{ metro_name }}
+  when: ns_exists.rc == 1
+
+- name: "{{ metro_name }} Deploy | Create staging for log-rotate container"
+  file:
+    path: "{{ LOG_ROTATE_STACK_PATH }}"
+    recurse: yes
+    state: directory
+    mode: "0755"
+
+- name: "{{ metro_name }} Deploy | Render log-rotate manifest"
+  template:
+    src: log_rotate_manifest.yaml.j2
+    dest: "{{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.yaml"
+
+- include: log_rotate_start.yaml

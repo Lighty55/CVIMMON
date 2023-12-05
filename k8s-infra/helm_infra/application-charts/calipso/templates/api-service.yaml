@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.calipsoApi.name}}
+  labels:
+    app: {{ .Values.calipsoApi.name}}
+    namespace: {{ .Release.Namespace }}
+    chart: {{ include "calipso.chart" . }}
+    release: {{ .Release.Name | quote }}
+    heritage: {{ .Release.Service }}
+spec:
+  type: {{ .Values.calipsoApi.service.type }}
+  ports:
+    - port: {{ .Values.calipsoApi.service.servicePort }}
+      targetPort: {{ .Values.calipsoApi.service.servicePort }}
+      protocol: {{ .Values.calipsoApi.service.protocol }}
+      name: service
+  selector:
+    app: {{ .Values.calipsoApi.name }}
+    release: {{ .Values.calipsoApi.image.tag | quote }}

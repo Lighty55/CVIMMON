@@ -1,0 +1,64 @@
+#jinja2: lstrip_blocks: "True"
+# {{ ansible_managed }}
+
+{% if PRIVATE_CLOUD_SERVICES is not defined or 'ntp' not in PRIVATE_CLOUD_SERVICES -%}
+   {%- if ntp_ctrl_role in server_role -%}
+       {# Add external servers as stratum n+1 on controllers #}
+       {%- for n in range(0, NETWORKING.ntp_servers | length) -%}
+server {{ NETWORKING.ntp_servers[n] }} iburst
+       {% endfor -%}
+   {% endif-%}
+{% endif -%}
+
+{%- if ntp_ctrl_role in server_role -%}
+   {# Make all controllers peer with eachother #}
+   {%- for n in range(0, ntp_ctrl_ips | length) -%}
+       {%- if ntp_ctrl_ips[n] != control_bond -%}
+peer {{ ntp_ctrl_ips[n] }}
+       {% endif -%}
+   {% endfor -%}
+   {# Make management node peer of controllers #}
+peer {{ build_node_ip }}
+{%- else %}
+   {# On not controllers, add the controllers as stratum n+2 servers #}
+   {%- for n in range(0, ntp_ctrl_ips | length) %}
+server {{ ntp_ctrl_ips[n] }} iburst
+   {% endfor %}
+{% endif %}
+
+{% if ntp_ctrl_role in server_role -%}
+tos orphan 5
+{% endif -%}
+
+{#- Disable monlist command to prevent reconnaissance or DDoS attacks #}
+disable monitor
+{# Secure NTP to listen on mgmt interface only #}
+interface ignore wildcard
+interface listen {{ control_bond }}
+
+{# For IPv6 managemnt cases on controllers -#}
+{%- if ntp_ctrl_role in server_role -%}
+   {%- if management_ipv6 is defined and management_ipv6 != "" -%}
+interface listen {{ management_ipv6 }}
+   {%- endif %}
+{%- endif %}
+
+{# Prevent Network Time Protocol (NTP) Mode 6 Scanner #}
+{%- if ntp_ctrl_role in server_role -%}
+restrict default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1
+   {% for n in range(0, ntp_all_mgmt_ipv4s | length) -%}
+restrict {{ ntp_all_mgmt_ipv4s[n] }}
+   {% endfor -%}
+restrict -6 default kod nomodify notrap nopeer noquery
+restrict ::1
+   {% if management_ipv6 is defined and management_ipv6 != "" -%}
+      {% for host in groups['host_power_all'] %}
+         {% if ((hostvars[host]['management_ipv6'] is defined) and
+                (hostvars[host]['management_ipv6'] != "")) %}
+restrict {{ hostvars[host]['management_ipv6'] }}
+         {% endif %}
+      {% endfor %}
+   {% endif %}
+restrict {{ build_node_ip }}
+{% endif -%}

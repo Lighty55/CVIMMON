@@ -1,0 +1,2 @@
+- include: yum_repo_start.yaml
+- include: local_yum_config.yaml

@@ -1,0 +1,16 @@
+- include: aim_event_polling_update_prepare.yaml
+- include: aim_event_polling_config.yaml
+
+# Note: The following db-migration calls in bootstrap is the
+# only known deviation in update code path where the bootstrap
+# container is called to support ACI plugin upgrades
+- include: aim_bootstrap.yaml
+  when: inventory_hostname == groups['neutron_server_all'][0]
+
+# Note: neutron bootstrap needs to be called after aim bootstrap
+# due to a new dependency introduced in the db migration where
+# aim_l3outsides.bgp_enable column is required to be present
+# prior to running the "change_common_ap_name" migration part
+# of neutron db migration
+- include: neutron_server_service_bootstrap.yaml
+  when: inventory_hostname == groups['neutron_server_all'][0]

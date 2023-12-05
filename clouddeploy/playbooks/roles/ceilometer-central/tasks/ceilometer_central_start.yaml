@@ -1,0 +1,143 @@
+- name: Check if Ceilometer central is already running
+  shell: docker ps -a | grep Up | grep ceilometercentral_{{ docker.ceilometer_central.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ceilometercentral='in_container ceilometercentral_"
+    line: "{{ item }}"
+  with_items:
+    - alias ceilometercentral='in_container ceilometercentral_{{ docker.ceilometer_central.image_tag }}'
+
+- name: Start the Ceilometer central Docker
+  docker_container:
+    name: "ceilometercentral_{{ docker.ceilometer_central.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ceilometer_central.name }}:{{ docker.ceilometer_central.image_tag }}"
+    volumes:
+      - "{{ docker.ceilometer_central.host_data_dir }}:{{ docker.ceilometer_central.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ceilometer:/var/log/ceilometer:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ceilometer central Docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometercentral_{{ docker.ceilometer_central.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer Central Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ceilometercentral
+  tags:
+    - reboot-on-failure
+
+# Now update the secrets file with new passwords
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the CEILOMETER_DB_PASSWORD has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep CEILOMETER_DB_PASSWORD
+  register: ceilometer_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^CEILOMETER_DB_PASSWORD" line="CEILOMETER_DB_PASSWORD{{ ":" }} {{ CEILOMETER_DB_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and ceilometer_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Find if the CEILOMETER_KEYSTONE_PASSWORD has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep CEILOMETER_KEYSTONE_PASSWORD
+  register: ceilometer_keystone_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^CEILOMETER_KEYSTONE_PASSWORD" line="CEILOMETER_KEYSTONE_PASSWORD{{ ":" }} {{ CEILOMETER_KEYSTONE_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and ceilometer_keystone_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+######### VAULT #########
+# Read new passwords
+- set_fact:
+    CEILOMETER_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/CEILOMETER_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CEILOMETER_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/CEILOMETER_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+# Lookup plugin doesn't ignore_error. Following is the workaround
+- name: Fetch old ceilometer passwords
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv get -field=value secret/cvim-secrets/CEILOMETER_DB_PASSWORD
+  register: CEILOMETER_DB_OLD_PASSWORD
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  delegate_to: localhost
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Fetch old ceilometer passwords
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv get -field=value secret/cvim-secrets/CEILOMETER_KEYSTONE_PASSWORD
+  register: CEILOMETER_KEYSTONE_OLD_PASSWORD
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  delegate_to: localhost
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/CEILOMETER_DB_PASSWORD value={{ CEILOMETER_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - inventory_hostname == "{{ groups['ceilometer_central_all'][0] }}"
+    - CEILOMETER_DB_OLD_PASSWORD.stdout == "" or CEILOMETER_DB_OLD_PASSWORD.stdout != CEILOMETER_DB_PASSWORD
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/CEILOMETER_KEYSTONE_PASSWORD value={{ CEILOMETER_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - inventory_hostname == "{{ groups['ceilometer_central_all'][0] }}"
+    - CEILOMETER_KEYSTONE_OLD_PASSWORD.stdout == "" or CEILOMETER_KEYSTONE_OLD_PASSWORD.stdout != CEILOMETER_KEYSTONE_PASSWORD

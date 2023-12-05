@@ -1,0 +1,44 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Heat API CFN Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/heat_api_cfn_{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}
+
+# Back up the heat api cfn volume contents
+- name: back up the heat api cfn configuration file
+  shell: cp /docker/heat_api_cfn/* /docker/heat_api_cfn_{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}/.
+
+#####################################################
+# Shut down the old heat api cfn containers
+####################################################
+# Heat API CFN.
+- name: Shut off heat api cfn docker service
+  service:
+    name: docker-heatapicfn
+    enabled: no
+    state: stopped
+
+- name: Remove heatapicfn service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapicfn.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the old config files
+- name: List heat API CFN volume contents
+  shell: ls -A1 /docker/heat_api_cfn/
+  register: contents
+
+- name: Remove heat API CFN volume contents
+  file:
+    path: /docker/heat_api_cfn/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

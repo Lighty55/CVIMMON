@@ -1,0 +1,69 @@
+- name: "Render Nginx Helm Values File | Helm Values File"
+  become: true
+  template: { src: "nginx-values.yaml", dest: "{{ directory_matched.stdout }}/{{ helm_app_directory }}/values.yaml" }
+
+- name: "nginx: Get the Last revision Number from helm"
+  shell: /usr/bin/helm list | grep {{ nginx_deployment_name }}
+
+- name: "nginx: Get the Last revision Number from helm"
+  shell: /usr/bin/helm list {{ nginx_deployment_name }} | tail -n +2 | awk '{print $2}'
+  register: nginx_old_version
+
+- name: "nginx: Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ nginx_helm_upgrade_path }}/nginx-values.yaml", dest: "{{ nginx_helm_upgrade_path }}/nginx-values-{{ nginx_old_version.stdout }}.yaml" }
+
+- name: "nginx: copy the file in upgrade path"
+  become: true
+  template: { src: "nginx-values.yaml", dest: "{{ nginx_helm_upgrade_path }}/nginx-values.yaml" }
+
+- name: "nginx: Save the old version of the helm stack"
+  lineinfile: { dest: "{{ nginx_helm_upgrade_path }}/nginx-old-version", regexp: '^NGINX-OLD-REVISION=', line: 'NGINX-OLD-REVISION={{ nginx_old_version.stdout }}', create: yes }
+
+- name: "nginx: Helm upgrade to the new version"
+  command: >
+    /usr/bin/helm upgrade "{{ nginx_deployment_name }}" --namespace "{{ nginx_namespace }}" "{{ directory_matched.stdout }}"/"{{ helm_app_directory }}"
+
+- name: Check Rollout Status of Nginx Backend Deployment
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s deployment "{{ nginx_default_backend_deployment }}"
+  register: nginx_backend_status
+  ignore_errors: yes
+
+- name: Check Rollout Status of Nginx Daemonsets
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s daemonset {{ nginx_ingress_controller_daemonset }} -n {{ nginx_namespace }}
+  register: nginx_daemonset_status
+  ignore_errors: yes
+
+- fail:
+  ignore_errors: yes
+  register: nginx_update_status
+  when: nginx_backend_status is failed or nginx_daemonset_status is failed
+
+- name: Ensure nginx-ingress daemonsets have started
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ nginx_namespace }}" get daemonset {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ nginx_ingress_controller_daemonset }}"
+  when: nginx_update_status is succeeded
+
+- name: "Ensure Nginx Default Backend Deployment and pods are up and running."
+  changed_when: false
+  register: "nginx_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=nginx-ingress --output=json --namespace={{ nginx_namespace }}"
+  until:
+      - "nginx_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "nginx_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 10
+  delay: 5
+  when: nginx_update_status is succeeded
+
+- include: nginx-rollback.yaml
+  when: nginx_update_status is failed

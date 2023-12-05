@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cvim-mon-imgs
+  labels:
+    app: {{ template "grafana.name" . }}
+    chart: {{ template "grafana.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+{{ (.Files.Glob "imgs/*.svg" ).AsConfig | indent 2}}
+binaryData:
+  fav32.png: |-
+    {{ (.Files.Get "imgs/fav32.png" ) | b64enc }}

@@ -1,0 +1,26 @@
+---
+# Sanity checks to be run when MECHANISM_DRIVERS == 'vts'
+#
+- name: Check VTC API connectivity and settings
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "vtc-sanity", tags: [ "vtc-sanity", "base", "update", "upgrade" ] }
+
+- name: Check connectivity of compute nodes to VTC
+  hosts: neutron_vtf_power_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  tasks:
+    - name: Ping VTC from compute nodes
+      ignore_errors: true
+      failed_when: false
+      shell: ping -c 2 {{ VTS_PARAMETERS.VTS_NCS_IP }} > /dev/null 2>&1
+      when: MECHANISM_DRIVERS == 'vts' and (execute is undefined or (execute is defined and (execute == "all" or execute == "compute_check")))
+      tags:
+        - vtc-sanity
+        - base
+        - update
+        - upgrade

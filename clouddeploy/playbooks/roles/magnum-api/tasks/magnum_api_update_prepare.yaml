@@ -1,0 +1,44 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Magnum API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/magnum_api_{{ MAGNUM_API_PREVIOUS_TAG }}
+
+# Back up the magnum api volume contents
+- name: back up the magnum api configuration file
+  shell: cp /docker/magnum_api/* /docker/magnum_api_{{ MAGNUM_API_PREVIOUS_TAG }}/.
+
+#####################################################
+# Shut down the old magnum api containers
+####################################################
+# Magnum API.
+- name: Shut off magnum api docker service
+  service:
+    name: docker-magnumapi
+    enabled: no
+    state: stopped
+
+- name: Remove magnumapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the old config files and we will regenerate that
+- name: List magnum API volume contents
+  shell: ls -A1 /docker/magnum_api/
+  register: contents
+
+- name: Remove magnum API volume contents
+  file:
+    path: /docker/magnum_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

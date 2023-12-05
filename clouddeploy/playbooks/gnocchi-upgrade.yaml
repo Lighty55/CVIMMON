@@ -1,0 +1,26 @@
+- name: Gnocchi api upgrade
+  hosts: gnocchi_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-api", tags: ["ceilometer", "gnocchi", "gnocchi_upgrade", "gnocchi-api"] }
+  serial: "30%"
+
+- name: Gnocchi metricd upgrade
+  hosts: gnocchi_metricd_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-metricd", tags: [ "ceilometer", "gnocchi", "gnocchi_upgrade", "gnocchi-metricd"] }
+  serial: "30%"
+
+- name: Gnocchi statsd upgrade
+  hosts: gnocchi_statsd_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-statsd", tags: [ "ceilometer", "gnocchi", "gnocchi_upgrade", "gnocchi-statsd"] }
+  serial: "30%"

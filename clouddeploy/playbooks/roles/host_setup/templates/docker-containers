@@ -1,0 +1,9 @@
+# Rotate docker container stdout logs
+/var/lib/docker/containers/*/*.log {
+    su root root
+    rotate 10
+    missingok
+    compress
+    copytruncate
+    size 10M
+}

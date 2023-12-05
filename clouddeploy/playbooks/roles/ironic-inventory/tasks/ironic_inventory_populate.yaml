@@ -1,0 +1,120 @@
+- name: Looking for ironic network
+  set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+
+- name: Check if ironic network is reachable from ironic controller nodes
+  command: ping -c 4 -t 60 -W 15 {{ ironic_network['gateway'] }}
+  delegate_to: "{{ ironic_controller }}"
+  register: ironic_network_ping_tasks
+  async: 61
+  poll: 0
+  with_items: "{{ groups['ironic_all'] }}"
+  loop_control:
+      loop_var: ironic_controller
+
+- name: Fail if ironic network is not reachable from controllers
+  async_status:
+      jid: "{{ ironic_network_validation.ansible_job_id }}"
+  delegate_to: "{{ ironic_network_validation.ironic_controller }}"
+  register: _tasks
+  until: _tasks.finished
+  delay: 1
+  retries: 61
+  with_items: "{{ ironic_network_ping_tasks.results }}"
+  loop_control:
+      loop_var: ironic_network_validation
+  ignore_errors: "{{ IGNORE_GW_PING | default(False) }}"
+
+- block:
+      - set_fact:
+          IRONIC_INVENTORY_ERRORS: []
+
+      # Get list of existing ironic nodes and save it to EXISTING_IRONIC_NODES_STATE in convinient format
+      # Will be used in ironic_node_check.yaml
+      - set_fact:
+          ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: VAULT is defined and VAULT.enabled == True
+
+      - name: List ironic nodes
+        command: >
+                docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+                openstack
+                --os-interface internal
+                --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+                --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+                --os-user-domain-name default
+                --os-project-domain-name default
+                --os-username {{ ADMIN_USER }}
+                --os-password {{ ADMIN_USER_PASSWORD }}
+                --os-project-name {{ ADMIN_TENANT_NAME }}
+                baremetal node list --fields name provision_state -f json
+        ignore_errors: True
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        failed_when: false
+        register: EXISTING_IRONIC_NODES
+
+      - name: Parse nodes list
+        set_fact:
+          EXISTING_IRONIC_NODES: "{{ EXISTING_IRONIC_NODES.stdout |from_json }}"
+          EXISTING_IRONIC_NODES_STATE: {}
+
+      - name: Convert nodes list to <node>:<provision state> dictionary
+        set_fact:
+          EXISTING_IRONIC_NODES_STATE: "{{ EXISTING_IRONIC_NODES_STATE | combine({item['Name']: item['Provisioning State'] }) }}"
+        with_items: "{{ EXISTING_IRONIC_NODES }}"
+
+      # Errors appended to IRONIC_INVENTORY_ERRORS list
+      - include: ironic_node_check.yaml
+        with_dict: "{{ IRONIC_INVENTORY.SERVERS }}"
+
+      - name: Fail if there are errors
+        fail:
+          msg: "{{ IRONIC_INVENTORY_ERRORS }}"
+        when: "{{ IRONIC_INVENTORY_ERRORS | length > 0 }}"
+
+      - name: Create baremetal nodes
+        command: "python ../../tools/ironic_inventory.py add"
+        register: ironic_inventory_command
+        async: 1800
+        poll: 0
+
+      - name: Wait while baremetal nodes are being created
+        async_status:
+          jid: "{{ ironic_inventory_command.ansible_job_id }}"
+        register: job_result
+        until: job_result.finished
+        delay: 30
+        retries: 60
+        failed_when: False
+
+      - name: Fail if nodes creation failed
+        fail:
+          msg: "{{ job_result.stderr }}"
+        when: job_result.failed or job_result.rc != 0
+
+  when: IRONIC_INVENTORY is defined and IRONIC_INVENTORY.SERVERS is defined and IRONIC_INVENTORY.SERVERS | length > 0
+
+- block:
+      - name: Delete baremetal nodes
+        command: "python ../../tools/ironic_inventory.py delete"
+        register: ironic_inventory_command
+        async: 180
+        poll: 0
+
+      - name: Wait while baremetal nodes are being deleted
+        async_status:
+          jid: "{{ ironic_inventory_command.ansible_job_id }}"
+        register: job_result
+        until: job_result.finished
+        delay: 10
+        retries: 18
+        failed_when: False
+
+      - name: Fail if nodes deletion failed
+        fail:
+          msg: "{{ job_result.stderr }}"
+        when: job_result.failed or job_result.rc != 0
+
+  when: IRONIC_INVENTORY is defined

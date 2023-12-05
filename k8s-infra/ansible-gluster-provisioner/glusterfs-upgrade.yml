@@ -1,0 +1,6 @@
+---
+- hosts: kube-master[0]
+  tags:
+    - "glusterfs-upgrade"
+  roles:
+    - { role: glusterfs-upgrade }

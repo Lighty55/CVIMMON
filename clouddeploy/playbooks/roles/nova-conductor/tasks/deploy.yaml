@@ -1,0 +1,5 @@
+- include: nova_conductor_service_install.yaml
+- include: nova_conductor_service_config.yaml
+- include: nova_conductor_service_bootstrap.yaml
+  when: server is undefined
+- include: nova_conductor_service_start.yaml

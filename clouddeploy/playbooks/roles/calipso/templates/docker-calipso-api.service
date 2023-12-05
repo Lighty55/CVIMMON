@@ -1,0 +1,17 @@
+[Unit]
+Description=Calipso API container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode=none
+ExecStart=/usr/bin/docker start -a calipso_api_{{ docker.calipso_api.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 calipso_api_{{ docker.calipso_api.image_tag }}
+
+[Install]
+WantedBy=multi-user.target
+

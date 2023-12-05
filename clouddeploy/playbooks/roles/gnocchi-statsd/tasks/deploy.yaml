@@ -1,0 +1,92 @@
+##########################################
+# Gnocchi Statsd Install
+##########################################
+- name: Install | Create Gnocchi statsd Docker staging folder
+  file:
+    path: "/docker/gnocchi_statsd"
+    state: directory
+    mode: "0755"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Install | Copy Containers restart-on-boot files
+  template:
+     src: "docker-gnocchi-statsd.service"
+     dest: "/usr/lib/systemd/system/docker-gnocchi-statsd.service"
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+
+- name: Install | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+##########################################
+# Gnocchi Statsd Config
+##########################################
+- name: Install | Copy gnocchi stats systemd template
+  template:
+    src: "docker-gnocchi-statsd.service"
+    dest: "{{ docker.gnocchi_statsd.host_data_dir }}/docker-gnocchi-statsd.service"
+    mode: "0644"
+
+- name: Install | Copy gnocchi statsd config
+  template:
+     src: "gnocchi_statsd_config.j2"
+     dest: "{{ docker.gnocchi_statsd.host_data_dir }}/gnocchi_statsd_config.j2"
+     mode: "0644"
+
+- name: Install | Copy gnocchi ceph conf
+  template:
+     src: "{{ playbook_dir }}/roles/gnocchi-common/files/ceph.conf"
+     dest: "{{ docker.gnocchi_statsd.host_data_dir }}/ceph.conf"
+     mode: "0644"
+     owner: gnocchi
+     group: mercury
+
+##########################################
+# Gnocchi Statsd Start
+##########################################
+- name: Install | Check if Gnocchi statsd is already running
+  shell: docker ps -a | grep Up | grep gnocchistatsd_{{ docker.gnocchi_statsd.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Install | Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchistatsd='in_container gnocchistatsd_"
+    line: "alias gnocchistatsd='in_container gnocchistatsd_{{ docker.gnocchi_statsd.image_tag }}'"
+
+- name: Install | Start the Gnocchi statsd Docker
+  docker_container:
+    name: "gnocchistatsd_{{ docker.gnocchi_statsd.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.gnocchi_statsd.name }}:{{ docker.gnocchi_statsd.image_tag }}"
+    volumes:
+      - "{{ docker.gnocchi_statsd.host_data_dir }}:{{ docker.gnocchi_statsd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/gnocchi:/var/log/gnocchi:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Install | Check if Gnocchi statsd Docker container has started running
+  shell: docker ps -a | grep Up | grep gnocchistatsd_{{ docker.gnocchi_statsd.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Install | Fail if container is not UP.
+  fail: msg="Gnocchi Statsd Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Install | Enable Docker Services
+  service:
+    name: "docker-gnocchi-statsd"
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure

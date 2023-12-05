@@ -1,0 +1,12 @@
+- include: deploy.yaml
+  when: ACTION is undefined and (MECHANISM_DRIVERS in ["linuxbridge", "vts", "vpp", "openvswitch"])
+- include: update.yaml
+  when: (ACTION is defined and ACTION == "update") and (MECHANISM_DRIVERS in ["linuxbridge", "vts", "vpp", "openvswitch"])
+- include: commit.yaml
+  when: (ACTION is defined and ACTION == "commit") and (MECHANISM_DRIVERS in ["linuxbridge", "vts", "vpp", "openvswitch"])
+- include: rollback.yaml
+  when: (ACTION is defined and ACTION == "rollback") and (MECHANISM_DRIVERS in ["linuxbridge", "vts", "vpp", "openvswitch"])
+- include: upgrade.yaml
+  when: ACTION is defined and ACTION == "upgrade" and MECHANISM_DRIVERS != "vts"
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure"

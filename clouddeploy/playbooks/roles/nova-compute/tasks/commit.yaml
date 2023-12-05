@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova compute Directory
+  file:
+    path: "/docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-compute docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacompute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}" }
+
+- name: Remove nova compute image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_compute.name  }}"
+    tag: "{{ NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

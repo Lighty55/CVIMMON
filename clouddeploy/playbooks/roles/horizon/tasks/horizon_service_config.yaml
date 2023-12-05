@@ -1,0 +1,22 @@
+- name: Copy Horizon config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "horizon_config.j2",
+        dest: "{{ docker.horizon.host_data_dir }}/horizon_config" }
+
+- name: Copy Horizon Policy Files
+  template:
+    src: "{{ item }}"
+    dest: "{{ docker.horizon.host_data_dir }}/{{ item }}"
+  with_items:
+    - "cinder_policy.json"
+    - "glance_policy.json"
+    - "gnocchi_policy.json"
+    - "horizon_custom.py"
+    - "keystone_policy.json"
+    - "neutron_policy.json"
+    - "nova_policy.json"
+    - "heat_policy.json"

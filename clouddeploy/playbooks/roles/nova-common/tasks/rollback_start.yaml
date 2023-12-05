@@ -1,0 +1,92 @@
+- name: Shut off nova-common docker service
+  service:
+    name: docker-novacommon
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova common service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacommon.service"
+    state: absent
+
+- name: Systemctl daemon reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacommon_{{ docker.nova_common.image_tag }}" }
+
+- name: Remove nova common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_common.name }}"
+    tag: "{{ docker.nova_common.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova common volume contents
+- name: List nova common volume contents
+  shell: ls -A1 /docker/nova_common/
+  register: contents
+
+- name: Remove nova common volume contents
+  file:
+    path: /docker/nova_common/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+#  Recover the nova common volume contents
+- name: recover nova common volume contents
+  shell: cp /docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}/* /docker/nova_common/.
+
+# Now remove the backup volume
+- name: Remove back up nova common Directory
+  file:
+    path: "/docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy container restart-on boot files
+  command: cp /docker/nova_common/docker-novacommon.service /usr/lib/systemd/system/docker-novacommon.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novacommon='in_container novacommon_"
+    line: "{{ item }}"
+  with_items:
+    - alias novacommon='in_container novacommon_{{ NOVA_COMMON_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova common service
+  service:
+    name: docker-novacommon
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Nova Common Docker container has started running
+  shell: docker ps -a | grep Up | grep novacommon_{{ NOVA_COMMON_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Common Container does not seem to be running"
+  when: command_result.stdout == ""
+

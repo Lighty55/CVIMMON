@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old neutron linuxbridge containers
+####################################################
+# Neutron Linuxbridge Agent.
+- name: Shut off neutron linuxbridge docker service
+  service:
+    name: docker-neutronlb
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove neutron linuxbridge service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronlb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron linuxbridge docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron linuxbridge docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ LINUXBRIDGE_AGENT_PREVIOUS_NAME }}"
+    tag: "{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Neutron linuxbridge Directory
+  file:
+    path: "{{ docker.neutron_linuxbridge_agent.host_data_dir }}"
+    state: absent

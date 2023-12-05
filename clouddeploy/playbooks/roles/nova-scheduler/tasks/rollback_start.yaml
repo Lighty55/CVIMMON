@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and nova conductor
+- name: Shut off nova scheduler docker service
+  service:
+    name: docker-novasch
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova scheduler service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novasch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novascheduler_{{ docker.nova_scheduler.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_scheduler.name }}"
+    tag: "{{ docker.nova_scheduler.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova scheduler Directory
+- name: List nova scheduler Directory
+  shell: ls -A1 /docker/nova_scheduler/
+  register: contents
+
+- name: Remove nova scheduler Directory
+  file:
+    path: /docker/nova_scheduler/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the nova scheduler volume contents
+- name: recover nova scheduler volume contents
+  shell: cp /docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}/* /docker/nova_scheduler/.
+
+
+# Now remove the backup volume
+- name: Remove back up nova scheduler Directory
+  file:
+    path: "/docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_scheduler/docker-novasch.service /usr/lib/systemd/system/docker-novasch.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novascheduler='in_container novascheduler_"
+    line: "{{ item }}"
+  with_items:
+    - alias novascheduler='in_container novascheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova scheduler service
+  service:
+    name: docker-novasch
+    enabled: yes
+    state: started
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if Nova Scheduler  Docker container has started running
+  shell: docker ps -a | grep Up | grep novascheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Scheduler Container does not seem to be running"
+  when: command_result.stdout == ""

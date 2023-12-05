@@ -1,0 +1,106 @@
+# Stop docker now.
+- name: Shut off docker service
+  service:
+    name: docker
+    state: stopped
+
+- name: check if docker is stopped
+  shell: systemctl status docker | grep dead
+  register: docker_status
+  ignore_errors: true
+  failed_when: false
+
+- name: If docker is not dead again stop it and retry till success
+  shell: systemctl stop docker
+  register: docker_stop_status
+  until: docker_stop_status|success
+  retries: 5
+  delay: 30
+  when: docker_status is defined and docker_status.stdout == ""
+
+# Delete the logical volume
+- name: Find the logical volumes
+  shell: lvs | grep docker-pool | awk '{print $2}'
+  register: lvs_info
+  ignore_errors: true
+  failed_when: false
+
+- name: Logical volume deletion
+  shell: lvremove -y {{ lvs_info.stdout }}/docker-pool
+  when: lvs_info is defined and lvs_info.stdout is defined and lvs_info.stdout != ""
+  ignore_errors: true
+  failed_when: false
+
+# Now unmount the secrets
+- name: Unmount the secrets
+  shell: umount /run/secrets
+  ignore_errors: true
+  failed_when: false
+
+#Umount any mounted containers
+- name: Umount any mounted containers
+  shell:  mount | grep docker | grep mnt | awk '{print $3}' | xargs umount
+  ignore_errors: true
+  failed_when: false
+
+# Now unmount the container folder
+- name: Unmount the container folder
+  shell: mount | grep docker | grep containers | awk '{print $3}' | xargs umount
+  ignore_errors: true
+  failed_when: false
+
+# Now remove /var/lib/docker file system
+- name: Remove the var/lib/docker directory
+  shell: rm -rf /var/lib/docker/*
+
+# Flip to overlay2
+- name: Change the storage driver
+  lineinfile:
+    dest: /etc/sysconfig/docker-storage
+    state: present
+    regexp: '^DOCKER_STORAGE_OPTIONS=*'
+    line: 'DOCKER_STORAGE_OPTIONS="--storage-driver overlay2 "'
+
+- name: Set storage driver to overlay2
+  lineinfile:
+    dest: /etc/sysconfig/docker-storage-setup
+    state: present
+    regexp: "^"
+    line: "STORAGE_DRIVER=overlay2"
+
+- name: "Disable secrets and signature verification"
+  replace: dest=/etc/sysconfig/docker regexp="OPTIONS='--selinux-enabled --log-driver=journald'" replace="OPTIONS='--selinux-enabled --log-driver=journald --signature-verification=false --enable-secrets=false'"
+
+# Make sure to remove oci register machine
+- name: Remove oci-register-machine hook
+  file:
+    path: "/usr/libexec/oci/hooks.d/oci-register-machine"
+    state: absent
+
+- name: docker storage setup reinitialize
+  shell: docker-storage-setup
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now start the docker service
+- name: Start the docker service
+  service:
+    name: docker
+    state: started
+    enabled: yes
+  ignore_errors: true
+  failed_when: false
+
+# restart docker to workaround the bug in switch to overlay2
+- name: Restart docker
+  service:
+    name: docker
+    state: restarted
+    enabled: yes
+
+- name: Restart docker
+  service:
+    name: docker-iptables
+    state: restarted
+    enabled: yes

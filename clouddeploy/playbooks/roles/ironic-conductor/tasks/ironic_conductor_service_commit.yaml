@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Ironic Conductor directory
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old Ironic Conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_conductor_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}" }
+
+- name: Remove Ironic Conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}"
+    tag: "{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

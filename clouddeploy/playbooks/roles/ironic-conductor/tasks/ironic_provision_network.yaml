@@ -1,0 +1,116 @@
+- set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+    prov_net_name: "phys_prov"
+
+- set_fact:
+    ironic_network_pool: "[{% for i in ironic_network.pool %}{{ i.split('to') }},{%endfor%}]"
+
+- set_fact:
+    prov_net_name: "physnet1"
+  when: "{{ INTEL_NIC_SUPPORT }} is defined"
+
+- set_fact:
+    IRONIC_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/IRONIC_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Looking for the ironic provision network
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           network show {{ IRONIC_PROVISION_NETWORK_NAME }} -c id -f value
+  ignore_errors: True
+  failed_when: False
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: IRONIC_PROVISION_NETWORK_ID
+  run_once: True
+
+- name: Looking for the ironic provision subnet
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           subnet show {{ IRONIC_PROVISION_NETWORK_NAME }}-SUBNET -c id -f value
+  ignore_errors: True
+  failed_when: False
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: IRONIC_PROVISION_SUBNET_ID
+  run_once: True
+
+- name: Creating the ironic provision network
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           network create {{ IRONIC_PROVISION_NETWORK_NAME }}
+           --provider-network-type vlan
+           --provider-segment {{ ironic_network['vlan_id'] }}
+           --provider-physical-network {{ prov_net_name }}
+           --mtu 1500
+           -c id -f value
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: CREATED_IRONIC_PROVISION_NETWORK_ID
+  when: "{{ IRONIC_PROVISION_NETWORK_ID.rc == 1}}"
+  run_once: True
+
+- set_fact:
+    allocation_pool: "{% for i in range(0, ironic_network_pool | length) %} --allocation-pool start={{ ironic_network_pool[i][0] | trim }},end={% if ironic_network_pool[i] | length > 1 %}{{ ironic_network_pool[i][1] | trim }}{% elif ironic_network_pool[i] | length == 1 %}{{ ironic_network_pool[i][0] | trim }}{%endif%}{%endfor%}"
+
+- name: Creating the ironic provision subnet
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           subnet create {{ IRONIC_PROVISION_NETWORK_NAME }}-SUBNET
+           --network {{ IRONIC_PROVISION_NETWORK_NAME }}
+           --subnet-range {{ ironic_network['subnet'] }}
+           --ip-version 4
+           --gateway {{ ironic_network['gateway'] }} {{ allocation_pool }}
+           --dns-nameserver {{ NETWORKING['domain_name_servers'][0] }}
+           --dhcp
+           -c id -f value
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: CREATED_IRONIC_PROVISION_SUBNET_ID
+  when: "{{ IRONIC_PROVISION_SUBNET_ID.rc == 1}}"
+  run_once: True
+
+- set_fact:
+    IRONIC_PROVISION_NETWORK_ID: "{{ CREATED_IRONIC_PROVISION_NETWORK_ID.stdout if CREATED_IRONIC_PROVISION_NETWORK_ID.changed and CREATED_IRONIC_PROVISION_NETWORK_ID.rc == 0 else IRONIC_PROVISION_NETWORK_ID.stdout if IRONIC_PROVISION_NETWORK_ID.rc == 0 else None }}"
+
+- fail:
+    msg: "Ironic network could not be created {{ CREATED_IRONIC_PROVISION_NETWORK_ID.stdout }} "
+  when: "{{ not IRONIC_PROVISION_NETWORK_ID }}"

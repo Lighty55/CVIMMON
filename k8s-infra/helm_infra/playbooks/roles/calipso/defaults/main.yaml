@@ -1,0 +1,66 @@
+internal_protocol: http
+
+# Helm Directory Information
+helm_parent_directory: "application-charts"
+calipso_app_directory: "calipso"
+calipso_deployment_name: "calipso"
+conf_bin_path: "/opt/cisco/cvimmon-k8s"
+calipso_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor"
+calipso_helm_upgrade_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/calipso"
+calipso_metro_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/calipso/calipso-values.yaml"
+
+# Passwords File Path
+password_file_path: /root/openstack-configs/secrets.yaml
+
+# Calipso Namespace
+calipso_namespace: calipso
+
+# Calipso-api PV settings
+calipso_api_pv_accessmode: ReadWriteMany
+calipso_api_pv_size: 1Gi
+calipso_api_storage_class: portworx-sc
+
+# Calipso-mongo PV settings
+calipso_mongo_pv_accessmode: ReadWriteMany
+calipso_mongo_pv_size: 100Gi
+calipso_mongo_storage_class: portworx-sc
+
+##Certificate Specific
+validity_days: 365
+bits: 2048
+
+# Cert and pwd related variables
+calipso_api_user: calipso
+calipso_api_cert_filename: calipso_api
+calipso_api_key_out_path: /tmp/{{ calipso_api_cert_filename }}.key
+calipso_api_cert_out_path: /tmp/{{ calipso_api_cert_filename }}.crt
+calipso_api_cert_checksum: {stdout: "dummy"}
+calipso_mongo_user: calipso
+calipso_mongo_cert_filename: calipso_mongo
+calipso_mongo_key_out_path: /tmp/{{ calipso_mongo_cert_filename }}.key
+calipso_mongo_cert_out_path: /tmp/{{ calipso_mongo_cert_filename }}.crt
+calipso_mongo_cert_checksum: {stdout: "dummy"}
+
+# Calipso API Ingress
+ingress_class_calipso_api: "nginx"
+ingress_secret_calipso_api: "calipso-api-cert"
+ingress_cert_calipso_api: "{{ calipso_namespace }}/{{ ingress_secret_calipso_api }}"
+ingress_authsecret_calipso_api: "calipso-api-auth-k8s"
+ingress_host_calipso_api: "calipso-api-cluster-monitor.{{ cvimmon_domain_suffix }}"
+
+# Calipso Mongo Ingress
+ingress_class_calipso_mongo: "nginx"
+ingress_secret_calipso_mongo: "calipso-mongo-cert"
+ingress_cert_calipso_mongo: "{{ calipso_namespace }}/{{ ingress_secret_calipso_mongo }}"
+ingress_authsecret_calipso_mongo: "calipso-mongo-auth-k8s"
+ingress_host_calipso_mongo: "calipso-mongo-cluster-monitor.{{ cvimmon_domain_suffix }}"
+
+# Other calipso values
+CALIPSO_CONFIG_DIR: /var/lib/calipso
+CALIPSO_MONGO_SERVICE_BIND_PORT: 27017
+CALIPSO_API_SERVICE_BIND_PORT: 8747
+CALIPSO_API_CONFIG_DESTINATION: /calipso/api/api_auth_config.json
+CALIPSO_MONGO_SERVICE_AUTH_ENABLED: true
+
+CALIPSO_PYTHON_ELASTICSEARCH_VERSION: 7.0.4-1.el7.noarch
+CALIPSO_RPM_VERSION: 0.8.0-1

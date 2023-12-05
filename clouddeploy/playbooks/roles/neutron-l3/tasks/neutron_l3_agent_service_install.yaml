@@ -1,0 +1,46 @@
+- name: Create Neutron L3 Agent Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_l3_agent
+
+# Check for e vnic
+- name: Check for e vnic
+  command: ip link show e
+  register: e_result
+  ignore_errors: true
+  failed_when: false
+
+- set_fact:
+     EXT_VNIC: true
+  when: e_result.rc == 0
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutronl3.service",
+        dest: "/usr/lib/systemd/system/docker-neutronl3.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Copy Neutron L3 Agent Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+        dest: "{{ docker.neutron_l3_agent.host_data_dir }}/neutron_config" }

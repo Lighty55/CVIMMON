@@ -1,0 +1,22 @@
+- name: Copy Nova Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/nova-api/templates/{{ item }}"
+    dest: "{{docker.nova_api.host_data_dir }}/{{ item }}"
+  with_items:
+    - "nova_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.nova_api.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart nova API service
+  service:
+    name: "docker-novaapi"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Nova api to be alive
+  wait_for: host={{ control_bond }} port={{ NOVA_API_PORT }}
+  when: policy.changed

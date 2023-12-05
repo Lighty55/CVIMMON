@@ -1,0 +1,66 @@
+- name: Copy the new nova compute configuration file
+  include: ironic_nova_compute_service_config.yaml
+  vars:
+    IRONIC_NOVA_COMPUTE_CONFIG_FILE: nova_compute_reconfigure
+
+- name: Compare old and new rendered template
+  command: "diff {{ docker.ironic_nova_compute.host_data_dir }}/ironic_nova_compute_config {{ docker.ironic_nova_compute.host_data_dir }}/nova_compute_reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+- name: Generate the reconfig credentials
+  command: docker exec ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- block:
+      # Now if there is a diff there is a need to reconfigure
+      - name: Copy the new render config
+        command: "mv {{ docker.ironic_nova_compute.host_data_dir }}/nova_compute_reconfigure {{ docker.ironic_nova_compute.host_data_dir }}/ironic_nova_compute_config"
+
+      # Remove the reconfigure file when there is no diff
+      - name: Remove reconfigure file
+        file:
+          path: "{{ docker.ironic_nova_compute.host_data_dir }}/nova_compute_reconfigure"
+          state: absent
+
+      # Now delete the template file inside the container
+      - name: Copy the Ironic Nova Compute config file inside container to force a reconfigure
+        command: "docker cp {{ docker.ironic_nova_compute.host_data_dir }}/ironic_nova_compute_config ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }}:/opt/kolla/"
+
+      - name: systemctl reset-failed docker-ironicnovacpu
+        command: systemctl reset-failed docker-ironicnovacpu
+
+      - name: Restart nova compute service
+        service:
+          name: "{{ item }}"
+          enabled: yes
+          state: restarted
+        with_items:
+          - docker-ironicnovacpu
+
+      - pause: seconds=5 prompt="Waiting for sometime"
+
+      - name: Check if Ironic Nova Compute docker container has started running
+        shell: docker ps -a | grep Up | grep ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} | cut -f1 -d " "
+        register: container_status
+
+      - name: Fail if container is not UP.
+        fail: msg="nova compute Container does not seem to be running"
+        when: (container_status is defined and container_status.stdout == "")
+
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))

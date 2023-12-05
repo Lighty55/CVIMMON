@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove mariadb Directory
+  file:
+    path: "/docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old mariadb docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "mariadb_{{ MARIADB_PREVIOUS_TAG }}" }
+
+- name: Remove mariadb docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.mariadb.name }}"
+    tag: "{{ MARIADB_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

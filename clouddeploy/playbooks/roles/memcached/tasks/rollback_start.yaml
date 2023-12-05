@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and memcached
+- name: Shut off memcached docker service
+  service:
+    name: docker-memcached
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove memcached service file
+  file:
+    path: "/usr/lib/systemd/system/docker-memcached.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove memcached docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "memcached_{{ docker.memcached.image_tag }}" }
+
+- name: Remove memcached docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.memcached.name }}"
+    tag: "{{ docker.memcached.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: List the memcached volume contents
+  shell: ls -A1 /docker/memcached/
+  register: contents
+
+- name: Remove the memcached volume contents
+  file:
+    path: /docker/memcached/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+# Recover the memcached volume contents
+- name: Recover the memcached volume contents
+  command: cp /docker/memcached_{{ MEMCACHED_PREVIOUS_TAG}}/docker-memcached.service /usr/lib/systemd/system/docker-memcached.service
+
+- name: Recover memcached configuration files
+  shell: cp /docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}/* /docker/memcached/.
+
+# Now remove the backup volume
+- name: Remove back up memcached Directory
+  file:
+    path: "/docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Enable Service Manager Definition
+##########################################
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias memcached='in_container memcached_"
+    line: "{{ item }}"
+  with_items:
+    - alias memcached='in_container memcached_{{ MEMCACHED_PREVIOUS_TAG }}'
+
+# Start the memcached docker service
+- name: Start the memcached docker service
+  service:
+    name: docker-memcached
+    enabled: yes
+    state: started
+
+- name: Wait for memcached to be alive
+  wait_for: host={{ MEMCACHED_SERVICE_HOST }} port={{ MEMCACHED_PORT }}

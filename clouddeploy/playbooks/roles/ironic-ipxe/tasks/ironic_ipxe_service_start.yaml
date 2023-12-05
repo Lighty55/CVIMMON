@@ -1,0 +1,63 @@
+- name: Check if Ironic iPXE Docker container is already running
+  shell: docker ps -a | grep Up | grep ironic_ipxe_{{ docker.ironic_ipxe.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicipxe='in_container ironic_ipxe"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicipxe='in_container ironic_ipxe_{{ docker.ironic_ipxe.image_tag }}'
+
+- name: Create log file
+  file: path=/var/log/xinetd state=directory owner=root group=500 mode=0770 recurse=yes
+
+- name: Start the Ironic iPXE Docker Service
+  docker_container:
+    name: "ironic_ipxe_{{ docker.ironic_ipxe.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ironic_ipxe.name }}:{{ docker.ironic_ipxe.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.ironic_ipxe.host_data_dir }}:{{ docker.ironic_ipxe.host_data_dir }}:ro,z"
+      - "{{ IRONIC_VOLUME }}/httpboot:/httpboot:z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ironic:/var/log/ironic:z
+    interactive: yes
+    network_mode: "host"
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic iPXE Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_ipxe_{{ docker.ironic_ipxe.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ironic iPXE Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicipxe
+  tags:
+    - reboot-on-failure
+
+- name: Reset systemctl failures
+  shell: systemctl reset-failed
+  when: 'ACTION is defined and ACTION == "update"'
+
+- name: Make sure Ironic iPXE is started again after update
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicipxe
+  when: 'ACTION is defined and ACTION == "update"'

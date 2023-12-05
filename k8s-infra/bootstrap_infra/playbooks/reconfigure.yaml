@@ -1,0 +1,30 @@
+- name: Setup NTP on Management Node
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "ntp", tags: ["ntp", "mgmt_setup"] }
+
+- name: Setup NTP on All Nodes
+  hosts: all-servers{{server|default('')}}
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "ntp", tags: ["ntp", "common_setup"] }
+
+- name: Setup DNS on Management Node
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "dns", tags: ["dns", "mgmt_setup"] }
+
+- name: Setup DNS on All Nodes
+  hosts: all-servers{{server|default('')}}
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "dns", tags: ["dns", "common_setup"] }
+

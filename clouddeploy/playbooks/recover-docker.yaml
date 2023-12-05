@@ -1,0 +1,71 @@
+#
+# Playbook to be used by the cvim_recover_docker.py script
+#
+---
+- name: Recover docker on all nodes
+  hosts: host_power_all
+  vars:
+  max_fail_percentage: 0
+  user: root
+  tasks:
+    - debug: msg="host {{ ansible_hostname}} {{ inventory_hostname }}"
+
+    - name: Check if any container is up
+      shell: docker ps | awk '/Up/' | wc -l
+      register: d_up
+      failed_when: d_up|failed
+
+    - debug: msg="{{ d_up }}"
+      when: d_up is defined
+
+    - name: Stop docker service
+      service:
+        name: docker
+        state: stopped
+      ignore_errors: True
+      when: not d_up.stdout|int
+
+    - name: Remove docker package
+      yum:
+        name: docker
+        state: removed
+      when: not d_up.stdout|int
+
+    - name: Install docker package
+      yum:
+        name: docker
+        state: present
+        update_cache: yes
+      register: check_pkg
+      until: check_pkg|success
+      retries: 5
+      delay: 3
+      when: not d_up.stdout|int
+
+    - name: Start docker service
+      service:
+        name: docker
+        state: started
+      when: not d_up.stdout|int
+
+    - name: Get list of exited containers
+      shell: ls -l /usr/lib/systemd/system/docker-* | awk '{print $NF}' | cut -d'/' -f6 | cut -d'.' -f1
+      register: services
+      ignore_errors: yes
+      failed_when: services|failed
+      when: not d_up.stdout|int
+
+    - set_fact:
+         svc_list: "{{ services.stdout_lines | difference(['docker-cleanup', 'docker-iptables', 'docker-storage-setup']) }}"
+      when: not d_up.stdout|int
+
+    - debug: msg="{{ svc_list }}"
+      when: not d_up.stdout|int
+
+    - name: Start kolla services
+      service:
+        name: "{{ item }}"
+        state: started
+        daemon_reload: yes
+      with_items: "{{ svc_list }}"
+      when: not d_up.stdout|int

@@ -1,0 +1,34 @@
+- block:
+    - name: Create temp directory
+      file:
+        path="{{tor_data_dir}}"
+        state=directory
+
+    - name: Cleanup config directory
+      file:
+        path="{{tor_data_dir}}/{{interfaces_conf}}.{{ironic_switch['hostname']}}.cfg"
+        state=absent
+
+    - name: Generate interfaces configuration
+      template:
+        src=interfaces.cfg.jinja2
+        dest={{tor_data_dir}}/{{interfaces_conf}}.{{ironic_switch['hostname']}}.cfg
+
+    - name: Configuring interfaces
+      nxos_config:
+        provider:
+          host: "{{ ironic_switch['ssh_ip'] }}"
+          username: "{{ ironic_switch['username'] }}"
+          password: "{{ ironic_switch['password'] }}"
+          timeout: 180
+        src: "{{tor_data_dir}}/{{interfaces_conf}}.{{ironic_switch['hostname']}}.cfg"
+        after: 'copy run start'
+      register: output
+
+    - name: Delete temp directory
+      file:
+        path="{{tor_data_dir}}"
+        state=absent
+
+  run_once: true
+  delegate_to: 127.0.0.1

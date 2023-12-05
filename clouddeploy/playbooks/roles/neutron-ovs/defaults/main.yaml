@@ -1,0 +1,21 @@
+NEUTRON_HOST: "{{ control_bond }}"
+API_BIND_PORT: 9696
+LOCAL_IP: "{{ tenant_bond }}"
+BRIDGE_INST: "br-inst"
+tenant_if: "t"
+BRIDGE_EX: "br-ex"
+external_if: "{{ L3_PHYSICAL_INTERFACE }}"
+BRIDGE_PROV: "br-prov"
+BRIDGE_PROV_FIA: "br-prov0"
+BRIDGE_PROV_FIB: "br-prov1"
+PROVIDER_EXISTS: "{{ provider_exists }}"
+prov_if: "p"
+prov_if_fia: "p0"
+prov_if_fib: "p1"
+tenant_bond: "{{ tenant_bond }}"
+tenant_cidr: "{{ tenant_cidr }}"
+tenant_gw: "{{ tenant_gw }}"
+OVS_AGENT_PREVIOUS_TAG:
+OVS_AGENT_PREVIOUS_NAME:
+TENANT_VLAN_RANGES: 2:4094
+PASSWORD_VARS: ADMIN_USER_PASSWORD,DB_ROOT_PASSWORD,NEUTRON_DB_PASSWORD,NOVA_KEYSTONE_PASSWORD,NEUTRON_KEYSTONE_PASSWORD,RABBITMQ_PASSWORD,METADATA_PROXY_SHARED_SECRET

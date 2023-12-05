@@ -1,0 +1,103 @@
+# First remove the new container and artifacts
+- name: Shut off neutron opflex agent docker service
+  service:
+    name: docker-neutronopflexagent
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron opflex agent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronopflexagent.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron opflex agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }}" }
+
+- name: Remove neutron opflex agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_opflex_agent.name }}"
+    tag: "{{ docker.neutron_opflex_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron opflex agent volume contents
+- name: List neutron opflex agent volume contents
+  shell: ls -A1 /docker/neutron_opflex_agent/
+  register: contents
+
+- name: Remove neutron opflex agent volume contents
+  file:
+    path: /docker/neutron_opflex_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron opflex agent volume contents
+- name: recover neutron opflex agent volume contents
+  shell: cp /docker/neutron_opflex_agent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}/* /docker/neutron_opflex_agent/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron opflex agent Directory
+  file:
+    path: "/docker/neutron_opflex_agent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_opflex_agent/docker-neutronopflexagent.service /usr/lib/systemd/system/docker-neutronopflexagent.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias neutronopflexagent='in_container neutron_opflexagent_"
+    line: "{{ item }}"
+  with_items:
+    - alias neutronopflexagent='in_container neutron_opflexagent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}'
+
+- name: Start opflex agent container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutronopflexagent
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=60 prompt="Waiting for sometime"
+
+- name: Check if neutron opflex agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_opflexagent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron opflex agent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-agentovs
+  tags:
+    - reboot-on-failure
+

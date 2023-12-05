@@ -1,0 +1,109 @@
+# Magnum API.
+- name: Shut off magnum api docker service
+  service:
+    name: docker-magnumapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - magnumapi_shutdown
+
+- name: Remove magnumapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumapi.service"
+    state: absent
+  tags:
+    - magnumapi_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - magnumapi_shutdown
+
+- name: Stop and remove magnum-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumapi_{{ docker.magnum_api.image_tag }}" }
+  tags:
+    - magnumapi_shutdown
+
+- name: Remove magnum docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_api.name }}"
+    tag: "{{ docker.magnum_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - magnumapi_shutdown
+
+- name: Remove magnum API Directory
+  file:
+    path: "{{ docker.magnum_api.host_data_dir }}"
+    state: absent
+  tags:
+    - magnumapi_shutdown
+
+# Magnum Conductor.
+- name: Shut off magnum conductor docker service
+  service:
+    name: docker-magnumconductor
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - magnumconductor_shutdown
+
+- name: Remove magnumconductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumconductor.service"
+    state: absent
+  tags:
+    - magnumconductor_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - magnumconductor_shutdown
+
+- name: Remove magnum bootstrap container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumconductor_bootstrap" }
+  tags:
+    - magnumconductorbootstrap_shutdown
+
+
+- name: Stop and remove magnum conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumconductor_{{ docker.magnum_conductor.image_tag }}" }
+  tags:
+    - magnumconductor_shutdown
+
+- name: Remove magnum conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}"
+    tag: "{{ docker.magnum_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - magnumconductor_shutdown
+
+- name: Remove Magnum conductor Directory
+  file:
+    path: "{{ docker.magnum_conductor.host_data_dir }}"
+    state: absent
+  tags:
+    - magnumconductor_shutdown

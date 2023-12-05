@@ -1,0 +1,36 @@
+- name: Copy the ping script
+  copy:
+    src: "ping.py"
+    dest: "/tmp/ping.py"
+    mode: "0111"
+
+- name: Pinging all the server Management IPs
+  command: python /tmp/ping.py {{ groups['host_power_all'] | join (" ") }}
+  register: ping_output
+
+- name: Checking for Packet loss
+  fail: msg="Following hosts failed {{ ping_output.stdout_lines }}"
+  when: ping_output.stdout != ""
+
+- name: Pinging all the server tenant IPs
+  command: python /tmp/ping.py {{ groups['host_power_all_compute_tenant_ips'] | join (" ") }}
+  when: TENANT_NETWORK_TYPES != "VLAN"
+  register: ping_output
+
+- name: Checking for Packet loss
+  fail: msg="Following hosts failed {{ ping_output.stdout_lines }}"
+  when: TENANT_NETWORK_TYPES != "VLAN" and ping_output.stdout != ""
+
+- name: Pinging all the server Management IPv6s
+  command: python /tmp/ping.py {% for host in groups['host_power_all'] if hostvars[host]['management_ipv6'] is defined %}{{ hostvars[host]['management_ipv6'] }} {% endfor %}
+  when: management_ipv6 is defined and management_ipv6 != ""
+  register: ping_output_v6
+
+- name: Checking for IPv6 Packet loss
+  fail: msg="Following hosts failed {{ ping_output_v6.stdout_lines }}"
+  when: ping_output_v6 is defined and ping_output_v6.stdout != ""
+
+- name: Remove the ping script
+  file:
+    path: /tmp/ping.py
+    state: absent

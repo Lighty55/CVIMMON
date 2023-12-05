@@ -1,0 +1,49 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep ovs_dbserver_{{ docker.ovs_dbserver.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ovsdb='in_container ovs_dbserver_"
+    line: "{{ item }}"
+  with_items:
+    - alias ovsdb='in_container ovs_dbserver_{{ docker.ovs_dbserver.image_tag }}'
+
+- name: Start the ovs dbserver Docker Service
+  docker_container:
+    name: "ovs_dbserver_{{ docker.ovs_dbserver.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ovs_dbserver.name }}:{{ docker.ovs_dbserver.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.ovs_dbserver.host_data_dir }}:{{ docker.ovs_dbserver.host_data_dir }}:ro,z"
+      - /var/log/openvswitch:/var/log/openvswitch:z
+      - /etc/localtime:/etc/localtime:ro
+      - ovsdbdata:/etc/openvswitch
+      - /run:/run:shared
+    interactive: yes
+    privileged: true
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Check if OVS dbserver Docker container has started running
+  shell: docker ps -a | grep Up | grep ovs_dbserver_{{ docker.ovs_dbserver.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="ovs dbserver Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ovs_dbserver
+  tags:
+    - reboot-on-failure

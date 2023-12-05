@@ -1,0 +1,15 @@
+---
+sources:
+    - name: event_source
+      events:
+          - "*"
+      sinks:
+          - event_sink
+sinks:
+    - name: event_sink
+      transformers:
+      publishers:
+          - https://{{ ZENOSS_PUBLISHER }}:8342/ceilometer/v1/events/{{ ZENOSS_DEVICE }}?verify_ssl=False
+{% if ZENOSS_HA_PUBLISHER is defined %}
+          - https://{{ ZENOSS_HA_PUBLISHER }}:8342/ceilometer/v1/events/{{ ZENOSS_DEVICE }}?verify_ssl=False
+{% endif %}

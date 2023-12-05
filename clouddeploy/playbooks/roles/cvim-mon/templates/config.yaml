@@ -1,0 +1,40 @@
+cobbler_file: /var/lib/cvim_mon/.cobbler_data.yaml
+setup_file: /var/lib/cvim_mon/setup_data.yaml
+cvim_mon_config_file: /var/lib/cvim_mon/cvim_mon_config
+intervals_file: /var/lib/cvim_mon/telegraf_plugins_intervals.yaml
+config_folder: /var/lib/cvim_mon/
+intel_nic_interfaces:
+  ceph:
+    c: [c0, c1]
+    samx: [samx0, samx1]
+  compute:
+    samx: [samx0, samx1]
+  control:
+    samx: [samx0, samx1]
+  storage:
+    samx: [samx0, samx1]
+  mgmt:
+    br_mgmt: [br_mgmt]
+
+cisco_vic_interfaces:
+  ceph:
+    c: [c0, c1]
+    samx: [samx0, samx1]
+  compute:
+    s: [s0, s1]
+    m: [mx0, mx1]
+    t: [t0, t1]
+  control:
+    s: [s0, s1]
+    m: [mx0, mx1]
+    t: [t0, t1]
+    a: [a0, a1]
+    e: [e0, e1]
+  storage:
+    s: [s0, s1]
+    m: [mx0, mx1]
+  mgmt:
+    br_mgmt: [br_mgmt]
+
+plugin_configs_base: /var/lib/cvim_mon/conf-template/
+

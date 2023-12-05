@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_api_{{ NOVA_API_PREVIOUS_TAG }}
+
+# Back up the nova api volume contents
+- name: back up the nova api volume contents
+  shell: cp /docker/nova_api/* /docker/nova_api_{{ NOVA_API_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova api systemd file
+  command: cp /usr/lib/systemd/system/docker-novaapi.service /docker/nova_api_{{ NOVA_API_PREVIOUS_TAG }}/docker-novaapi.service
+
+#####################################################
+# Shut down the old nova api containers
+####################################################
+# Nova API.
+- name: Shut off nova api docker service
+  service:
+    name: docker-novaapi
+    enabled: no
+    state: stopped
+
+- name: Remove novaapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of nova api volume
+- name: List contents of nova api volume
+  shell: ls -A1 /docker/nova_api/
+  register: contents
+
+- name: Remove contents of nova api volume
+  file:
+    path: /docker/nova_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

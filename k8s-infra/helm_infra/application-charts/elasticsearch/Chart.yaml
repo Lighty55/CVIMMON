@@ -1,0 +1,13 @@
+name: elasticsearch
+home: https://www.elastic.co/products/elasticsearch
+version: 1.13.0
+appVersion: 6.4.2
+description: Flexible and powerful open source, distributed real-time search and analytics
+  engine.
+sources:
+- https://www.elastic.co/products/elasticsearch
+- https://github.com/jetstack/elasticsearch-pet
+- https://github.com/giantswarm/kubernetes-elastic-stack
+- https://github.com/GoogleCloudPlatform/elasticsearch-docker
+- https://github.com/clockworksoul/helm-elasticsearch
+- https://github.com/pires/kubernetes-elasticsearch-cluster

@@ -1,0 +1,12 @@
+---
+helm_parent_directory: "application-charts"
+nginx_deployment_name: "nginx-ingress"
+nginx_namespace: "kube-system"
+nginx_default_backend_deployment: "nginx-ingress-default-backend"
+nginx_ingress_controller_daemonset: "nginx-ingress-controller"
+helm_app_directory: "nginx-ingress"
+nginx_helm_upgrade_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/nginx"
+
+# Host Ports for Ingress Gateway
+ingress_http_port: 80
+ingress_https_port: 443

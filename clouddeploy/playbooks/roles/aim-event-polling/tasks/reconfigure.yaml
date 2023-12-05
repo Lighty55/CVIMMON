@@ -1,0 +1,54 @@
+- name: Copy the new aim configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "aim_config.j2", dest: "{{docker.aim_event_polling.host_data_dir }}/aim_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/aim_event_polling/aim_config /docker/aim_event_polling/aim_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/aim_event_polling/aim_reconfigure /docker/aim_event_polling/aim_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/aim_event_polling/aim_reconfigure state=absent
+  when: command_result.stdout == ""
+
+- name: Update config file inside container to force a reconfigure
+  command: docker cp /docker/aim_event_polling/aim_config aimeventpolling_{{ docker.aim_event_polling.image_tag }}:/opt/kolla/aim_config
+  when: command_result.stdout != ""
+
+- name: Update config file inside container to force a reconfigure
+  command: docker cp /docker/aim_event_polling/aim_config aimeventpolling_{{ docker.aim_event_polling.image_tag }}:/etc/aim/aim.conf
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart aim event polling service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-aimeventpolling
+  when: command_result.stdout != ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != ""
+
+- name: Check if aim event polling Docker container has started running
+  shell: docker ps -a | grep Up | grep aimeventpolling_{{ docker.aim_event_polling.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != ""
+
+- name: Fail if container is not UP.
+  fail: msg="aim event polling Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

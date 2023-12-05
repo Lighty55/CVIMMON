@@ -1,0 +1,41 @@
+---
+- name: "Check Cluster State"
+  shell: "kubectl get nodes --no-headers | grep -v -w 'Ready' || true "
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 40
+  delay: 3
+  changed_when: false
+
+- name: "Get Validity Period for all k8s components"
+  shell: "kubeadm alpha certs check-expiration | grep {{ item }}"
+  register: cert_val_pre_renew
+  changed_when: false
+  with_items: "{{ kubernetes_certificates }}"
+
+- name: "Renew Validity Period for all k8s components"
+  shell: "kubeadm alpha certs renew {{ item }}"
+  with_items: "{{ kubernetes_certificates }}"
+
+- name: "Get Validity Period for all k8s components post renewal"
+  shell: "kubeadm alpha certs check-expiration | grep {{ item }}"
+  register: cert_val_post_renew
+  changed_when: false
+  with_items: "{{ kubernetes_certificates }}"
+
+- name: "Fail if any of the ceritficates are not renewed"
+  fail:
+    msg: "Error: {{ item[0].item }} certificate is not renewed on {{ inventory_hostname }}"
+  when: item[0].stdout == item[1].stdout
+  with_together:
+    - "{{ cert_val_pre_renew.results }}"
+    - "{{ cert_val_post_renew.results }}"
+
+- name: "Check if all Pods in Kube-System are Healthy"
+  environment:
+  shell: "kubectl get --namespace kube-system pods --no-headers | grep -v -w 'Running' || true "
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 40
+  delay: 3
+  changed_when: false

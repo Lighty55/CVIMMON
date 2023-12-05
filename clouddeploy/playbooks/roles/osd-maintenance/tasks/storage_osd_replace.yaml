@@ -1,0 +1,63 @@
+- name: get current cephmon container
+  shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+  register: cur_cephmon
+  run_once: True
+  failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+
+- name: Remove OSD from cluster
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd out {{ osd_name }}
+  run_once: True
+
+- name: Stop the OSD process in the storage node
+  service:
+    name: "ceph-osd@{{ osd_id }}.service"
+    state: stopped
+  delegate_to: "{{ host_name }}"
+  run_once: True
+  ignore_errors: True
+
+- name: Remove the OSD from the crush map
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd crush remove {{ osd_name }}
+  run_once: True
+
+- name: Remove the OSD auth keys
+  shell: docker exec {{ cur_cephmon.stdout }} ceph auth del {{ osd_name }}
+  run_once: True
+
+- name: Remove the OSD from the ceph cluster
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd rm {{ osd_name }}
+  run_once: True
+
+- name: Unmount the failed drive path
+  shell:
+    cmd: "systemctl stop 'var-lib-ceph-osd-ceph\\x2d{{ osd_id }}.mount'"
+  delegate_to: "{{ host_name }}"
+  run_once: True
+
+- name: Get existing line in /etc/fstab for the osd
+  shell:
+    cmd: cat /etc/fstab | grep -w ceph-{{ osd_id }}
+  register: fstab_line
+  delegate_to: "{{ host_name }}"
+  run_once: True
+
+- name: Update /etc/fstab and comment out existing UUID and mount information
+  lineinfile:
+    dest: /etc/fstab
+    state: present
+    regexp: '(ceph-{{ osd_id }} )'
+    line: "#{{ item }}"
+  with_items: "{{ fstab_line.stdout }}"
+  delegate_to: "{{ host_name }}"
+  run_once: True
+
+- name: reload systemctl daemon
+  shell:
+    cmd: /usr/bin/systemctl daemon-reload
+  delegate_to: "{{ host_name }}"
+  run_once: True
+
+- name: Add the new disk as an OSD
+  include: storage_osd_add_new.yaml
+  delegate_to: "{{ host_name }}"
+  run_once: True

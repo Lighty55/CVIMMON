@@ -1,0 +1,26 @@
+- include: generate-updatefile.yaml
+- include: fluentd-update.yaml
+- include: memcached-update.yaml
+- include: haproxy-update.yaml
+- include: galera-update.yaml
+- include: rabbitmq-update.yaml
+- include: keystone-update.yaml
+- include: gnocchi-update.yaml
+- include: glance-update.yaml
+- include: gobgp-update.yaml
+- include: cinder-update.yaml
+- include: ironic-update.yaml
+- include: neutron-update.yaml
+- include: nova-update.yaml
+- include: cloudpulse-update.yaml
+- include: horizon-update.yaml
+- include: heat-update.yaml
+- include: ceilometer-update.yaml
+- include: cvim-mon-configure.yaml
+- include: post-rollback.yaml
+- include: openrc.yaml
+- include: cloud-check.yaml
+# cloud-sanity.yaml must be the last playbook
+- include: cloud-sanity.yaml
+- include: vts-sanity.yaml
+

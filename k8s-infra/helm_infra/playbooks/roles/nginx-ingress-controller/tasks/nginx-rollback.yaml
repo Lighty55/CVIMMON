@@ -1,0 +1,50 @@
+- name: "nginx: Get the old version number from the saved file"
+  slurp: { src: "{{ nginx_helm_upgrade_path }}/nginx-old-version" }
+  register: nginx_revision_file
+
+- name: "nginx: Get the old version"
+  set_fact:
+    nginx_old_version="{{ nginx_revision_file['content'] | b64decode | regex_findall('NGINX-OLD-REVISION=(.+)') | first }}"
+
+- name: "nginx: Helm upgrade to the new version"
+  command: >
+    /usr/bin/helm rollback "{{ nginx_deployment_name }}" {{ nginx_old_version }}
+
+- name: Check Rollout Status of Nginx Backend Deployment
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s deployment "{{ nginx_default_backend_deployment }}"
+
+- name: Check Rollout Status of Nginx Daemonsets
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s daemonset {{ nginx_ingress_controller_daemonset }} -n {{ nginx_namespace }}
+
+- name: Ensure nginx-ingress daemonsets have started
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ nginx_namespace }}" get daemonset {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ nginx_ingress_controller_daemonset }}"
+
+- name: "Ensure Nginx Default Backend Deployment and pods are up and running."
+  changed_when: false
+  register: "nginx_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=nginx-ingress --output=json --namespace={{ nginx_namespace }}"
+  until:
+      - "nginx_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "nginx_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 10
+  delay: 5
+
+- name: "nginx: Clear the old-version file"
+  file:
+    state: absent
+    path: "{{ nginx_helm_upgrade_path }}/nginx-old-version"
+
+- fail:
+    msg: "The {{ nginx_deployment_name }} update failed and it was rollbacked to the old version"
+  when: nginx_update_status is failed

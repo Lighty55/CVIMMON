@@ -1,0 +1,35 @@
+- name: Cinder API Update
+  hosts: cinder_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-api", tags: ["cinder_update", "cinder_upgrade", "cinder-api"] }
+  serial: "30%"
+
+- name: Cinder Scheduler Update
+  hosts: cinder_scheduler_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-scheduler", tags: ["cinder_update", "cinder_upgrade", "cinder-scheduler"] }
+  serial: "30%"
+
+- name: Cinder Volume Update
+  hosts: cinder_volume_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-volume", tags: ["cinder_update", "cinder_upgrade", "cinder-volume"] }
+  serial: "30%"
+
+- name: Cinder Backup Update
+  hosts: cinder_volume_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-backup", tags: ["cinder_update", "cinder-backup"] }
+  serial: "30%"

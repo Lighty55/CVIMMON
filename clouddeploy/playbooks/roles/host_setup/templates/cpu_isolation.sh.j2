@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# Set CPU affinity for the kernel's write-back bdi-flush threads
+echo {{ service_mask.stdout|trim }} > /sys/bus/workqueue/devices/writeback/cpumask
+echo {{ service_mask.stdout|trim }} > /sys/devices/virtual/workqueue/cpumask
+
+# Change CPU affinity for kthreads and IRQs
+tuna -c {{ non_hostcpus }} --isolate
+
+# Setting interrupt affinity for current active IRQs
+# Note that sometimes irqbalance service does not change the CPU affinity for
+# all type of IRQs, so we are doing that explicitly here.
+for i in /proc/irq/*/smp_affinity; do
+    echo {{ service_mask.stdout|trim }} > $i 2>/dev/null
+done

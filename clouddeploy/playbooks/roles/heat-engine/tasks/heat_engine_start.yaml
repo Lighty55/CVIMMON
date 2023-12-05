@@ -1,0 +1,185 @@
+- name: Check if Heat engine is already running
+  shell: docker ps -a | grep Up | grep heatengine_{{ docker.heat_engine.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias heatengine='in_container heatengine_"
+    line: "{{ item }}"
+  with_items:
+    - alias heatengine='in_container heatengine_{{ docker.heat_engine.image_tag }}'
+
+- name: Start the Heat engine Docker
+  docker_container:
+    name: "heatengine_{{ docker.heat_engine.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.heat_engine.name }}:{{ docker.heat_engine.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.heat_engine.host_data_dir }}:{{ docker.heat_engine.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/heat:/var/log/heat:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Heat engine Docker container has started running
+  shell: docker ps -a | grep Up | grep heatengine_{{ docker.heat_engine.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Heat engine Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-heatengine
+  tags:
+    - reboot-on-failure
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_DB_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_DB_PASSWORD
+  register: heat_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_DB_PASSWORD" line="HEAT_DB_PASSWORD{{ ":" }} {{ HEAT_DB_PASSWORD }}"
+  when: staging_exists.stat.exists == True and heat_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_KEYSTONE_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_KEYSTONE_PASSWORD
+  register: heat_keystone_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_KEYSTONE_PASSWORD" line="HEAT_KEYSTONE_PASSWORD{{ ":" }} {{ HEAT_KEYSTONE_PASSWORD }}"
+  when: staging_exists.stat.exists == True and heat_keystone_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_STACK_DOMAIN_ADMIN_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_STACK_DOMAIN_ADMIN_PASSWORD
+  register: heat_stack_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_STACK_DOMAIN_ADMIN_PASSWORD" line="HEAT_STACK_DOMAIN_ADMIN_PASSWORD{{ ":" }} {{ HEAT_STACK_DOMAIN_ADMIN_PASSWORD }}"
+  when: staging_exists.stat.exists == True and heat_stack_password.stdout != ""
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+
+######### VAULT #########
+# Read new passwords
+- set_fact:
+    HEAT_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HEAT_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HEAT_STACK_DOMAIN_ADMIN_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_STACK_DOMAIN_ADMIN_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+# Lookup plugin doesn't ignore_error. Following is the workaround
+- name: Fetch old heat passwords
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv get -field=value secret/cvim-secrets/HEAT_DB_PASSWORD
+  register: HEAT_DB_OLD_PASSWORD
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  delegate_to: localhost
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Fetch old heat passwords
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv get -field=value secret/cvim-secrets/HEAT_KEYSTONE_PASSWORD
+  register: HEAT_KEYSTONE_OLD_PASSWORD
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  delegate_to: localhost
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Fetch old heat passwords
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv get -field=value secret/cvim-secrets/HEAT_STACK_DOMAIN_ADMIN_PASSWORD
+  register: HEAT_STACK_DOMAIN_ADMIN_OLD_PASSWORD
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  delegate_to: localhost
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_DB_PASSWORD value={{ HEAT_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - HEAT_DB_OLD_PASSWORD.stdout == "" or HEAT_DB_OLD_PASSWORD.stdout != HEAT_DB_PASSWORD
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_KEYSTONE_PASSWORD value={{ HEAT_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - HEAT_KEYSTONE_OLD_PASSWORD.stdout == "" or HEAT_KEYSTONE_OLD_PASSWORD.stdout != HEAT_KEYSTONE_PASSWORD
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_STACK_DOMAIN_ADMIN_PASSWORD value={{ HEAT_STACK_DOMAIN_ADMIN_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - HEAT_STACK_DOMAIN_ADMIN_OLD_PASSWORD.stdout == "" or HEAT_STACK_DOMAIN_ADMIN_OLD_PASSWORD.stdout != HEAT_STACK_DOMAIN_ADMIN_PASSWORD

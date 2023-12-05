@@ -1,0 +1,31 @@
+- name: Check if the node is present
+  shell: "kubectl get node {{ node_operation_host }}"
+
+- name: Check if the cluster is healthy
+  shell: "kubectl get nodes --no-headers | grep master | grep -v -w 'Ready' | cut -f1 -d' '"
+  register: cluster_state
+  ignore_errors: true
+  failed_when: False
+
+- name: Get the list of masters
+  shell: "kubectl get nodes --no-headers | grep master | cut -f1 -d' '"
+  register: masters
+
+- name: Check if only master is removed
+  fail:
+    msg: "Please fix the master node(s) in the cluster which are not in Ready State"
+  when:
+  - cluster_state.stdout != ""
+  - ACTION is defined and ACTION == "remove-worker"
+
+- fail:
+    msg: "Only master nodes can be replaced using --replace-master"
+  when:
+  - node_operation_host is defined and node_operation_host not in masters.stdout
+  - ACTION is defined and ACTION == "replace-master"
+
+- fail:
+    msg: "Please replace the master node which is in 'NotReady' state first"
+  when:
+  - node_operation_host is defined and cluster_state.stdout != "" and node_operation_host not in cluster_state.stdout
+  - ACTION is defined and ACTION == "replace-master"

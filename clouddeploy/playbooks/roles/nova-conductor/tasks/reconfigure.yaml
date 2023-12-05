@@ -1,0 +1,241 @@
+- name: Copy the new nova conductor configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_conductor_config.j2", dest: "{{docker.nova_conductor.host_data_dir }}/nova_conductor_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/nova_conductor/nova_conductor_config /docker/nova_conductor/nova_conductor_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/nova_conductor/nova_conductor_reconfigure /docker/nova_conductor/nova_conductor_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/nova_conductor/nova_conductor_reconfigure state=absent
+  when: command_result.stdout == ""
+
+- name: Generate the reconfig credentials
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    NOVA_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/NOVA_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    NOVA_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/NOVA_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+# Now update the SQL password if the NOVA_DB_PASSWORD is part of update
+- name: Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ NOVA_DB_USER }}'@'%' = PASSWORD('{{ NOVA_DB_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'NOVA_DB_PASSWORD' in secrets_result.stdout ) or  'NOVA_DB_PASSWORD' in command_result.stdout "
+
+- pause: seconds=15 prompt="Waiting for sometime"
+  when: "(secrets_result|changed and  'NOVA_DB_PASSWORD' in secrets_result.stdout ) or  'NOVA_DB_PASSWORD' in command_result.stdout "
+
+- name: Get cell1 UUID
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} bash -c "nova-manage cell_v2 list_cells | awk 'match($2,/cell1/) {print $4}'"
+  register: cell1_uuid
+  until: cell1_uuid.stdout != ''
+  retries: 24
+  delay: 5
+  when: "(secrets_result|changed and  'NOVA_DB_PASSWORD' in secrets_result.stdout ) or (secrets_result|changed and  'RABBITMQ_PASSWORD' in secrets_result.stdout ) or  'NOVA_DB_PASSWORD' in command_result.stdout or 'RABBITMQ_PASSWORD' in command_result.stdout"
+
+- name: Update cell1 DB connection
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 update_cell --cell_uuid {{ cell1_uuid.stdout }}
+  when: "(secrets_result|changed and  'NOVA_DB_PASSWORD' in secrets_result.stdout ) or (secrets_result|changed and  'RABBITMQ_PASSWORD' in secrets_result.stdout ) or  'NOVA_DB_PASSWORD' in command_result.stdout or 'RABBITMQ_PASSWORD' in command_result.stdout"
+
+- name: Update cell0 DB connection
+  command: docker exec novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 update_cell --transport-url none:/ --database_connection mysql+pymysql://nova:{{ NOVA_DB_PASSWORD }}@{{ KEYSTONE_ADMIN_SERVICE_HOST }}/nova_cell0 --cell_uuid 00000000-0000-0000-0000-000000000000
+  when: "(secrets_result|changed and  'NOVA_DB_PASSWORD' in secrets_result.stdout ) or (secrets_result|changed and  'RABBITMQ_PASSWORD' in secrets_result.stdout ) or  'NOVA_DB_PASSWORD' in command_result.stdout or 'RABBITMQ_PASSWORD' in command_result.stdout"
+
+# Now update the nova keystone password if it is part of update
+- name: Update the nova keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ NOVA_KEYSTONE_USER }}
+           password={{ NOVA_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'NOVA_KEYSTONE_PASSWORD' in secrets_result.stdout ) or  'NOVA_KEYSTONE_PASSWORD' in command_result.stdout "
+
+- name: Update the placement user keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ NOVA_PLACEMENT_USER }}
+           password={{ NOVA_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'NOVA_KEYSTONE_PASSWORD' in secrets_result.stdout ) or  'NOVA_KEYSTONE_PASSWORD' in command_result.stdout "
+
+- name: Updating the nova endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=nova
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ NOVA_API_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+- name: Updating the nova placement endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=placement
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ NOVA_API_SERVICE_HOST }}:8778
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:8778
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:8778"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+
+# Now delete the template file inside the container
+- name: Delete the nova conductor config file inside container to force a reconfigure
+  command: docker cp /docker/nova_conductor/nova_conductor_config novaconduct_{{ docker.nova_conductor.image_tag }}:/opt/kolla/nova_conductor_config
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart nova conductor service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-novacond
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check if nova conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep novaconduct_{{ docker.nova_conductor.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Fail if container is not UP.
+  fail: msg="nova conductor Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the NOVA_DB_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep NOVA_DB_PASSWORD
+  register: nova_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^NOVA_DB_PASSWORD" line="NOVA_DB_PASSWORD{{ ":" }} {{ NOVA_DB_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and nova_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the NOVA_KEYSTONE_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep NOVA_KEYSTONE_PASSWORD
+  register: nova_keystone_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^NOVA_KEYSTONE_PASSWORD" line="NOVA_KEYSTONE_PASSWORD{{ ":" }} {{ NOVA_KEYSTONE_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and nova_keystone_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/NOVA_DB_PASSWORD value={{ NOVA_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['nova_conductor_all'][0] }}"
+    - secrets_result|changed and 'NOVA_DB_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/NOVA_KEYSTONE_PASSWORD value={{ NOVA_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['nova_conductor_all'][0] }}"
+    - secrets_result|changed and 'NOVA_KEYSTONE_PASSWORD' in secrets_result.stdout

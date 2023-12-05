@@ -1,0 +1,54 @@
+# TODO: test
+
+- name: "Rollback | Get the old version number from the saved file"
+  slurp: { src: "{{ calipso_helm_upgrade_path }}/calipso-old-version" }
+  register: calipso_revision_file
+
+- name: "Rollback | Get the old version"
+  set_fact:
+    calipso_old_version="{{ calipso_revision_file['content'] | b64decode | regex_findall('CALIPSO-OLD-REVISION=(.+)') | first }}"
+
+- name: "Rollback | Helm rollback to old version"
+  command: >
+    /usr/bin/helm rollback "{{ calipso_deployment_name }}" {{ calipso_old_version }}
+
+- name: "Rollback | Check rollout status of calipso-k8s-cluster-monitor-mongo deployment"
+  command: kubectl -n "{{ calipso_namespace }}" rollout status deployment "{{ calipso_deployment_name }}-mongo"
+
+- name: "Rollback | Check rollout status of calipso-k8s-cluster-monitor-api deployment"
+  command: kubectl -n "{{ calipso_namespace }}" rollout status deployment "{{ calipso_deployment_name }}-api"
+
+- name: "Rollback | Check the status of calipso-k8s-cluster-monitor deployment once rolled out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ calipso_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ calipso_deployment_name }}-mongo"
+    - "{{ calipso_deployment_name }}-api"
+
+- name: "Rollback | Ensure calipso deployments are up and running."
+  changed_when: false
+  register: "calipso_state"
+  vars:
+    calipso_api_state_query: "items[?metadata.name=='calipso-api'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_mongo_state_query: "items[?metadata.name=='calipso-mongo'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_state: { stdout: "{}" }
+  command: "kubectl get deployments --selector=app=calipso --output=json --namespace={{ calipso_namespace }}"
+  until:
+      - "calipso_state.stdout|from_json|json_query(calipso_api_state_query) == 'True'"
+      - "calipso_state.stdout|from_json|json_query(calipso_mongo_state_query) == 'True'"
+  retries: 30
+  delay: 10
+
+- name: "Rollback | Clear the old version file"
+  file:
+    state: absent
+    path: "{{ calipso_helm_upgrade_path }}/calipso-old-version"
+
+- name: "Rollback | Fail the update if rollback was due to update failure"
+  fail:
+    msg: "{{ calipso_deployment_name }} update failed and it was rolled back to the old version"
+  when: calipso_update_status is failed

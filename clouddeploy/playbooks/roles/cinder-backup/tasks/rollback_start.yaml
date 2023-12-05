@@ -1,0 +1,88 @@
+# First remove the new container and artifacts and cinder docker volume
+- name: Shut off cinder backup docker service
+  service:
+    name: docker-cinderbackup
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove cinderbackup service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cinderbackup.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove cinder-backup docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderbackup_{{ docker.cinder_backup.image_tag }}" }
+
+- name: Remove cinderbackup docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_backup.name }}"
+    tag: "{{ docker.cinder_backup.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: List cinderbackup docker volume directory contents
+  shell: ls -A1 /docker/cinder_backup/
+  register: contents
+
+- name: Remove cinderbackup docker volume directory contents
+  file:
+    path: /docker/cinder_backup/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+- name: Recover cinder_backup docker volume contents of pervious container
+  shell: cp /docker/cinder_backup_{{ CINDER_BACKUP_PREVIOUS_TAG }}/* /docker/cinder_backup/.
+
+- name: Remove previous cinder_backup volume directory
+  file:
+    path: "/docker/cinder_backup_{{ CINDER_BACKUP_PREVIOUS_TAG }}"
+    state: absent
+
+#############################################
+# Copy and enable Service Manager Definition
+# for cinderbackup service
+#############################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/cinder_backup/docker-cinderbackup.service /usr/lib/systemd/system/docker-cinderbackup.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderbackup='in_container cinderbackup_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderbackup='in_container cinderbackup_{{ CINDER_BACKUP_PREVIOUS_TAG }}'
+
+- name: Start the cinderbackup service
+  service:
+    name: docker-cinderbackup
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Cinder Backup Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderbackup_{{ CINDER_BACKUP_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Cinder Backup Container does not seem to be running"
+  when: command_result.stdout == ""

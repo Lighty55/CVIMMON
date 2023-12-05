@@ -1,0 +1,17 @@
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+
+# Create the backup staging folder for old volume
+- name: "{{ metro_name }} Update | Create snmp manifest backup folder"
+  file: path=/opt/cisco/update/snmp_{{ SNMP_PREVIOUS_TAG }}/{{ metro_name }} state=directory mode=0755
+
+- name: "{{ metro_name }} Update | Backup the snmp manifest"
+  shell: cp -p {{ SNMP_STACK_PATH }}/* /opt/cisco/update/snmp_{{ SNMP_PREVIOUS_TAG }}/{{ metro_name }}/.
+
+- name: "{{ metro_name }} Update | Delete old snmp manifest"
+  command: kubectl delete -f {{ SNMP_STACK_PATH }}/snmp_manifest.yaml -n {{ metro_name }}
+
+- name: "{{ metro_name }} Update | Remove the snmp directory"
+  file: path={{ SNMP_STACK_PATH }} state=absent
+
+# Spawn the new snmp k8s infra
+- include: deploy.yaml

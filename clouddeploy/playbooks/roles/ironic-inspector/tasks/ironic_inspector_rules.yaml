@@ -1,0 +1,131 @@
+- block:
+    - name: "Looking for {{ IRONIC_INVENTORY_PATH }}"
+      stat:
+        path: "{{ IRONIC_INVENTORY_PATH }}"
+      register: ironic_inventory_stat
+      run_once: True
+      delegate_to: localhost
+
+    - name: "Read {{ IRONIC_INVENTORY_PATH }}"
+      set_fact:
+        IRONIC_INVENTORY: "{{ lookup('file', IRONIC_INVENTORY_PATH) | from_yaml }}"
+      when: 'ironic_inventory_stat.stat.exists'
+      run_once: True
+      delegate_to: localhost
+
+- set_fact:
+    IRONIC_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/IRONIC_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    IRONIC_INSPECTOR_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/IRONIC_INSPECTOR_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: "Looking for {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }} image"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image show {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }} -f value -c id
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  delegate_to: localhost
+  register: IRONIC_DEPLOY_IMAGE_KERNEL_ID
+
+- name: "Looking for {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }} image"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image show {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }} -f value -c id
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  delegate_to: localhost
+  register: IRONIC_DEPLOY_IMAGE_INITRAMFS_ID
+
+- set_fact:
+    introspection_rules: "{{ lookup('template', './introspection-rules.j2') }}"
+    introspection_rules_filepath: "{{ ARTIFACT_PATH }}/introspection-rules.json"
+  run_once: True
+  delegate_to: localhost
+
+- name: Looking for old introspection rules
+  shell: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_INSPECTOR_KEYSTONE_USER }}
+           --os-password {{ IRONIC_INSPECTOR_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           baremetal introspection rule list -f value -f value | awk '/{{ item['description'] }}/{print $1}'
+  ignore_errors: True
+  failed_when: False
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  delegate_to: localhost
+  register: EXISTING_INTROSPECTION_RULES
+  with_items: "{{ introspection_rules }}"
+
+- name: Delete old introspection rules
+  shell: >
+           {% for rule_id in item.stdout_lines %}
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_INSPECTOR_KEYSTONE_USER }}
+           --os-password {{ IRONIC_INSPECTOR_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           baremetal introspection rule delete {{ rule_id }};{% endfor %}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  delegate_to: localhost
+  when: item.stdout_lines
+  with_items: "{{ EXISTING_INTROSPECTION_RULES.results }}"
+
+- name: Copy introspection rules file
+  template:
+    src: "introspection-rules.j2"
+    dest: "{{ introspection_rules_filepath }}"
+    mode: "0644"
+    setype: "container_file_t"
+  delegate_to: localhost
+  run_once: True
+
+- name: Create introspection rules
+  shell: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_INSPECTOR_KEYSTONE_USER }}
+           --os-password {{ IRONIC_INSPECTOR_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           baremetal introspection rule import {{ introspection_rules_filepath }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  delegate_to: localhost

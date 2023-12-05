@@ -1,0 +1,18 @@
+- include: deploy.yaml
+  when: ACTION is undefined and NFVIMON is defined
+#- name: Update.yaml
+#  include: update.yaml
+#  when: ACTION is defined and ACTION == "update" and NFVIMON is defined
+#- include: commit.yaml
+#  when: ACTION is defined and ACTION == "commit" and NFVIMON is defined
+#- include: rollback.yaml
+#  when: ACTION is defined and ACTION == "rollback" and NFVIMON is defined
+#- include: upgrade.yaml
+#  when: ACTION is defined and ACTION == "upgrade" and NFVIMON is defined
+- include: uninstall.yaml
+  tags: [ remove-nfvimon ]
+  when: ACTION is defined and ACTION == "reconfigure" and NFVIMON is not defined
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure" and NFVIMON is defined
+- include: regenerate.yaml
+  when: ACTION is defined and ACTION == "regenerate" and NFVIMON is defined

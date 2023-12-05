@@ -1,0 +1,3 @@
+- include: nginx-ingress-controller.yaml
+- include: prometheus-cvimmon-k8s.yaml
+- include: grafana-cvimmon-k8s.yaml

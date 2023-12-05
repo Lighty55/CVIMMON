@@ -1,0 +1,97 @@
+# First remove the new container and artifacts
+- name: Shut off etcd docker service
+  service:
+    name: docker-etcd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove etcd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-etcd.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove etcd docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "etcd_{{ docker.etcd.image_tag }}" }
+
+- name: Remove etcd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.etcd.name }}"
+    tag: "{{ docker.etcd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove etcd volume contents
+- name: List etcd volume contents
+  shell: ls -A1 /docker/etcd/
+  register: contents
+
+- name: Remove etcd volume contents
+  file:
+    path: /docker/etcd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the etcd volume contents
+- name: recover etcd volume contents
+  shell: cp /docker/etcd_{{ ETCD_PREVIOUS_TAG }}/* /docker/etcd/.
+
+
+# Now remove the backup volume
+- name: Remove back up etcd Directory
+  file:
+    path: "/docker/etcd_{{ ETCD_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/etcd/docker-etcd.service /usr/lib/systemd/system/docker-etcd.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias etcd='in_container etcd_"
+    line: "{{ item }}"
+  with_items:
+    - alias etcd='in_container etcd_{{ ETCD_PREVIOUS_TAG }}'
+
+- name: Start etcd container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-etcd
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if etcd Docker container has started running
+  shell: docker ps -a | grep Up | grep etcd_{{ ETCD_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="etcd Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

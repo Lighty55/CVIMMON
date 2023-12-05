@@ -1,0 +1,81 @@
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Values.calipsoApi.name}}
+  labels:
+    {{- include "calipso.calipsoApi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.calipsoApi.replicas }}
+  strategy:
+    type: {{ .Values.calipsoApi.deploymentStrategy }}
+  selector:
+    matchLabels:
+      app: {{ .Values.calipsoApi.name }}
+      release: {{ .Values.calipsoApi.image.tag | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.calipsoApi.name}}
+        release: {{ .Values.calipsoApi.image.tag | quote }}
+    spec:
+      containers:
+        - name: {{ .Values.calipsoApi.name }}
+          image: "{{ .Values.calipsoApi.image.repository }}:{{ .Values.calipsoApi.image.tag }}"
+          imagePullPolicy: {{ .Values.calipsoApi.image.pullPolicy }}
+          restartPolicy: Always
+          ports:
+            - name: service
+              containerPort: {{ .Values.calipsoApi.service.servicePort }}
+              protocol: {{ .Values.calipsoApi.service.protocol }}
+          env:
+          - name: CALIPSO_CERT_FILENAME
+            value: {{ .Values.calipsoApiConfig.certFilename }}
+          - name: CALIPSO_API_SERVICE_BIND
+            value: {{ .Values.calipsoApiConfig.bind | quote }}
+          - name: CALIPSO_API_CONFIG_DIR
+            value: {{ .Values.calipsoApiConfig.configDir }}
+          - name: CALIPSO_API_CERT_CONFIG_DIR
+            value: {{ .Values.calipsoApiConfig.configDir }}
+          - name: CALIPSO_API_CONFIG_DESTINATION
+            value: {{ .Values.calipsoApiConfig.configDestination }}
+          - name: CALIPSO_MONGO_SERVICE_HOST
+            value: {{ .Values.calipsoMongoConfig.host }}
+          - name: CALIPSO_MONGO_SERVICE_PORT
+            value: {{ .Values.calipsoMongoConfig.port | quote }}
+          - name: CALIPSO_MONGO_SERVICE_USER
+            value: {{ .Values.calipsoMongoConfig.user }}
+          - name: CALIPSO_MONGO_SERVICE_PWD
+            value: {{ .Values.calipsoMongoConfig.pwd }}
+          - name: CALIPSO_MONGO_SERVICE_AUTH_DB
+            value: {{ .Values.calipsoMongoConfig.authDb }}
+          - name: CERT_CHECKSUM
+            value: {{ .Values.calipsoApiConfig.certChecksum}}
+          resources:
+{{ toYaml .Values.calipsoApi.resources | indent 12 }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /var/lib/calipso
+              readOnly: false
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ if .Values.calipsoApi.configMapOverrideName }}{{ .Release.Name }}-{{ .Values.calipsoApi.configMapOverrideName }}{{- else }}{{ template "calipso.calipsoApi.fullname" . }}{{- end }}
+        - name: storage-volume
+        {{- if .Values.calipsoApi.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ if .Values.calipsoApi.persistentVolume.existingClaim }}{{ .Values.calipsoApi.persistentVolume.existingClaim }}{{- else }}{{ template "calipso.calipsoApi.fullname" . }}{{- end }}
+        {{- else }}
+          emptyDir: {}
+        {{- end -}}
+    {{- with .Values.calipsoApi.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.calipsoApi.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.calipsoApi.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}

@@ -1,0 +1,8 @@
+- include: ovs_vswitch_service_upgrade_prepare.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+
+- include: ovs_vswitch_service_install.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+
+- include: ovs_vswitch_service_start.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"

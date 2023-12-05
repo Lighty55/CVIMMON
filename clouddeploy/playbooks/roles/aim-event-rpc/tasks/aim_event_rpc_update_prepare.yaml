@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create aim event rpc Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/aim_event_rpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}
+
+# Back up the aim event rpc volume
+- name: back up the aim event rpc volume
+  shell: cp /docker/aim_event_rpc/* /docker/aim_event_rpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the aim event rpc systemd file
+  command: cp /usr/lib/systemd/system/docker-aimeventrpc.service /docker/aim_event_rpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}/docker-aimeventrpc.service
+
+#####################################################
+# Shut down the old aim event rpc containers
+####################################################
+- name: Shut off aim event rpc docker service
+  service:
+    name: docker-aimeventrpc
+    enabled: no
+    state: stopped
+
+- name: Remove aim event rpc service file
+  file:
+    path: "/usr/lib/systemd/system/docker-aimeventrpc.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of aim event rpc volume
+- name: List the contents of aim event rpc volume
+  shell: ls -A1 /docker/aim_event_rpc/
+  register: contents
+
+- name: Remove the contents of aim event rpc volume
+  file:
+    path: /docker/aim_event_rpc/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

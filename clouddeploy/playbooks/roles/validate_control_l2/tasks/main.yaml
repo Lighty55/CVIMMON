@@ -1,0 +1,37 @@
+- name: Copy the ping script
+  copy:
+    src: "arping.py"
+    dest: "/tmp/arping.py"
+    mode: "0111"
+
+- name: Find the management interface name
+  shell: ip addr show | grep -w {{ control_bond }} | awk '{print $7}'
+  register: interface_name
+
+- name: ARP for all the server Management IPs
+  command: python /tmp/arping.py {{ control_bond }} {{ interface_name.stdout }} {{ groups['rabbitmq_mgmt_ip'] | join (' ') }} {{ groups['ceph_osd_all'] | join(' ') }}
+  register: arping_output
+
+- name: Checking for ARP failures
+  fail: msg="Following hosts failed to resolve ARP {{ arping_output.stdout_lines }}"
+  when: arping_output.stdout != ""
+
+- name: Find the tenant interface name
+  shell: ip addr show | grep -w {{ tenant_bond }} | awk '{print $7}'
+  register: tenant_interface_name
+  when: TENANT_NETWORK_TYPES != "VLAN"
+
+- name:  ARP Ping all the Compute Tenant IPs
+  command: |
+    python /tmp/arping.py {{ tenant_bond }} {{ tenant_interface_name.stdout }} {{ groups['host_power_all_compute_tenant_ips'] | join (" ") }}
+  when: TENANT_NETWORK_TYPES != "VLAN"
+  register: arping_tenant_output
+
+- name: Checking for ARP failures
+  fail: msg="Following hosts failed to resolve ARP {{ arping_tenant_output.stdout_lines }}"
+  when: TENANT_NETWORK_TYPES != "VLAN" and arping_tenant_output.stdout != ""
+
+- name: Remove the ping script
+  file:
+    path: /tmp/arping.py
+    state: absent

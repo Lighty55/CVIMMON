@@ -1,0 +1,2 @@
+- include: upgrade.yaml
+  when: MECHANISM_DRIVERS == "vpp" and ACTION is defined and ACTION == "upgrade"

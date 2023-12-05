@@ -1,0 +1,135 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    METADATA_PROXY_SHARED_SECRET: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/METADATA_PROXY_SHARED_SECRET:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    METADATA_PROXY_SHARED_OLD_SECRET: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/METADATA_PROXY_SHARED_SECRET:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+# Cover the ESC use case for creating the role on reconfigure
+- name: Create vnfm role when ENABLE_ESC_PRIV is True
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep vnfm || openstack role create vnfm"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: ENABLE_ESC_PRIV is defined and ENABLE_ESC_PRIV == true
+
+# Does not fail if there is no ironic network in setup-data.yaml.
+- set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+
+- name: Copy the new neutron common configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2", dest: "{{docker.neutron_common.host_data_dir }}/neutron_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/neutron_common/neutron_config /docker/neutron_common/neutron_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/neutron_common/neutron_reconfigure /docker/neutron_common/neutron_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/neutron_common/neutron_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the neutron common config file inside container to force a reconfigure
+  command: docker cp /docker/neutron_common/neutron_config neutron_common_{{ docker.neutron_common.image_tag }}:/opt/kolla/neutron_config
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec neutron_common_{{ docker.neutron_common.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec neutron_common_{{ docker.neutron_common.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec neutron_common_{{ docker.neutron_common.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart neutron common service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-neutroncommon
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check if neutron common Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_common_{{ docker.neutron_common.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron common Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the METADATA_PROXY_SHARED_SECRET  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep METADATA_PROXY_SHARED_SECRET
+  register: metadata_proxy_secret
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^METADATA_PROXY_SHARED_SECRET" line="METADATA_PROXY_SHARED_SECRET{{ ":" }} {{ METADATA_PROXY_SHARED_SECRET }}"
+  when: staging_exists.stat.exists == True and metadata_proxy_secret.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/METADATA_PROXY_SHARED_SECRET value={{ METADATA_PROXY_SHARED_SECRET }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - VAULT is defined and VAULT.enabled == True
+    - METADATA_PROXY_SHARED_OLD_SECRET != METADATA_PROXY_SHARED_SECRET

@@ -1,0 +1,92 @@
+##########################################
+# Gnocchi Metricd Install
+##########################################
+- name: Install | Create Gnocchi metricd Docker staging folder
+  file:
+    path: "/docker/gnocchi_metricd"
+    state: directory
+    mode: "0755"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Install | Copy Containers restart-on-boot files
+  template:
+     src: "docker-gnocchi-metricd.service"
+     dest: "/usr/lib/systemd/system/docker-gnocchi-metricd.service"
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+
+- name: Install | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+##########################################
+# Gnocchi Metricd config
+##########################################
+- name: Install | Copy gnocchi metricd systemd template
+  template:
+    src: "docker-gnocchi-metricd.service"
+    dest: "{{ docker.gnocchi_metricd.host_data_dir }}/docker-gnocchi-metricd.service"
+    mode: "0644"
+
+- name: Install | Copy gnocchi metricd config
+  template:
+     src: "gnocchi_metricd_config.j2"
+     dest: "{{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_config.j2"
+     mode: "0644"
+
+- name: Install | Copy gnocchi ceph conf
+  template:
+     src: "{{ playbook_dir }}/roles/gnocchi-common/files/ceph.conf"
+     dest: "{{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf"
+     mode: "0644"
+     owner: gnocchi
+     group: mercury
+
+##########################################
+# Gnocchi Metricd start
+##########################################
+- name: Install | Check if Gnocchi metricd is already running
+  shell: docker ps -a | grep Up | grep gnocchimetricd{{ docker.gnocchi_metricd.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Install | Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchimetricd='in_container gnocchimetricd_"
+    line: "alias gnocchimetricd='in_container gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }}'"
+
+- name: Install | Start the Gnocchi metricd Docker
+  docker_container:
+    name: "gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.gnocchi_metricd.name }}:{{ docker.gnocchi_metricd.image_tag }}"
+    volumes:
+      - "{{ docker.gnocchi_metricd.host_data_dir }}:{{ docker.gnocchi_metricd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/gnocchi:/var/log/gnocchi:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime for gnocchi-metric to come up"
+
+- name: Install | Check if Gnocchi metricd Docker container has started running
+  shell: docker ps -a | grep Up | grep gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Install | Fail if gnocchi-metricd container is not up
+  fail: msg="Gnocchi Metricd Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Install | Enable docker-gnocchi-metricd service
+  service:
+    name: "docker-gnocchi-metricd"
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure

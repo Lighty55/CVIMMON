@@ -1,0 +1,56 @@
+##############################################################################
+# Script that resyncs the fernet keys across all the keystone containers in
+# the controller nodes.
+#
+# It assumes that a check of the fernet keys has happen earlier and the
+# following facts are populated:
+#    - _container_name.stdout: indicates the name of the keystone container
+#    - _host0_fernet_filenames: list of the filenames of the fernet keys on
+#             keystone['keystone_all'][0] (first container)
+#    - _hosts_need_resync: list with the ones that differ from the ones in the
+#             first container
+##############################################################################
+
+- debug: msg="FernetResync | fernet_keys {{ _host0_fernet_filenames }}"
+  failed_when: not _host0_fernet_filenames
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- debug: msg="FernetResync | host_to_resync {{ _hosts_need_resync }}"
+  failed_when: not _hosts_need_resync
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][1] }}"
+
+- debug: msg="{{ inventory_hostname }}"
+  when: ("{{ inventory_hostname }}" in "{{ _hosts_need_resync }}")
+
+# Get the fernet keys from the first controller
+- name: FernetResync | Get the fernet keys from the first container to a variable
+  shell: docker exec {{ _container_name.stdout }} cat {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  register: _fernet_files
+  with_items: "{{ _host0_fernet_filenames.stdout_lines | default([]) }}"
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: FernetResync | Sync the fernet keys to the remote containers
+  shell: docker exec {{ _container_name.stdout }} /opt/kolla/copy_keystone_keys.sh {{ item.item }} {{ item.stdout }}
+  with_items: "{{ _fernet_files.results }}"
+  when: ("{{ inventory_hostname }}" in "{{ _hosts_need_resync }}") and ({{ item.changed }})
+
+- name: FernetResync | Verify keys got copied properly in remote containers
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  with_items: "{{ _host0_fernet_filenames.stdout_lines | default([]) }}"
+  when: ("{{ inventory_hostname }}" in "{{ _hosts_need_resync }}")
+
+# Remove the deprecate keys
+- name: FernetResync | Get the list of fernet keys after new ones got copied
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list_all_keys
+  failed_when: not _list_all_keys
+  when: ("{{ inventory_hostname }}" in "{{ _hosts_need_resync }}")
+
+- name: FernetResync | Remove the extra fernet keys from the containers
+  shell: >
+    docker exec {{ _container_name.stdout }} rm -f {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  with_items: "{{ _list_all_keys.stdout_lines | default([]) | difference(_host0_fernet_filenames.stdout_lines | default([])) }}"
+  when: ("{{ inventory_hostname }}" in "{{ _hosts_need_resync }}")

@@ -1,0 +1,9 @@
+- include: aim_aid_update_prepare.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: aim_aid_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: aim_aid_start.yaml
+  when: MECHANISM_DRIVERS == "aci"
+

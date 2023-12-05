@@ -1,0 +1,37 @@
+###############################################################################
+# RabbitMQ cluster failure recovery playbook
+#
+# This playbook will try to detect if RabbitMQ cluster have been partitioned
+# and try to recover from it.
+###############################################################################
+- name: rabbitmq cluster recovery
+  hosts: rabbitmq_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  roles:
+    - { role: rabbitmq_recovery }
+
+- name: validate rabbitmq cluster
+  hosts: opsmonit_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  tasks:
+    # Discover current active rabbitmq container's tag through systemd instead
+    # of from docker.yaml file to workaround old image tag issue for system
+    # that have been updated but have not been commit yet.
+    - name: get current rabbitmq container
+      shell: systemctl cat docker-rabbitmq | awk '/ExecStart=.*docker.* start / {print $NF}' | awk -F '_' '{print $NF}'
+      register: cur_rabbitmq
+      failed_when: cur_rabbitmq.rc != 0 or cur_rabbitmq.stdout == ""
+
+    - name: execute RabbitMQ cluster cmd
+      rabbitmq_monit:
+        operation: check_cluster_size
+        username: "{{ RABBITMQ_USER }}"
+        password: "{{ RABBITMQ_PASSWORD }}"
+        image_tag: "{{ cur_rabbitmq.stdout }}"
+        clust_sz: "{{ groups['rabbitmq_all'] | length }}"
+      register: validation_status
+      until: validation_status.result.status == 'PASS'
+      retries: 30
+      delay: 6
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"

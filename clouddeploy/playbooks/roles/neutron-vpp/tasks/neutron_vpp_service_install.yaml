@@ -1,0 +1,36 @@
+- name: Create Neutron VPP Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.neutron_vpp.host_data_dir }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutron_vpp.service",
+        dest: "/usr/lib/systemd/system/docker-neutron_vpp.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Copy Neutron VPP Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "vpp_config.j2",
+        dest: "{{ docker.neutron_vpp.host_data_dir }}/vpp_config" }
+

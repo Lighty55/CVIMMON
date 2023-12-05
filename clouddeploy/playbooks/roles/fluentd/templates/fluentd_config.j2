@@ -1,0 +1,20 @@
+LOGSERVER_NODE_IP: {{ LOGSERVER_NODE_IP }}
+# Fluentd config options needed for Optional Features support:
+CEILOMETER_ENABLED: {% if NFVIMON is defined or (OPTIONAL_SERVICE_LIST is defined and 'ceilometer' in OPTIONAL_SERVICE_LIST) -%} True {%- else -%} False {%- endif %}
+
+GNOCCHI_ENABLED: {% if NFVIMON is defined or (OPTIONAL_SERVICE_LIST is defined and 'ceilometer' in OPTIONAL_SERVICE_LIST) -%} True {%- else -%} False {%- endif %}
+
+HEAT_ENABLED: {% if OPTIONAL_SERVICE_LIST is defined and 'heat' in OPTIONAL_SERVICE_LIST %} True {%- else -%} False {%- endif %}
+
+IRONIC_ENABLED: {% if (OPTIONAL_SERVICE_LIST is defined and 'ironic' in OPTIONAL_SERVICE_LIST) -%} True {%- else -%} False {%- endif %}
+
+MAGNUM_ENABLED: {% if OPTIONAL_SERVICE_LIST is defined and 'magnum' in OPTIONAL_SERVICE_LIST -%} True {%- else -%} False {%- endif %}
+
+ENABLE_TTY_LOGGING: {% if ENABLE_TTY_LOGGING is defined and ENABLE_TTY_LOGGING|bool -%} True {%- else -%} False {%- endif %}
+
+# Log rotation config options:
+LOGROTATION_FREQ:  {{ log_rotation_frequency }}
+LOGROTATION_DEL_OLDER: {{ log_rotation_del_older }}
+LOGROTATION_SIZE:  {{ log_rotation_size }}
+LOGGING_FORMAT_PLAIN: {{ LOGGING_FORMAT_PLAIN }}
+LOGGING_FORMAT_JSON: {{ LOGGING_FORMAT_JSON }}

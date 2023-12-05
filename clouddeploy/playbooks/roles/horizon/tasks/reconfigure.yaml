@@ -1,0 +1,193 @@
+- name: Copy the new horizon configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "horizon_config.j2", dest: "{{docker.horizon.host_data_dir }}/horizon_reconfigure" }
+
+# For now, swiftstack is the only known client configuration needing CA roots
+- include: configure_cacert.yaml
+  when: swift_service|bool and SWIFTSTACK_PROTOCOL == 'https'
+
+- name: Compare old and new rendered template
+  command: diff /docker/horizon/horizon_config /docker/horizon/horizon_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/horizon/horizon_reconfigure /docker/horizon/horizon_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/horizon/horizon_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the horizon config file inside container to force a reconfigure
+  command: docker cp /docker/horizon/horizon_config horizon_{{ docker.horizon.image_tag }}:/opt/kolla/horizon_config
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec horizon_{{ docker.horizon.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec horizon_{{ docker.horizon.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec horizon_{{ docker.horizon.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- name: Copy Horizon Policy Files
+  template:
+    src: "{{ item }}"
+    dest: "{{ docker.horizon.host_data_dir }}/{{ item }}_reconfigure"
+  with_items:
+    - "cinder_policy.json"
+    - "glance_policy.json"
+    - "horizon_custom.py"
+    - "keystone_policy.json"
+    - "neutron_policy.json"
+    - "nova_policy.json"
+    - "heat_policy.json"
+
+- name: Compare old and new rendered policy
+  command: diff -N /docker/horizon/{{ item }} /docker/horizon/{{ item }}_reconfigure
+  ignore_errors: True
+  failed_when: false
+  register: policy_diff
+  with_items:
+    - "cinder_policy.json"
+    - "glance_policy.json"
+    - "horizon_custom.py"
+    - "keystone_policy.json"
+    - "neutron_policy.json"
+    - "nova_policy.json"
+    - "heat_policy.json"
+
+- name: Determine if a policy file has changed
+  set_fact:
+    policy_reconfigure: True
+  when: item.stdout != ""
+  with_items: "{{ policy_diff.results }}"
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/horizon/{{ item }}_reconfigure /docker/horizon/{{ item }}
+  when: policy_reconfigure is defined
+  with_items:
+    - "cinder_policy.json"
+    - "glance_policy.json"
+    - "horizon_custom.py"
+    - "keystone_policy.json"
+    - "neutron_policy.json"
+    - "nova_policy.json"
+    - "heat_policy.json"
+
+# Remove the reconfigure policy when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/horizon/{{ item }}_reconfigure state=absent
+  when: policy_reconfigure is not defined
+  with_items:
+    - "cinder_policy.json"
+    - "glance_policy.json"
+    - "horizon_custom.py"
+    - "keystone_policy.json"
+    - "neutron_policy.json"
+    - "nova_policy.json"
+    - "heat_policy.json"
+
+- name: Reset the SELinux labelling for new policy files
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.horizon.host_data_dir }}"
+  when: policy_reconfigure is defined
+
+- include: configure_lbaas_panel.yaml
+
+- name: Check if restart needed
+  set_fact:
+    needs_restart: command_result.stdout != "" or policy_reconfigure is defined or push_cacert is defined or horizon_lbaas is defined or (secrets_result|changed and secrets_result.stdout != "")
+
+# Now restart the service if there was difference in the configs or CA certs
+- name: Restart horizon service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-horizon
+  when: needs_restart
+
+- name: Wait for horizon to be alive
+  wait_for: host={{ HORIZON_HOST }} port={{ HORIZON_PORT }}
+  when: needs_restart
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HORIZON_SECRET_KEY  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HORIZON_SECRET_KEY
+  register: horizon_secret
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HORIZON_SECRET_KEY" line="HORIZON_SECRET_KEY{{ ":" }} {{ HORIZON_SECRET_KEY }}"
+  when: staging_exists.stat.exists == True and horizon_secret.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- set_fact:
+    HORIZON_SECRET_KEY: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HORIZON_SECRET_KEY:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HORIZON_SECRET_KEY value={{ HORIZON_SECRET_KEY }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['horizon_all'][0] }}"
+    - secrets_result|changed and 'HORIZON_SECRET_KEY' in secrets_result.stdout
+
+- name: Create readonly role when OPENSTACK_READONLY_ROLE is True
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep readonly || openstack role create readonly"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: OPENSTACK_READONLY_ROLE is defined and OPENSTACK_READONLY_ROLE|bool

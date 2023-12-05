@@ -1,0 +1,23 @@
+- name: Create disk-maintenance
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "/tmp/disk-maintenance"
+  delegate_to: localhost
+  run_once: True
+
+- name: show storcli
+  shell: "/opt/MegaRAID/storcli/storcli64 show J"
+  register: result
+
+- name: Save storcli JSON output
+  set_fact:
+    storcli_result: "{{ result.stdout | from_json }}"
+
+- name: If non UCS server, save away hostname
+  shell: "echo '{{ inventory_hostname }}' >> {{ NON_UCS_HOSTS_FILE }}"
+  delegate_to: localhost
+  when: "{{ storcli_result.Controllers[0]['Response Data']['Number of Controllers'] }} == 0"
+

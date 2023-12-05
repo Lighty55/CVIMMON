@@ -1,0 +1,99 @@
+# First remove the new container and artifacts of fluentd
+- name: Shut off fluentd docker service
+  service:
+    name: docker-fluentd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove fluentd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-fluentd.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove fluentd docker container
+  docker_container:
+    image: ""
+    name: "fluentd_{{ docker.fluentd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove fluentd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.fluentd.name }}"
+    tag: "{{ docker.fluentd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Recover old logrotate config files
+- name: List the logrotate config dir contents
+  shell: ls -A1 /docker/logrotate/
+  register: log_cfg_files
+
+- name: Clean the logrotate config dir contents
+  file: path=/docker/logrotate/{{ log_cfg_files.stdout_lines }} state=absent
+
+- name: Copy old logrotate config files
+  shell: cp -p /docker/logrotate_{{ FLUENTD_PREVIOUS_TAG }}/* /docker/logrotate/.
+
+- name: Delete old logrotate directory
+  file: path=/docker/logrotate_{{ FLUENTD_PREVIOUS_TAG }} state=absent
+
+- name: Get the file attributes of logrotate files
+  stat: path=/docker/logrotate/docker-fluentd
+  register: st
+
+- name: Override ownership for logrotate dir
+  file: path=/docker/logrotate state=touch owner={{ st.stat.uid }}
+  when: (st.stat.uid != 'root')
+
+- name: Change gid for logrotate dir
+  file: path=/docker/logrotate state=touch group={{ st.stat.gid }}
+  when: (st.stat.gid != 'root')
+
+# List and Remove fluentd volume contents
+- name: List the fluentd volume contents
+  shell: ls -A1 /docker/fluentd/
+  register: contents
+
+- name: Clean the fluentd volume contents
+  file:
+    path: /docker/fluentd/{{ contents.stdout_lines }}
+    state: absent
+
+# Recover the fluentd volume contents
+- name: recover fluentd volume contents
+  shell: cp /docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}/* /docker/fluentd/.
+
+# Now remove the backup volume
+- name: Remove back up logtash forwarder Directory
+  file:
+    path: "/docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Copy the fluentd restart-on-boot files
+  command: cp /docker/fluentd/docker-fluentd.service /usr/lib/systemd/system/docker-fluentd.service
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias fluentd='in_container fluentd_"
+    line: "alias fluentdforwarder='in_container fluentd_{{ FLUENTD_PREVIOUS_TAG }}'"
+
+# Start the container
+- name: Start the fluentd service
+  service:
+    name: docker-fluentd
+    enabled: yes
+    state: started

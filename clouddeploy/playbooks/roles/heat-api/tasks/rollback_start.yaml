@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and heat api
+- name: Shut off heat api docker service
+  service:
+    name: docker-heatapi
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove heatapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove heat-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapi_{{ docker.heat_api.image_tag }}" }
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_api.name }}"
+    tag: "{{ docker.heat_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and Remove heat API files
+- name: List heat API files
+  shell: ls -A1 /docker/heat_api/
+  register: contents
+
+- name: Remove heat API files
+  file:
+    path: /docker/heat_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the heat api volume contents
+- name: recover heat api volume contents
+  shell: cp /docker/heat_api_{{ HEAT_API_PREVIOUS_TAG | default('') }}/* /docker/heat_api/.
+
+# Now remove the backup volume
+- name: Remove back up heat API Directory
+  file:
+    path: "/docker/heat_api_{{ HEAT_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/heat_api/docker-heatapi.service /usr/lib/systemd/system/docker-heatapi.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias heatapi='in_container heatapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias heatapi='in_container heatapi_{{ HEAT_API_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start heatapi service
+  service:
+    name: docker-heatapi
+    enabled: yes
+    state: started
+
+- name: Wait for Heat API to be alive
+  wait_for: host={{ HEAT_HOST }} port={{ HEAT_API_PORT }}

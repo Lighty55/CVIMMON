@@ -1,0 +1,54 @@
+- name: Get the active VMs list
+  shell: "ls -A1 /docker/{{ ansible_nodename }}/"
+  register: active_vms
+  delegate_to: localhost
+  ignore_errors: True
+  failed_when: False
+  when: '"compute" in server_role'
+
+- name: Wait until nova libvirt comes up
+  shell: docker ps -a | grep Up | grep novalibvirt | cut -f1 -d " "
+  register: libvirt_up
+  until: libvirt_up.stdout != ""
+  retries: 10
+  delay: 60
+  ignore_errors: True
+  failed_when: False
+  when: '"compute" in server_role'
+
+- name: Wait until nova compute comes up
+  shell: docker ps -a | grep Up | grep novacompute | cut -f1 -d " "
+  register: compute_up
+  until: compute_up.stdout != ""
+  retries: 10
+  delay: 60
+  ignore_errors: True
+  failed_when: False
+  when: '"compute" in server_role'
+
+- name: Start the active VMs
+  shell: "openstack server start {{ item }} 2> /dev/null"
+  delegate_to: localhost
+  ignore_errors: True
+  failed_when: False
+  when: '"compute" in server_role'
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+  with_items: "{{ active_vms.stdout_lines }}"
+
+- name: Delete the marker directory
+  delegate_to: localhost
+  when: '"compute" in server_role'
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /docker/{{ ansible_nodename }}

@@ -1,0 +1,68 @@
+- name: Copy the new neutron l3 agent configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2", dest: "{{docker.neutron_l3_agent.host_data_dir }}/neutron_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/neutron_l3_agent/neutron_config /docker/neutron_l3_agent/neutron_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/neutron_l3_agent/neutron_reconfigure /docker/neutron_l3_agent/neutron_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/neutron_l3_agent/neutron_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the neutron l3 agent config file inside container to force a reconfigure
+  command: docker cp /docker/neutron_l3_agent/neutron_config neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag  }}:/opt/kolla/neutron_config
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart neutron l3 agent service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-neutronl3
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check if neutron l3 agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron l3 agent Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

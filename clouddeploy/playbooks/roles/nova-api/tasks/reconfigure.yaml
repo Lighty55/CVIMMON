@@ -1,0 +1,87 @@
+- name: Copy the new nova api configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_api_config.j2", dest: "{{docker.nova_api.host_data_dir }}/nova_api_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/nova_api/nova_api_config /docker/nova_api/nova_api_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/nova_api/nova_api_reconfigure /docker/nova_api/nova_api_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/nova_api/nova_api_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the nova api config file inside container to force a reconfigure
+  command: docker cp /docker/nova_api/nova_api_config novaapi_{{ docker.nova_api.image_tag }}:/opt/kolla/nova_api_config
+  when: command_result.stdout != ""
+
+- name: Copy Nova Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/nova-api/templates/{{ item }}"
+    dest: "{{docker.nova_api.host_data_dir }}/{{ item }}_reconfigure"
+  with_items:
+    - "nova_policy.json"
+
+- name: Compare old and new rendered policy
+  command: diff /docker/nova_api/nova_policy.json /docker/nova_api/nova_policy.json_reconfigure
+  ignore_errors: True
+  failed_when: false
+  register: policy_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/nova_api/nova_policy.json_reconfigure /docker/nova_api/nova_policy.json
+  when: policy_diff.stdout != ""
+
+# Remove the reconfigure policy when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/nova_api/nova_policy.json_reconfigure state=absent
+  when: policy_diff.stdout == ""
+
+- name: Reset the SELinux labelling for new policy files
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.nova_api.host_data_dir }}"
+  when: policy_diff.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec novaapi_{{ docker.nova_api.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec novaapi_{{ docker.nova_api.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec novaapi_{{ docker.nova_api.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart nova api service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-novaapi
+  when: command_result.stdout != "" or policy_diff.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Wait for Nova api to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_API_PORT }}
+  when: command_result.stdout != "" or policy_diff.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")

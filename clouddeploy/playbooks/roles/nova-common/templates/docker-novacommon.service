@@ -1,0 +1,49 @@
+[Unit]
+Description=Nova Common Docker
+Requires=docker.service
+After=docker.service
+{% set _vfs_flag = False %}
+{% if sriov_intfs.stdout_lines is defined %}
+{% for path in sriov_intfs.stdout_lines %}
+ConditionPathExists={{ path }}
+{% set _vfs_flag = True %}
+{% endfor %}
+{% endif %}
+{% if fpga_intfs.stdout_lines is defined %}
+{% for path in fpga_intfs.stdout_lines %}
+ConditionPathExists={{ path }}
+{% set _vfs_flag = True %}
+{% endfor %}
+{% endif %}
+{% if intel_fpga.stdout is defined and intel_fpga.stdout | int > 0 and intel_fpga_vfs | int > 0 %}
+ConditionPathExists=/opt/cisco/bbdev_pf_config_app/create-fpga-vf.sh
+{% set _vfs_flag = True %}
+{% endif %}
+{% if _vfs_flag %}
+Before=docker-novacpu.service
+{% endif %}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval=10m
+StartLimitBurst=10
+KillMode={{ KILLMODE }}
+{% if sriov_intfs.stdout_lines is defined %}
+{% for path in sriov_intfs.stdout_lines %}
+ExecStartPre=/bin/bash -c "/usr/bin/test $(/usr/bin/cat {{ path }}) -eq {{ intel_sriov_vfs }}"
+{% endfor %}
+{% endif %}
+{% if fpga_intfs.stdout_lines is defined %}
+{% for path in fpga_intfs.stdout_lines %}
+ExecStartPre=/bin/bash -c "/usr/bin/test $(/usr/bin/cat {{ path }}) -eq {{ intel_vc_sriov_vfs }}"
+{% endfor %}
+{% endif %}
+{% if intel_fpga.stdout is defined and intel_fpga.stdout | int > 0 and intel_fpga_vfs | int > 0 %}
+ExecStartPre=/opt/cisco/bbdev_pf_config_app/create-fpga-vf.sh {{ intel_fpga_vfs }}
+{% endif %}
+ExecStart=/usr/bin/docker start -a novacommon_{{ docker.nova_common.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 novacommon_{{ docker.nova_common.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

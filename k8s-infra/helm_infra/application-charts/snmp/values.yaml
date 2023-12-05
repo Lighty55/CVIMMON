@@ -1,0 +1,15 @@
+persistence:
+  logs:
+    enabled: true
+    path: /var/log/snmp
+  time:
+    enabled: true
+    path: /etc/localtime
+snmp:
+  replicas: 1
+  snmpcvim:
+    image: cloud-docker.cisco.com/snmp-k8s
+    imagePullPolicy: IfNotPresent
+    imageTag: v1.1
+snmpcvim:
+  serviceType: NodePort

@@ -1,0 +1,72 @@
+---
+- name: "Kubectl get nodes to check all node are ready"
+  shell: "kubectl get nodes --no-headers | grep -v -w 'Ready' || true "
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 40
+  delay: 3
+  changed_when: false
+
+- name: "Wait few seconds for network to start deploying"
+  pause: seconds=3
+  changed_when: false
+
+- name: "Sanity - wait for alls pod to be running (besides core-dns for now, as it might be forced to a node if master did not allow it due to tains)"
+  environment:
+  shell: "kubectl get --namespace kube-system pods --no-headers | grep -v -w 'Running' | grep -v 'core-dns' || true "
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 40
+  delay: 3
+  changed_when: false
+
+#- name: Check all nodes were registered
+#  shell: "$(kubectl get nodes | grep -ow Ready | wc -l) -ge {{ groups['all'] | length }}"
+#  register: command_result
+#  retries: 30
+#  delay: 3
+#  until: command_result is success
+#  changed_when: false
+
+- name: "Get cluster-info"
+  command: kubectl cluster-info
+  register: command_result
+  changed_when: false
+
+- name: "Ensure if Kubernetes Proxy Daemonset Rolled out Properly."
+  register: "proxyds_state"
+  command: "kubectl get daemonset kube-proxy  --output=json --ignore-not-found=true --namespace=kube-system"
+  changed_when: false
+  vars:
+    proxyds_state: { stdout: "{}" }
+    ready: "{{ proxyds_state.stdout|from_json|json_query(\"status.numberReady\") }}"
+    desired: "{{ proxyds_state.stdout|from_json|json_query(\"status.desiredNumberScheduled\") }}"
+  until: "ready >= 3"
+  retries: 50
+  delay: 5
+
+- name: "Ensure if Calico Node Daemonset Rolled out Properly."
+  register: "cnodeds_state"
+  command: "kubectl get daemonset calico-node  --output=json --ignore-not-found=true --namespace=kube-system"
+  changed_when: false
+  vars:
+    cnodeds_state: { stdout: "{}" }
+    ready: "{{ cnodeds_state.stdout|from_json|json_query(\"status.numberReady\") }}"
+    desired: "{{ cnodeds_state.stdout|from_json|json_query(\"status.desiredNumberScheduled\") }}"
+  until: "ready >= 3"
+  retries: 50
+  delay: 5
+
+- name: "Ensure Kubernetes DNS deployment and pods are up and running."
+  changed_when: false
+  register: "dns_state"
+  vars:
+    dns_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=k8s-app=kube-dns --output=json --namespace=kube-system"
+  until:
+      - "dns_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "dns_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 10
+  delay: 5

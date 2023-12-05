@@ -1,0 +1,40 @@
+- name: Check if Glance Registry Docker container is already running
+  shell: docker ps -a | grep Up | grep glancer_{{ docker.glance_registry.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias glancer='in_container glancer_"
+    line: "{{ item }}"
+  with_items:
+    - alias glancer='in_container glancer_{{ docker.glance_registry.image_tag }}'
+
+- name: Start the Glance Registry Docker Service
+  docker_container:
+    name: "glancer_{{ docker.glance_registry.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.glance_registry.name }}:{{ docker.glance_registry.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.glance_registry.host_data_dir }}:{{ docker.glance_registry.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/glance:/var/log/glance:z
+    ports: "9292:9292, 9191:9191"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Wait for Glance Registry to be alive
+  wait_for: host={{ GLANCE_HOST }} port={{ GLANCE_REGISTRY_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-glancer
+  tags:
+    - reboot-on-failure

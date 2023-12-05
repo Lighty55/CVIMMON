@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and nova consoleauth
+- name: Shut off nova consoleauth docker service
+  service:
+    name: docker-novaconsoleauth
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova consoleauth service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaconsoleauth.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-consoleauth docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconsoleauth_{{ docker.nova_consoleauth.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_consoleauth.name }}"
+    tag: "{{ docker.nova_consoleauth.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova consoleauth volume contents
+- name: List nova consoleauth volume contents
+  shell: ls -A1 /docker/nova_consoleauth/
+  register: contents
+
+- name: Remove nova consoleauth volume contents
+  file:
+    path: /docker/nova_consoleauth/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+# Recover the nova consoleauth volume contents
+- name: Recover the nova consoleauth volume contents
+  shell: cp /docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG}}/* /docker/nova_consoleauth/.
+
+
+# Now remove the backup volume
+- name: Remove back up nova consoleauth Directory
+  file:
+    path: "/docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_consoleauth/docker-novaconsoleauth.service /usr/lib/systemd/system/docker-novaconsoleauth.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias consoleauth='in_container novaconsoleauth_"
+    line: "{{ item }}"
+  with_items:
+    - alias consoleauth='in_container novaconsoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova console auth container
+  service:
+    name: docker-novaconsoleauth
+    enabled: yes
+    state: started
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if Nova Consoleauth Docker container has started running
+  shell: docker ps -a | grep Up | grep novaconsoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Consoleauth Container does not seem to be running"
+  when: command_result.stdout == ""

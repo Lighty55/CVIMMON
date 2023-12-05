@@ -1,0 +1,7 @@
+- include: keystone_update_prepare.yaml
+- include: keystone_service_install.yaml
+- include: keystone_service_config.yaml
+- include: keystone_service_start.yaml
+- include: keystone_users_update.yaml
+- include: keystone_autorotate_cronjob.yaml
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"

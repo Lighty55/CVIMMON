@@ -1,0 +1,18 @@
+---
+- hosts: all-masters{{server|default('')}}
+  become: yes
+  roles:
+    - config-scheduler-and-controller
+    - kube-apiserver-podpreset
+
+- hosts: all-masters{{server|default('')}}
+  become: yes
+  tasks:
+    - name: Taint Nodes
+      shell: kubectl taint nodes --all node-role.kubernetes.io/master-
+      delegate_to: localhost
+      ignore_errors: true
+      failed_when: false
+
+- include: kubernetes-node-labels.yaml
+- include: portworx-update-volume.yaml

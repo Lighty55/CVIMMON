@@ -1,0 +1,5 @@
+#ansible-playbook -i bootstrap/k8s-infra/helm_infra/playbooks/inventory/generate_inventory.py bootstrap/k8s-infra/helm_infra/playbooks/grafana-cvimmon-k8s.yaml -e @/root/openstack-configs/setup_data.yaml -e @/root/openstack-configs/defaults.yaml -e ACTION=clustermon-regenerate-secret -e @bootstrap/k8s-infra/helm_infra/playbooks/roles/grafana-cvimmon-k8s/defaults/main.yaml -vvv
+
+#ansible-playbook -i bootstrap/k8s-infra/helm_infra/playbooks/inventory/generate_inventory.py bootstrap/k8s-infra/helm_infra/playbooks/prometheus-cvimmon-k8s.yaml -e @/root/openstack-configs/setup_data.yaml -e @/root/openstack-configs/defaults.yaml -e ACTION=clustermon-prometheus-regenerate-certs -e @bootstrap/k8s-infra/helm_infra/playbooks/roles/prometheus-cvimmon-k8s/defaults/main.yaml -vv
+
+#ansible-playbook -i bootstrap/k8s-infra/helm_infra/playbooks/inventory/generate_inventory.py bootstrap/k8s-infra/helm_infra/playbooks/prometheus-cvimmon-k8s.yaml -e @/root/openstack-configs/setup_data.yaml -e @/root/openstack-configs/defaults.yaml -e ACTION=clustermon-prometheus-regenerate-secrets -e @bootstrap/k8s-infra/helm_infra/playbooks/roles/prometheus-cvimmon-k8s/defaults/main.yaml -vv

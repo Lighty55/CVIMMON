@@ -1,0 +1,19 @@
+- name: Copy Glance Registry Templates config file.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "glance_registry_config.j2",
+        dest: "{{ docker.glance_registry.host_data_dir }}/glance_registry_config" }
+
+- name: Copy Ceph Config Files.
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ceph.conf", dest: "{{ docker.glance_registry.host_data_dir }}/ceph.conf" }
+
+- name: Pull Glance Registry Image
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.glance_registry.name }}:{{ docker.glance_registry.image_tag }}"

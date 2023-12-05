@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and magnum conductor
+- name: Shut off magnum conductor docker service
+  service:
+    name: docker-magnumconductor
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove magnumconductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumconductor.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove magnum-conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumconductor_{{ docker.magnum_conductor.image_tag }}" }
+
+- name: Remove magnum docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}"
+    tag: "{{ docker.magnum_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# List and Remove magnum conductor config files to regenerate
+- name: List magnum conductor config files
+  shell: ls -A1 /docker/magnum_conductor/
+  register: contents
+
+- name: Remove magnum conductor config files
+  file:
+    path: /docker/magnum_conductor/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the magnum conductor configuration files
+- name: recover magnum conductor configuration files
+  shell: cp /docker/magnum_conductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}/* /docker/magnum_conductor/.
+
+# Now remove the backup volume
+- name: Remove back up magnum conductor Directory
+  file:
+    path: "/docker/magnum_conductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/magnum_conductor/docker-magnumconductor.service /usr/lib/systemd/system/docker-magnumconductor.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias magnumconductor='in_container magnumconductor_"
+    line: "{{ item }}"
+  with_items:
+    - alias magnumconductor='in_container magnumconductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start magnumconductor service
+  service:
+    name: docker-magnumconductor
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Magnum Conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumconductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum Conductor Container does not seem to be running"
+  when: command_result.stdout == ""
+

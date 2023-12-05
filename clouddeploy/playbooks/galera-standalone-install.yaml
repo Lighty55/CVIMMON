@@ -1,0 +1,29 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+
+# Using -i localhost all the variables from inventory get picked up.
+- name: Install and Start Galera-MariaDB Containarized service.
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  roles:
+    - { role: "galera", tags: [ "base", "galera" ] }
+  serial: "30%"
+
+- name: Validate Cluster Size
+  hosts: mariadb_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Check cluster size
+      shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e "SHOW STATUS LIKE 'wsrep_cluster_size'" | grep wsrep_cluster_size | sed -e 's/wsrep_cluster_size\t//'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      register: cluster_size
+      until: cluster_size.stdout == "{{ groups['mariadb_mgmt_ip'] | length }}"
+      retries: 30
+      delay: 6
+  tags:
+    - base
+    - cluster_size

@@ -1,0 +1,174 @@
+- name: Check for existence of /var/etcd_backup directory
+  stat: path=/var/etcd_backup
+  register: etcd_backup
+
+- name: Create the docker volume of etcd when backup is present
+  command: docker volume create etcddata
+  when: etcd_backup.stat.exists
+
+- name: Create a directory with hostname
+  file:
+    path: /var/lib/docker/volumes/etcddata/_data/{{ ansible_hostname }}.etcd
+    state: directory
+  when: etcd_backup.stat.exists
+
+# Now restore the contents from backup
+- name: Restore the backup contents
+  shell: cp -aR /var/etcd_backup/* /var/lib/docker/volumes/etcddata/_data/{{ ansible_hostname }}.etcd/
+  when: etcd_backup.stat.exists
+
+# Now change the ownership of the files
+- name: Change ownership of docker volume
+  shell: chown -R etc:etc /var/lib/docker/volumes/etcddata/_data
+  when: etcd_backup.stat.exists
+
+- name: Create log directories
+  file:
+    path: /var/log/etcd
+    state: directory
+    group: 500
+    mode: 0770
+    owner: 2200
+
+- name: Start the etcd Docker Service.
+  docker_container:
+    name: "etcd_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.etcd.name }}:{{ docker.etcd.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.etcd.host_data_dir }}:{{ docker.etcd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/etcd:/var/log/etcd:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      - etcddata:/var/lib/etcd
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+        BOOTSTRAP_MASTER: True
+  when: etcd_backup.stat.exists
+
+- name: Waiting for etcd service.
+  uri:
+    url: "http://{{ groups['etcd_all'][0] }}:2379/health"
+    return_content: yes
+  register: etcd_member_health
+  until: "{{ etcd_member_health.status == 200 and 'true' in etcd_member_health.content }}"
+  retries: 20
+  delay: 1
+  when: inventory_hostname == groups['etcd_all'][0]
+
+- name: Check for member list
+  shell: docker exec etcd_bootstrap etcdctl member list | cut -f1 -d ':'
+  register: etcd_member_list
+  when: etcd_backup.stat.exists
+
+- name: Update the member
+  shell: docker exec etcd_bootstrap etcdctl member update {{ etcd_member_list.stdout }}  http://{{ groups['etcd_all'][0] }}:2380
+  when: etcd_backup.stat.exists and inventory_hostname == groups['etcd_all'][0]
+
+- name: Update the second member before adding it
+  shell: docker exec etcd_bootstrap etcdctl member add {{ ansible_hostname }} http://{{ groups['etcd_all'][1] }}:2380
+  delegate_to: "{{ groups['etcd_all'][0] }}"
+  register: member_add_second
+  delay: 6
+  retries: 10
+  until: member_add_second.rc == 0
+  when: inventory_hostname == groups['etcd_all'][1]
+
+- name: Start the etcd Docker Service.
+  docker_container:
+    name: "etcd_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.etcd.name }}:{{ docker.etcd.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.etcd.host_data_dir }}:{{ docker.etcd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/etcd:/var/log/etcd:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      - etcddata:/var/lib/etcd
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+        BOOTSTRAP_SECONDARY: True
+  when: inventory_hostname ==  groups['etcd_all'][1]
+
+- name: Waiting for etcd service.
+  uri:
+    url: "http://{{ groups['etcd_all'][1] }}:2379/health"
+    return_content: yes
+  register: etcd_member_health
+  until: "{{ etcd_member_health.status == 200 and 'true' in etcd_member_health.content }}"
+  retries: 20
+  delay: 1
+  when: inventory_hostname == groups['etcd_all'][1]
+
+
+- name: Update the third member before adding it
+  shell: docker exec etcd_bootstrap etcdctl member add {{ ansible_hostname }} http://{{ groups['etcd_all'][2] }}:2380
+  register: member_add_third
+  retries: 10
+  delay: 6
+  until: member_add_third.rc == 0
+  delegate_to: "{{ groups['etcd_all'][0] }}"
+  when: inventory_hostname == groups['etcd_all'][2]
+
+
+- name: Start the etcd Docker Service.
+  docker_container:
+    name: "etcd_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.etcd.name }}:{{ docker.etcd.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.etcd.host_data_dir }}:{{ docker.etcd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/etcd:/var/log/etcd:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      - etcddata:/var/lib/etcd
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+        BOOTSTRAP_TERTIARY: True
+  when: inventory_hostname ==  groups['etcd_all'][2]
+
+- name: Waiting for etcd service.
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ inventory_hostname }}:{{ ETCD_LISTEN_PORT }}/health"
+    return_content: yes
+  register: etcd_member_health
+  until: "{{ etcd_member_health.status == 200 and 'true' in etcd_member_health.content }}"
+  retries: 20
+  delay: 1
+  when: inventory_hostname ==  groups['etcd_all'][2]
+
+- name: Stop and remove etcd docker container.
+  docker_container:
+    image: ""
+    name: "etcd_bootstrap"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  delegate_to: "{{ groups['etcd_all'][2] }}"
+  when: inventory_hostname ==  groups['etcd_all'][2]
+
+- name: Stop and remove etcd docker container.
+  docker_container:
+    image: ""
+    name: "etcd_bootstrap"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  delegate_to: "{{ groups['etcd_all'][1] }}"
+  when: inventory_hostname ==  groups['etcd_all'][2]
+
+- name: Stop and remove etcd docker container.
+  docker_container:
+    image: ""
+    name: "etcd_bootstrap"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  delegate_to: "{{ groups['etcd_all'][0] }}"
+  when: inventory_hostname ==  groups['etcd_all'][2]

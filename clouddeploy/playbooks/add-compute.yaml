@@ -1,0 +1,394 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+  tags:
+    - base
+    - host_setup
+
+- include: user_group_setup.yaml
+
+- name: Fix /etc/hosts
+  hosts: host_power_all
+  tasks:
+    - name: Update mgmt node entry in /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '[0-9A-Fa-f\.:]+\s+{{ groups["mgmt"]|join("") }}\s+{{ groups["mgmt"]|join("") }}$'
+        line: "{{ item }} {{ groups['mgmt']|join('') }} {{ groups['mgmt']|join('') }}"
+      when: item != "" and item != "0.0.0.0" and item != "::"
+      with_items:
+        - "{{ build_node_ip }}"
+
+    - name: Map hostnames to ipv4 addresses
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '.*\..*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+        line: "{{ item }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      with_items: "{{ groups['host_power_all'] }}"
+
+    - name: Map hostnames to ipv6 addresses
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '.*:.*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+        line: "{{ hostvars[item]['management_ipv6'] }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['host_power_all'] }}"
+  tags:
+    - host_setup
+
+- name: Create new group
+  hosts: host_power_all
+  tasks:
+    - name: Create groups for adding Compute
+      local_action: add_host hostname={{ item }} groupname=new_computes
+      with_items:
+        - "{{ COMPUTE }}"
+  tags:
+    - base
+    - host_setup
+
+- name: Check Ansible connectivity to all hosts
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  tasks:
+    - name: check host connectivity
+      shell: echo " {{ hostvars[item]['ansible_hostname'] }}"
+      with_items: "{{ groups['host_power_all'] }}"
+      register: cmd_output
+  tags:
+    - host_setup
+
+- name: Initial Host setup for compute
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+    - { role: host_setup, host_init: true, host_post_init: false }
+  tags:
+    - host_setup
+
+- include: ntp-setup.yaml
+
+- name: Basic host setup for compute
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  max_fail_percentage: 0
+  roles:
+    - { role: host_setup, host_init: false, host_post_init: true }
+  tags:
+    - host_setup
+
+- name: Edge POD BIOS update
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+  - { role: edge-pod-bios-update, tags: [ "host_setup" ] }
+
+- name: Edge POD accelerated compute firmware update
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+  - { role: n3000-firmware-update, tags: [ "host_setup" ], firmware_check: false, firmware_update: true }
+
+- name: Set docker aliases.
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+  - { role: set_aliases, tags: [ "host_setup" ] }
+
+- name: Install the cvimlog scripts in all nodes
+  hosts: new_computes
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  any_errors_fatal: True
+  tags:
+    - host_setup
+  tasks:
+    - name: Create tools directory
+      file: path="/root/tools" state=directory mode=0755
+
+    - name: Copy files into the nodes
+      synchronize:
+          src: "{{ playbook_dir | dirname }}/remote_tools/"
+          dest: "/root/tools/"
+          copy_links: yes
+
+    - name: Install cvimlog
+      shell: cd /root/tools ; python setup.py install
+      ignore_errors: True
+      failed_when: False
+
+- name: Install fluentd onto all nodes
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "fluentd", tags: [ "host_setup", "fluentd" ] }
+
+- name: Install Neutron common data container.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-common", tags: [ "base", "neutron-common", "neutron-install" ] }
+
+- name: Install Linux Bridge Agent Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-linuxbridge", tags: [ "linuxbridge", "neutron-linuxbridge", "neutron-install" ] }
+
+- include: vts-day0-vmtp.yaml
+
+- name: Install VTF service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vtf", tags: [ "vts", "neutron-vtf", "neutron-install" ] }
+
+- name: Install VPP service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vpp", tags: [ "vpp", "neutron-vpp", "neutron-install" ] }
+
+- name: Install ovs dbserver.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_dbserver", tags: [ "aci", "openvswitch", "ovs_dbserver", "neutron-ovs-agent", "neutron-install" ] }
+
+- name: Install openvswitch Agent Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_vswitch", tags: [ "aci", "openvswitch", "ovs_vswitch", "neutron-ovs-agent", "neutron-install" ] }
+
+- name: Install mcast daemon ervice.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "mcast-daemon", tags: [ "aci", "mcast-daemon", "neutron-install" ] }
+
+- name: Install agent ovs service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "agent-ovs", tags: [ "aci", "agent-ovs", "neutron-install" ] }
+
+- name: Install neutron opflex agent service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-opflex-agent", tags: [ "aci", "neutron-opflex-agent", "neutron-install" ] }
+
+- name: Install openvswitch Agent Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-ovs", tags: [ "openvswitch", "neutron-ovs", "neutron-install" ] }
+
+- name: Install SRIOV Agent Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-sriov", tags: [ "neutron-sriov", "neutron-install" ] }
+
+- name: Update the MTU on integration bridge for Large MTU setups.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Set the mtu on interface
+      command: docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl set int br-int mtu_request={{ JUMBO_MTU_SIZE }}
+      when: ENABLE_JUMBO_FRAMES is defined and ENABLE_JUMBO_FRAMES
+  tags:
+    - openvswitch
+    - ovs_dbserver
+    - neutron-ovs-agent
+
+- name: Install Nova Common Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-common", tags: [ "base", "nova-common", "nova-install" ] }
+
+- name: Install Nova Libvirt Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-libvirt", tags: [ "base", "nova-libvirt", "nova-install" ] }
+
+- name: Pause for sometime.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - pause: seconds=120 prompt="Waiting for sometime"
+  tags:
+    - base
+
+- name: Install Nova Compute Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-compute", tags: [ "base", "nova-compute", "nova-install" ] }
+
+- name: Install Nova SSH Containerized service.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-ssh", tags: [ "base", "nova-ssh", "nova-install" ] }
+
+- name: Cloudpulse populate
+  hosts: cloudpulse_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse-populate", tags: [ "base", "cloudpulse" ] }
+
+- name: Pause for sometime.
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - pause: seconds=60 prompt="Waiting for sometime"
+  tags:
+    - base
+
+- name: Verify nova-compute is up
+  hosts: new_computes
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['new_computes'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "nova-compute"
+    systemctl_name: "docker-novacpu.service"
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-check", tags: [ "base", "cloud-check" ] }
+
+- name : Install Ceilometer Compute containerized service
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-compute", tags: [ "ceilometer", "ceilometer-compute"] }
+
+- name : NFVIMON operations if needed
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nfvimon", tags: [ "nfvimon"] }
+
+- include: cvim-mon-configure.yaml
+
+- name: Configure IPA client host integration
+  hosts: new_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: ipa-config }
+  tags:
+    - base
+    - host_setup
+    - ipa-config
+
+- name: Updating ipv4 hosts
+  hosts: nova_compute_power_all{{server|default('')}}:!new_computes
+  tasks:
+    - name: updating novassh hosts
+      shell: docker exec -iu root novassh_{{ docker.nova_ssh.image_tag }} /bin/sh -c "echo "{{ item }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      with_items: "{{ groups['new_computes'] }}"
+
+    - name: updating novacompute hosts
+      shell: docker exec -iu root novacompute_{{ docker.nova_compute.image_tag }} /bin/sh -c "echo "{{ item }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      with_items: "{{ groups['new_computes'] }}"
+
+    - name: updating novalibv hosts
+      shell: docker exec -iu root novalibvirt_{{ docker.nova_libvirt.image_tag }} /bin/sh -c "echo "{{ item }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      with_items: "{{ groups['new_computes'] }}"
+
+  tags:
+    - base
+
+- name: Updating ipv6 hosts
+  hosts: nova_compute_power_all{{server|default('')}}:!new_computes
+  tasks:
+    - name: updating novassh hosts
+      shell: docker exec -iu root novassh_{{ docker.nova_ssh.image_tag }} /bin/sh -c "echo "{{ hostvars[item]['management_ipv6'] }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['new_computes'] }}"
+
+    - name: updating novacompute hosts
+      shell: docker exec -iu root novacompute_{{ docker.nova_compute.image_tag }} /bin/sh -c "echo "{{ hostvars[item]['management_ipv6'] }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['new_computes'] }}"
+
+    - name: updating novalibv hosts
+      shell: docker exec -iu root novalibvirt_{{ docker.nova_libvirt.image_tag }} /bin/sh -c "echo "{{ hostvars[item]['management_ipv6'] }}" "{{ hostvars[item]['ansible_hostname'] }}" "{{ hostvars[item]['ansible_nodename'] }}" >> /etc/hosts"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['new_computes'] }}"
+
+  tags:
+    - base
+
+- include: cloud-sanity.yaml

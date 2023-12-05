@@ -1,0 +1,57 @@
+- name: Check if CVIM-MON is enabled
+  shell: "systemctl list-unit-files | grep -q docker-cvim-mon.service"
+  register: docker_cvim_mon_service_exists
+  failed_when: False
+
+- set_fact:
+    WSREP_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/WSREP_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True and PODTYPE is defined and PODTYPE != "ceph"
+
+- name: Remove old telegraf configurations
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_fileglob:
+    - "/var/lib/cvim_mon/*.conf"
+  when: docker_cvim_mon_service_exists.rc == 0
+
+- name: Change permission of the clone of cobbler_data
+  file:
+    path: "/var/lib/cvim_mon/.cobbler_data.yaml"
+    state: touch
+    owner: "2027"
+    group: "2027"
+    mode: "0600"
+  when: docker_cvim_mon_service_exists.rc == 0
+
+- name: Change permission of the clone of setup_data
+  file:
+    path: "/var/lib/cvim_mon/setup_data.yaml"
+    state: touch
+    owner: "2027"
+    group: "2027"
+    mode: "0600"
+  when: docker_cvim_mon_service_exists.rc == 0
+
+- name: Restart CVIM-MON container
+  systemd:
+    name: docker-cvim-mon
+    enabled: yes
+    state: restarted
+    masked: no
+  when: docker_cvim_mon_service_exists.rc == 0
+
+- name: Get default IP address
+  shell: ip route get 1 | awk '{print $NF;exit}'
+  register: default_ip
+
+- name: Stop prometheus container to edit prometheus configuration
+  shell: docker stop "prometheus_{{ docker.prometheus.image_tag }}"
+
+- name: Generate prometheus config
+  script: generate_prometheus_config.py -c "/var/lib/prometheus_conf/prometheus.yml" -i "{{ default_ip.stdout_lines }}" -w "{{ playbook_dir }}/../../"
+
+- name: Restart prometheus container
+  shell: docker start "prometheus_{{ docker.prometheus.image_tag }}"

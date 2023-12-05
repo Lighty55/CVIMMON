@@ -1,0 +1,33 @@
+
+- stat: path=/root/.ssh/zenoss_id_rsa.pub
+  register: pub_file
+  delegate_to: localhost
+  run_once: True
+
+- name: "Remove nfvimon public key from PoD hosts authorized_keys file"
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=absent
+  when: pub_file.stat.exists
+
+- name: "Remove nfvimon public key to mgmt node authorized keys file"
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=absent
+  delegate_to: localhost
+  run_once: True
+  when: pub_file.stat.exists
+
+- name: "Check if nfvimon keys exist"
+  find: path="/root/.ssh/" patterns="zenoss_id_rsa*"
+  register: keys_stat
+  delegate_to: localhost
+  run_once: True
+
+- name: "Remove any exisiting nfvimon ssh keys"
+  file: path={{ item.path }} state=absent
+  with_items: "{{ keys_stat.files }}"
+  delegate_to: localhost
+  run_once: True

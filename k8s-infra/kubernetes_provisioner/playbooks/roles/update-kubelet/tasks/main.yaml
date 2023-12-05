@@ -1,0 +1,31 @@
+- name: drain node
+  shell: kubectl drain {{inventory_hostname}} --ignore-daemonsets --delete-local-data --force
+  delegate_to: "{{ groups['all-masters'][0] }}"
+
+- name: upgrade kubelet
+  yum:
+    name: kubelet-{{kubelet_version}}
+    state: present
+
+- replace:
+    dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+    regexp: 'KUBELET_KUBECONFIG_ARGS='
+    replace: 'KUBELET_KUBECONFIG_ARGS=--fail-swap-on=false '
+    backup: no
+
+- replace:
+    dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+    regexp: 'cadvisor-port=0'
+    replace: 'cadvisor-port=4194'
+    backup: no
+
+- name: restart kubelet
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: kubelet
+    enabled: yes
+
+- name: Bring the host back online
+  shell: kubectl uncordon {{inventory_hostname}}
+  delegate_to: "{{ groups['all-masters'][0] }}"

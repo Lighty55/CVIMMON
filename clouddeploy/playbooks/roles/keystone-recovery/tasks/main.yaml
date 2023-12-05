@@ -1,0 +1,18 @@
+##############################################################################
+# Main script where to put all the include files for recovery tasks for the
+# Keystone Containerazed service
+#
+# For now, only Fernet keys recovery scripts are needed
+##############################################################################
+
+- include: keystone_check_fernet_keys.yaml
+  when: (FERNET_RECOVERY is defined) and
+        (FERNET_RECOVERY == 'check' or FERNET_RECOVERY == 'resync') and
+        (num_controllers | int > 2)
+
+# We only need to do resync of the fernet keys if they are different across
+# the keystone nodes
+- include: keystone_resync_fernet_keys.yaml
+  when: (FERNET_RECOVERY is defined) and (FERNET_RECOVERY == 'resync') and
+        (_hosts_need_resync is defined) and (_hosts_need_resync | length > 0) and
+        (num_controllers | int > 2)

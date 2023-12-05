@@ -1,0 +1,26 @@
+# Do not use "run_once: True". Need to bootstrap container on all servers.
+- name: Bootstrap the Ironic Conductor Service
+  docker_container:
+    name: "ironic_conductor_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}:{{ docker.ironic_conductor.image_tag }}"
+    volumes:
+      -  "{{ docker.ironic_conductor.host_data_dir }}:{{ docker.ironic_conductor.host_data_dir }}:ro,z"
+      - "{{ IRONIC_VOLUME }}:{{ IRONIC_VOLUME }}:z"
+      - /etc/localtime:/etc/localtime:ro
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+        BOOTSTRAP:
+
+- name: Waiting for Ironic Conductor bootstrap container to exit
+  command: docker wait ironic_conductor_bootstrap
+  failed_when: bootstrap_result.stdout != "0"
+  register: bootstrap_result
+
+- name: Cleaning up Ironic Conductor bootstrap container
+  docker_container:
+    name: ironic_conductor_bootstrap
+    image: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}:{{ docker.ironic_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

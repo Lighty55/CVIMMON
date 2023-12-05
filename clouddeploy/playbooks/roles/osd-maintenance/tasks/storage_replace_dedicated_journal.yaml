@@ -1,0 +1,434 @@
+---
+
+- name: Include storage node vars
+  include_vars:
+    file: "../../ceph/host_vars/{{ host_name }}"
+    name: host_vars
+  delegate_to: localhost
+  run_once: True
+
+# This is needed to avoid trace back setting delegate_to
+- set_fact:
+    storage_node: "{{ host_name }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Get fqdn hostname
+  shell: hostname --fqdn
+  register: host_name_fqdn
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get OSD details file name
+  set_fact:
+    file_name: "{{ OSD_DETAILS_FILE }}_{{ host_name_fqdn.stdout  }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Get OSD details data
+  include_vars:
+    file: "{{ file_name }}"
+    name: data
+  delegate_to: localhost
+  run_once: True
+
+- set_fact:
+    dedicated: "not {{ host_vars.journal_collocation }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Save fstab backup
+  shell: "cp /etc/fstab /root/fstab.pre-journal-replace-{{ ansible_date_time.epoch }}"
+  when: dedicated
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get the Journal UUID
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ item | regex_replace('^osd.(\\d+)$', '\\1') }} | awk -F'Journal:' '{print $2}'"
+  register: journal_uuids
+  with_items:
+    - "{{ bad_osds }}"
+  when: dedicated
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get the journal device label - dedicated journal
+  shell:
+    cmd: "ls -l /dev/disk/by-partuuid | grep -w {{ item.stdout }} | awk -F'{{ item.stdout }}' '{print $2}' | cut -d'/' -f3"
+  register: journal_mnts_dev_dedicated
+  when: dedicated and journal_uuids is defined and item.stdout != ""
+  with_items:
+    - "{{ journal_uuids.results }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# When a dedicated journal fails the OSDs fall back to a co-located journal
+# All of the bad OSD should indicated co-located journals at this point.
+- set_fact:
+    found_dedicated_journal_mounts: True
+  when: dedicated and "{{ item.stdout }}" != ""
+  with_items:
+    - "{{ journal_mnts_dev_dedicated.results }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: End play if journals are co-located
+  meta: end_play
+  when: dedicated and found_dedicated_journal_mounts is defined
+  delegate_to: localhost
+  run_once: True
+
+- name: get current cephmon container
+  shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+  register: cur_cephmon
+  run_once: True
+  failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+
+- name: Remove OSD from cluster
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd out {{ item }}
+  run_once: True
+  with_items:
+    - "{{ bad_osds }}"
+
+- name: Stop the OSD process in the storage node
+  service:
+    name: "ceph-osd@{{ item | regex_replace('^osd.(\\d+)$', '\\1') }}.service"
+    state: stopped
+  ignore_errors: True
+  with_items:
+    - "{{ bad_osds }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Remove the OSD from the crush map
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd crush remove {{ item }}
+  run_once: True
+  with_items:
+    - "{{ bad_osds }}"
+
+- name: Remove the OSD auth keys
+  shell: docker exec {{ cur_cephmon.stdout }} ceph auth del {{ item }}
+  run_once: True
+  with_items:
+    - "{{ bad_osds }}"
+
+- name: Remove the OSD from the ceph cluster
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd rm {{ item }}
+  run_once: True
+  with_items:
+    - "{{ bad_osds }}"
+
+- name: Unmount the failed drive path
+  shell:
+    cmd: "systemctl stop 'var-lib-ceph-osd-ceph\\x2d{{ item | regex_replace('^osd.(\\d+)$', '\\1') }}.mount'"
+  ignore_errors: True
+  register: result
+  until: result.rc == 0
+  retries: 6
+  delay: 30
+  with_items:
+    - "{{ bad_osds }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get existing line in /etc/fstab for the osd
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ item | regex_replace('^osd.(\\d+)$', '\\1') }}"
+  register: fstab_lines
+  with_items:
+    - "{{ bad_osds }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Update /etc/fstab and comment out existing UUID and mount information
+  lineinfile:
+    dest: /etc/fstab
+    state: absent
+    regexp: "{{ item.stdout }}"
+  with_items: "{{ fstab_lines.results }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Reload systemctl daemon
+  shell:
+    cmd: /usr/bin/systemctl daemon-reload
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Cleanup temp files
+  file:
+    path: "{{ item }}"
+    state: absent
+  ignore_errors: True
+  failed_when: false
+  with_items:
+    - "/tmp/devices.dat"
+    - "/tmp/journals.dat"
+    - "/tmp/prepare.started"
+    - "/tmp/prepare.done"
+    - "/tmp/prepare.log"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Remove any stale slot info file
+  file:
+    path: "/tmp/hdd_slot_info"
+    state: absent
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Check if SAS RAID or passthrough
+  shell:
+    cmd: "lsmod | grep megaraid"
+  register: storage_raid_type_hw
+  ignore_errors: True
+  failed_when: False
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get storcli info
+  shell: "/opt/MegaRAID/storcli/storcli64 show J"
+  register: result
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Save storcli JSON output
+  set_fact:
+    storcli_result: "{{ result.stdout | from_json }}"
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get RAID controller number
+  set_fact:
+    control_num: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['Ctl'] }}"
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get storcli info for all disks
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ control_num }} show J"
+  register: result
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Save storcli controller JSON output
+  set_fact:
+    storcli_disk_result: "{{ result.stdout | from_json }}"
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: If Raid is present check for Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/fall show J"
+  register: foreign_cfg_result
+  when: storage_raid_type_hw.stdout != ""
+
+- name: Save Foreign config result
+  set_fact:
+    fcfg: "{{ foreign_cfg_result.stdout | from_json }}"
+  when: storage_raid_type_hw.stdout != "" and foreign_cfg_result is defined and foreign_cfg_result.stdout != ""
+
+- name: Clear any Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/fall delete"
+  when: storage_raid_type_hw.stdout != "" and fcfg is defined and fcfg.Controllers[0]['Response Data']['FOREIGN CONFIGURATION'] is defined
+
+# TODO: Move any disk to JBOD.
+
+- name: Save each disk EID, Slt and DID
+  shell: "echo 'disk {{ item['EID:Slt'] }} DID {{ item.DID }}' >> /tmp/hdd_slot_info"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: storage_raid_type_hw.stdout != ""
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Copy find-unused-disk-blocks script to OSDs
+  copy:
+    src: ../../ceph/contrib/find-unused-disk-blocks.py
+    dest: /tmp/find-unused-disk-blocks.py
+    mode: 0755
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Gather unused disk information
+  shell: "/usr/bin/python /tmp/find-unused-disk-blocks.py &> /tmp/make-unused-disk-blocks-out"
+  register: find_unused_results
+  ignore_errors: True
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Copy OSD information back to build host
+  fetch:
+    src: /tmp/make-unused-disk-blocks-out
+    dest: "../../ceph/host_vars/unused_disks_{{ host_name }}"
+    flat: yes
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Include unused disks storage node vars
+  include_vars:
+    file: "../../ceph/host_vars/unused_disks_{{ host_name }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Determine if unused disks where found
+  meta: end_play
+  when: unused_disks is defined and not unused_disks['hdd']
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Erasing partitions and labels from the disk
+  script: ../../ceph/contrib/zap.bash {{ item.path }}
+  when: dedicated
+  with_items: "{{ unused_disks['hdd'] }}"
+  register: disk_erase_results
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Erasing partitions and labels from the journal device(s)
+  script: ../../ceph/contrib/zap.bash {{ item.path }}
+  when: dedicated
+  with_items: "{{ unused_disks['ssd'] }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# Now reboot the storage node
+- name: Touch full reboot file
+  file:
+    path: /reboot-full
+    state: touch
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Reboot to make sure partitions are zapped
+  shell: sleep 2 && reboot
+  async: 1
+  poll: 0
+  ignore_errors: true
+  failed_when: false
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Waiting for server to come back first try
+  local_action: wait_for host={{ host_name }}
+                state=started delay=30 timeout=600
+                connect_timeout=10 port=22
+  register: reboot_wait
+  ignore_errors: true
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy prepare script to OSDs
+  copy:
+    src: ../../ceph/contrib/prepare-blocks.bash
+    dest: /tmp/prepare-blocks.bash
+    mode: 0755
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Prepare OSD disk(s)
+  shell: "bash /tmp/prepare-blocks.bash bluestore"
+  async: 4800
+  poll: 0
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Waiting for ceph osd prepare action
+  wait_for: path=/tmp/prepare.done delay=60 timeout=1200
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Get the list of OSDs from the node
+  shell: mount | grep ceph | awk '{print $3}' | cut -f2 -d '-'
+  register: ceph_osd_list
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# Now enable ceph-osd target
+- name: Enable ceph-osd target
+  service:
+    name: ceph-osd.target
+    enabled: yes
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# Now enable the ceph-osd service for the disks
+- name: CEPH OSD disk enable service
+  service:
+    name: ceph-osd@{{item }}
+    enabled: yes
+  with_items: "{{ ceph_osd_list.stdout_lines | default([]) }}"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# Now create the fstab file based on whats mounted
+- name: Copy the fstab creation script to /tmp
+  copy:
+    src: ../../ceph/contrib/create_fstab.bash
+    dest: /tmp/create_fstab.bash
+    mode: 0755
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+# Execute the script to properly populate fstab
+- name: Prepare fstab
+  shell: "bash /tmp/create_fstab.bash"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Cleanup up temporary script
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "/tmp/create_fstab.bash"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Move the osd health check script
+  copy:
+    src: ../../ceph/contrib/check-osd-health.bash
+    dest: /root/check-osd-health.bash
+    mode: 0755
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Add cron job to run on configured interval
+  lineinfile:
+    dest: /etc/crontab
+    state: present
+    line: "*/{{ osd_health_check_interval }} * * * * root /root/check-osd-health.bash"
+  delegate_to: "{{ storage_node }}"
+  run_once: True
+
+- name: Write replace results jounal dev to file
+  shell:
+    cmd: "echo 'journal_path: {{ item.drive }}' >> {{ JOURNAL_REPLACE_STATUS_FILE }}_{{ host_name_fqdn.stdout  }}"
+  when: dedicated
+  with_items: "{{ unused_disks['ssd'] }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Save HDD disk devices
+  set_fact: disk_devices="[{% for i in unused_disks['hdd'] %}{{ i.drive | string }},{%endfor%}]"
+  when: dedicated
+  delegate_to: localhost
+  run_once: True
+
+- name: Write OSD ID details to file
+  shell:
+    cmd: "echo 'OSD_IDs: {{ bad_osds }}'  >> {{ JOURNAL_REPLACE_STATUS_FILE }}_{{ host_name_fqdn.stdout }}"
+  when: dedicated
+  delegate_to: localhost
+  run_once: True
+
+- name: Write OSD path details to file
+  shell:
+    cmd: "echo 'OSD_PATHS: {{ disk_devices }}' >> {{ JOURNAL_REPLACE_STATUS_FILE }}_{{ host_name_fqdn.stdout }}"
+  when: dedicated
+  delegate_to: localhost
+  run_once: True

@@ -1,0 +1,5 @@
+- hosts: all-servers{{server|default('')}}
+  become: yes
+  serial: 1
+  roles:
+    - prepare-disks

@@ -1,0 +1,7 @@
+- name: Setup ntp if needed
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ntp", tags: [ "host_setup", "base", "ntp" ]}

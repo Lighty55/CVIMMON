@@ -1,0 +1,17 @@
+- name: Glance Registry Update.
+  hosts: glance_registry_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "glance-registry", tags: [ "base", "glance_upgrade", "glance-registry" ] }
+  serial: "30%"
+
+- name: Glance API Update.
+  hosts: glance_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "glance-api", tags: [ "base", "glance_upgrade", "glance-api" ] }
+  serial: "30%"

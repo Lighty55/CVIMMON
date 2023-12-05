@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova libvirt Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_libvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}
+
+# Back up the nova libvirt volume contents
+- name: back up the nova libvirt volume contents
+  shell: cp /docker/nova_libvirt/* /docker/nova_libvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova libvirt systemd file
+  command: cp /usr/lib/systemd/system/docker-novalibv.service /docker/nova_libvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}/docker-novalibv.service
+
+#####################################################
+# Shut down the old nova libvirt containers
+####################################################
+# Nova libvirt.
+- name: Shut off nova libvirt docker service
+  service:
+    name: docker-novalibv
+    enabled: no
+    state: stopped
+
+- name: Remove nova-libv service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novalibv.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove nova libvirt Directory contents
+- name: List nova libvirt Directory contents
+  shell: ls -A1 /docker/nova_libvirt/
+  register: contents
+
+- name: Remove nova libvirt Directory contents
+  file:
+    path: /docker/nova_libvirt/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

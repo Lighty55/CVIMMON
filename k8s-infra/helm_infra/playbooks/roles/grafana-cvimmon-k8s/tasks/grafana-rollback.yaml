@@ -1,0 +1,50 @@
+---
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the old version number from the saved file"
+  slurp: { src: "{{ grafana_helm_upgrade_path }}/grafana-cvim-old-version" }
+  register: grafana_cvim_revision_file
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the old version"
+  set_fact:
+    grafana_cvim_old_version="{{ grafana_cvim_revision_file['content'] | b64decode | regex_findall('GRAFANA-CVIM-OLD-REVISION=(.+)') | first }}"
+
+- name: "CVIMMON-Kubernetes-Monitor->Helm rollback to old version"
+  command: >
+    /usr/bin/helm rollback "{{ grafana_deployment_name }}" {{ grafana_cvim_old_version }}
+
+- name: "Check Rollout Status of Grafana-k8s-cluster-monitor Deployment"
+  command: kubectl -n "{{ grafana_namespace }}" rollout status --timeout=300s deployment "{{ grafana_deployment_name }}"
+
+- name: "Check the status of Grafana-k8s-cluster-monitor Deployment once rolled-out"
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ grafana_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ grafana_deployment_name }}"
+
+- name: "Ensure Grafana-k8s-cluster-monitor Deployment and pods are up and running."
+  changed_when: false
+  register: "grafana_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=grafana --output=json --namespace={{ grafana_namespace }}"
+  until:
+      - "grafana_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "grafana_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+
+- name: "CVIMMON-Kubernetes-Monitor->Clear the old-version file"
+  file:
+    state: absent
+    path: "{{ grafana_helm_upgrade_path }}/grafana-cvim-old-version"
+
+- name: "CVIMMON-Kubernetes-Monitor->Fail the update if rollback was due to update failure"
+  fail:
+    msg: "The {{ grafana_deployment_name }} update failed and it was rollbacked to the old version"
+  when: grafana_cvim_update_status is failed

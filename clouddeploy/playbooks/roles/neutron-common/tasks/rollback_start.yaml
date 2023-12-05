@@ -1,0 +1,95 @@
+# First remove the new container and artifacts
+- name: Shut off neutron common docker service
+  service:
+    name: docker-neutroncommon
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron common service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutroncommon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_common_{{ docker.neutron_common.image_tag }}" }
+
+- name: Remove neutron common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_common.name }}"
+    tag: "{{ docker.neutron_common.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron common volume contents
+- name: List neutron common volume contents
+  shell: ls -A1 /docker/neutron_common/
+  register: contents
+
+- name: Remove neutron common volume contents
+  file:
+    path: /docker/neutron_common/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron common volume contents
+- name: recover neutron common volume contents
+  shell: cp /docker/neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}/* /docker/neutron_common/.
+
+# Now remove the backup volume
+- name: Remove back up neutron common Directory
+  file:
+    path: "/docker/neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_common/docker-neutroncommon.service /usr/lib/systemd/system/docker-neutroncommon.service
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias neutroncommon='in_container neutron_common_"
+    line: "{{ item }}"
+  with_items:
+    - alias neutroncommon='in_container neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}'
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutroncommon
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if neutron common  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron common Container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+
+

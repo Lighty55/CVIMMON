@@ -1,0 +1,6 @@
+- include: magnum_conductor_upgrade_prepare.yaml
+- include: magnum_conductor_install.yaml
+- include: magnum_conductor_config.yaml
+- include: magnum_conductor_bootstrap.yaml
+  when: inventory_hostname == groups['magnum_conductor_all'][0]
+- include: magnum_conductor_start.yaml

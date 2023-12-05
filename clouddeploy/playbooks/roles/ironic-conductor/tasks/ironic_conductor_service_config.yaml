@@ -1,0 +1,8 @@
+- name: Copy Ironic-Conductor config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ironic_conductor_config.j2",
+        dest: "{{ docker.ironic_conductor.host_data_dir }}/{{ IRONIC_CONDUCTOR_CONFIG_FILE | default('ironic_conductor_config') }}" }

@@ -1,0 +1,70 @@
+- name: Check if Magnum API is already running
+  shell: docker ps -a | grep Up | grep magnumapi_{{ docker.magnum_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias magnumapi='in_container magnumapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias magnumapi='in_container magnumapi_{{ docker.magnum_api.image_tag }}'
+
+- name: Start the Magnum API Docker Container
+  docker_container:
+    name: "magnumapi_{{ docker.magnum_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.magnum_api.name }}:{{ docker.magnum_api.image_tag }}"
+    volumes:
+      - "{{ docker.magnum_api.host_data_dir }}:{{ docker.magnum_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    privileged: yes
+    interactive: "yes"
+    network_mode: "host"
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update" and file_status.rc == 0) or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- name: Start the Magnum API Docker Container
+  docker_container:
+    name: "magnumapi_{{ docker.magnum_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.magnum_api.name }}:{{ docker.magnum_api.image_tag }}"
+    volumes:
+      - "{{ docker.magnum_api.host_data_dir }}:{{ docker.magnum_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    privileged: yes
+    interactive: "yes"
+    network_mode: "host"
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: (command_result.stdout == "" and ACTION is defined and ACTION == "update" and file_status.rc!=0)
+
+- name: Wait for Magnum API to be alive
+  wait_for: host={{ MAGNUM_HOST }} port={{ MAGNUM_API_PORT }}
+
+- name: Check if Magnum API Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumapi_{{ docker.magnum_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start magnumapi_{{ docker.magnum_api.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Magnum API Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumapi_{{ docker.magnum_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum API Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-magnumapi
+  tags:
+    - reboot-on-failure

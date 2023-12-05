@@ -1,0 +1,7 @@
+- name: Check if Neutron Lbaas Agent is already running
+  shell: docker ps -a | grep Up | grep neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }} | cut -f1 -d " "
+  register: command_result_lbaas
+
+# Workaround a bug in ansible for equality operation in templates
+# https://github.com/ansible/ansible/issues/17428
+- include: "{%if command_result_lbaas.stdout !\\= '' %}reconfigure_lbaas.yaml{% else %}deploy.yaml{% endif %}"

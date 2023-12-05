@@ -1,0 +1,16 @@
+- include: diskchk-runtime-cfg.yaml
+  when: ((ACTION is undefined and CLUSTER_RECOVERY is undefined) or (ACTION is defined and ACTION == "update"))
+- include: disk-sanity.yaml
+  when: (execute is undefined or (execute is defined and (execute == "all" or execute == "management"))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback"))
+- include: docker-api-sanity.yaml
+  when: (execute is undefined or (execute is defined and (execute == "all" or execute == "management"))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback"))
+- include: control-sanity.yaml
+  when: (execute is undefined or (execute is defined and (execute == "all" or execute == "cntrl_check"))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback"))
+- include: compute-sanity.yaml
+  when: (execute is undefined or (execute is defined and (execute == "all" or execute == "compute_check"))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback")) and (PODTYPE != "ceph")
+- include: cephmon-sanity.yaml
+  when: (((execute is undefined) or (execute is defined and ((execute == "all" or execute == "cephmon_check" or execute == "add_osd_check")))) and ((ROLES.cephosd is defined and ROLES.cephosd) or (ROLES.block_storage is defined and ROLES.block_storage))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback"))
+- include: cephosd-sanity.yaml
+  when: (((execute is undefined) or (execute is defined and ((execute == "all" or execute == "cephosd_check" or execute == "add_osd_check")))) and ((ROLES.cephosd is defined and ROLES.cephosd) or (ROLES.block_storage is defined and ROLES.block_storage))) and (ACTION is undefined or (ACTION is defined and ACTION != "rollback"))
+- include: cephio-sanity.yaml
+  when: ACTION is undefined or (ACTION is defined and ACTION != "rollback")

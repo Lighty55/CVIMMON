@@ -1,0 +1,48 @@
+# .bashrc
+
+# Expand aliases
+if [ -z "$PS1" ]; then
+  shopt -s expand_aliases
+fi
+
+# User specific aliases and functions
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+  . /etc/bashrc
+fi
+
+in_container() {
+  container="$1"
+  shift # command: the rest
+  if [ -z "$*" ] ; then
+    docker exec -it "$container" env PS1="$container $PS1" env TERM="$TERM" env TMOUT=3600 /bin/bash
+  else
+    docker exec "$container" env TERM="$TERM" env TMOUT=3600 "$@"
+  fi
+}
+reboot_command() {
+  command="$1"
+  shift
+  if [[  $@ == "--help" || $@ == "-h" ]]
+  then
+      "$command" $@
+  else
+      if [[ $command == "shutdown" && $@ == "-c" ]]
+      then
+          # Handle case when shutdown is cancelled
+          systemctl start docker-novacpu || true
+          "$command" $@
+      else
+          echo "Stopping nova compute and rebooting node. Will take some time.Please wait...."
+          systemctl stop docker-novacpu || true
+          sleep 30
+          if ! "$command" $@; then
+             systemctl start docker-novacpu || true
+          fi
+      fi
+  fi
+}

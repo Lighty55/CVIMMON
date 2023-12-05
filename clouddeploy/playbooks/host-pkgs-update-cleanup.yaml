@@ -1,0 +1,11 @@
+# Cleanup inventory of server type
+- name: Clean up inventory of servers
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: remove pod inventory file
+      file: path=/tmp/pod_inventory.output state=absent
+  tags:
+    - update
+    - host-packages

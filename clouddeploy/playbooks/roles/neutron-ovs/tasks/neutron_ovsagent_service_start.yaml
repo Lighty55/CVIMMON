@@ -1,0 +1,65 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_ovsagent_{{ docker.neutron_ovsagent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ovsagent='in_container neutron_ovsagent_"
+    line: "{{ item }}"
+  with_items:
+    - alias ovsagent='in_container neutron_ovsagent_{{ docker.neutron_ovsagent.image_tag }}'
+
+- name: Start the Neutron OVS Agent Docker Service
+  docker_container:
+    name: "neutron_ovsagent_{{ docker.neutron_ovsagent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_ovsagent.name }}:{{ docker.neutron_ovsagent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_ovsagent.host_data_dir }}:{{ docker.neutron_ovsagent.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+      - /run:/run:shared
+      - /lib/modules:/lib/modules:ro
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    ulimits: "nofile:{{ NEUTRON_AGENT_ULIMIT }}:{{ NEUTRON_AGENT_ULIMIT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron ovs Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_ovsagent_{{ docker.neutron_ovsagent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron ovsagent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_ovsagent
+  tags:
+    - reboot-on-failure
+
+- name: Reset systemctl failures
+  shell: systemctl reset-failed
+  when: 'ACTION is defined and ACTION == "update" and "compute" in server_role'
+
+- name: Make sure nova ssh is started again after update
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novassh
+  when: 'ACTION is defined and ACTION == "update" and "compute" in server_role'

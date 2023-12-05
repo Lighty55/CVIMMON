@@ -1,0 +1,10 @@
+- include: deploy.yaml
+  when: MECHANISM_DRIVERS == "vts" and ACTION is undefined
+- include: update.yaml
+  when: MECHANISM_DRIVERS == "vts" and ACTION is defined and ACTION == "update"
+- include: commit.yaml
+  when: MECHANISM_DRIVERS == "vts" and ACTION is defined and ACTION == "commit"
+- include: rollback.yaml
+  when: MECHANISM_DRIVERS == "vts" and ACTION is defined and ACTION == "rollback"
+- include: reg.yaml
+  when: MECHANISM_DRIVERS == "vts" and ACTION is defined and ACTION == "reg"

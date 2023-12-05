@@ -1,0 +1,5 @@
+- include: ironic_provision_network.yaml
+- include: ironic_conductor_service_install.yaml
+- include: ironic_conductor_service_config.yaml
+- include: ironic_conductor_service_bootstrap.yaml
+- include: ironic_conductor_service_start.yaml

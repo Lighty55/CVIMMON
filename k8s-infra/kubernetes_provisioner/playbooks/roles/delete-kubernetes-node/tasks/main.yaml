@@ -1,0 +1,20 @@
+- name: Check if the node is present
+  shell: "kubectl get node {{ node_operation_host }}"
+
+- name: drain nodes
+  command: kubectl drain {{ node_operation_host }} --delete-local-data --force --ignore-daemonsets --grace-period=5 --timeout=120s
+  ignore_errors: yes
+  failed_when: False
+
+- name: delete nodes
+  command: kubectl delete node {{ node_operation_host }}
+  ignore_errors: yes
+
+- name: kubectl get nodes must be free of NotReady node now
+  shell: "kubectl get nodes --no-headers | grep -v 'node-role.kubernetes.io/master' | grep -v -w 'Ready' || true"
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 10
+  delay: 3
+  ignore_errors: yes
+  changed_when: false

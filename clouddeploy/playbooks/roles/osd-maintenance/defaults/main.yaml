@@ -1,0 +1,8 @@
+#### OSD Defaults ####
+CEPH_TREE_STATUS_FILE: /tmp/osd-maintenance/ceph_osd_tree_status.yaml
+OSD_DETAILS_FILE: /tmp/osd-maintenance/osd_details.json
+CEPH_DISK_DETAILS_FILE: /tmp/osd-maintenance/ceph_disk_details.json
+BAD_DISKS_FILE: /tmp/osd-maintenance/bad_disks.txt
+OSD_REPLACE_STATUS_FILE: /tmp/osd-maintenance/osd_replace_status.yaml
+JOURNAL_REPLACE_STATUS_FILE: /tmp/osd-maintenance/journal_replace_status.yaml
+##########################

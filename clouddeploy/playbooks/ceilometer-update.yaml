@@ -1,0 +1,26 @@
+- name: Ceilometer central update.
+  hosts: ceilometer_central_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-central", tags: [ "ceilometer_update", "ceilometer_upgrade", "ceilometer-central" ] }
+  serial: "30%"
+
+- name: Ceilometer notification update.
+  hosts: ceilometer_notification_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-notification", tags: [ "ceilometer_update", "ceilometer_upgrade", "ceilometer-notification" ] }
+  serial: "30%"
+
+- name: Ceilometer compute update.
+  hosts: ceilometer_compute_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-compute", tags: [ "ceilometer_update", "ceilometer_upgrade", "ceilometer-compute" ] }
+  serial: "30%"

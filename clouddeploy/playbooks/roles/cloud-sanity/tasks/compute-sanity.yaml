@@ -1,0 +1,162 @@
+############################################################################################################################
+# Important Note: If you want to report a test to cloud-sanity, please make sure that the test name as the following syntax
+#
+# - name: Compute - <Test Name>
+#
+# if you don't want to report the test to cloud sanity, please use the following syntax for name:
+#
+# - name: <Test Name with no "-" >
+#
+############################################################################################################################
+
+- name: Copy Nova Check File to /tmp/
+  copy: src="nova-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+#Ping all Compute nodes
+- name: Compute - Ping All Compute Nodes
+  shell: python /tmp/nova-check.py check_cloudcompute_ping_status "{{ groups['nova_compute_mgmt_ip'] | join (' ') }}"
+  delegate_to: localhost
+  run_once: True
+  register: nova_hypervisor_ping_result
+  until: nova_hypervisor_ping_result.stdout.find('PASS') != -1
+
+- name: Execute Nova Hypervisor Check
+  shell: python /tmp/nova-check.py check_cloudcompute_status "{{ groups['compute'] | join (' ') }}"
+  delegate_to: localhost
+  run_once: True
+  register: nova_hypervisor_result
+  until: nova_hypervisor_result.stdout.find('PASS') != -1
+  retries: 10
+  delay: 18
+
+- name: Compute - Check Nova Hypervisor list
+  delegate_to: localhost
+  run_once: True
+  when: nova_hypervisor_result.stdout.find('FAIL') != -1
+  fail: msg="{{ nova_hypervisor_result.stdout }}"
+
+- name: Remove Nova Service Check file from /tmp/
+  file:
+    path: /tmp/nova-check.py
+    state: absent
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy disk.check.py to /tmp
+  copy: src="disk-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+- name: Run Disk maintenance for results data
+  shell: python /tmp/disk-check.py create compute raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: dm_status
+  when: "{{ RUN_DISK_CHECK }} == True"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Compute - Disk maintenance RAID Health
+  shell: python /tmp/disk-check.py reuse compute raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: raid_health
+  when: "(dm_status is defined and 'SKIP' not in dm_status.stdout)"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Compute - Disk maintenance VD Health
+  shell: python /tmp/disk-check.py reuse compute vd-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: vd_health
+  when: "(dm_status is defined and 'SKIP' not in dm_status.stdout)"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove disk.check.py from /tmp
+  file: path=/tmp/disk-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove diskmgmt check disks results json file
+  file: path=/tmp/disk-maintenance/.disk-maintenance.check-disks.json state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Copy docker api check.py to /tmp
+  copy: src="docker-api-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy docker api check.py to /tmp
+  copy: src="docker-api-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+
+- set_fact:
+    skip_list: "none"
+  delegate_to: localhost
+  run_once: True
+
+- name: Containers to skip docker check
+  set_fact:
+    skip_list: "neutronvtf"
+  delegate_to: localhost
+  run_once: True
+  when: (ACTION is defined and ACTION == "upgrade") and (MECHANISM_DRIVERS == 'vts')
+
+- name: Run Docker container tag check on targets
+  shell: python /tmp/docker-api-check.py verify_compute_container_tags {{ item }} {{ skip_list }}
+  delegate_to: localhost
+  run_once: True
+  register: compute_container_check
+  with_items: "{{ groups['nova_compute_mgmt_ip'] }}"
+
+- name: Compute - Container version check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ item.stdout }}"
+  failed_when: item.stdout.find('FAIL') != -1
+  when: item.changed == True
+  with_items: "{{ compute_container_check.results  }}"
+
+- name: Compute - Test current container status
+  shell: python /tmp/docker-api-check.py verify_compute_container_status {{ item }} {{ skip_list }}
+  delegate_to: localhost
+  run_once: True
+  register: compute_container_status
+  with_items: "{{ groups['nova_compute_mgmt_ip'] }}"
+  when: RUN_CONTAINER_EXITED_CHECK
+
+- name: Compute - Docker container exit status check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ item.stdout }}"
+  failed_when: item.stdout.find('FAIL') != -1
+  when: RUN_CONTAINER_EXITED_CHECK and item.changed == True
+  with_items: "{{ compute_container_status.results }}"
+
+- name: Retrieve used disk percent on /var
+  delegate_to: localhost
+  run_once: True
+  shell: ping -c 2 {{ item }} > /dev/null && /usr/bin/ssh -oStrictHostKeyChecking=no root@{{ item }} /usr/bin/df -h /var | tail -n +2 | awk '$NF == "/var" {print $5}' | sed 's/%//'
+  register: var_percent_utilized
+  ignore_errors: True
+  with_items: "{{ groups['nova_compute_mgmt_ip'] }}"
+
+- name: Determine disk space on /var within threshold
+  delegate_to: localhost
+  run_once: True
+  shell: echo True
+  register: compute_disk_space_warning
+  when: item.stderr == '' and item.rc == 0 and ((item.stdout | int) > (DISK_SPACE_USED_THRESHOLD | int))
+  with_items: "{{ var_percent_utilized.results }}"
+
+- name: Compute - Percent used on /var check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="WARNING Disk space used on /var above warning threshold on node {{ item.item.item }}"
+  failed_when: item.stdout == "True"
+  ignore_errors: True
+  with_items: "{{ compute_disk_space_warning.results }}"
+  when: compute_disk_space_warning is defined and item.stdout is defined

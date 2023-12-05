@@ -1,0 +1,64 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep agent_ovs_{{ docker.agent_ovs.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Create opflex agent run folder shared with host.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0777"
+  with_items:
+    - /var/run/opflex-agent-ovs
+    - /var/lib/opflex-agent-ovs
+    - /var/lib/opflex-agent-ovs/endpoints
+    - /var/lib/opflex-agent-ovs/services
+    - /var/lib/opflex-agent-ovs/ids
+    - /var/lib/opflex-agent-ovs/mcast
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias agentovs='in_container agent_ovs_"
+    line: "{{ item }}"
+  with_items:
+    - alias agentovs='in_container agent_ovs_{{ docker.agent_ovs.image_tag }}'
+
+- name: Start the agent ovs Service
+  docker_container:
+    name: "agent_ovs_{{ docker.agent_ovs.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.agent_ovs.name }}:{{ docker.agent_ovs.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.agent_ovs.host_data_dir }}:{{ docker.agent_ovs.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/agent-ovs:/var/log/agent-ovs:z
+      - /var/run/opflex-agent-ovs:/var/run/opflex-agent-ovs:z
+      - /var/lib/opflex-agent-ovs:/var/lib/opflex-agent-ovs:z
+      - neutron:/var/lib/neutron
+      - /run:/run:shared
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if agent ovs container has started running
+  shell: docker ps -a | grep Up | grep agent_ovs_{{ docker.agent_ovs.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="agent ovs Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-agentovs
+  tags:
+    - reboot-on-failure

@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove rabbitmq Directory
+  file:
+    path: "/docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old rabbitmq docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "rabbitmq_{{ RABBITMQ_PREVIOUS_TAG }}" }
+
+- name: Remove rabbitmq docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.rabbitmq.name }}"
+    tag: "{{ RABBITMQ_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

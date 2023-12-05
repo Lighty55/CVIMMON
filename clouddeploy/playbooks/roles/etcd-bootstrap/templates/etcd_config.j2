@@ -1,0 +1,19 @@
+# common etcd config
+ETCD_NODE_NAME: {{ ansible_hostname }}
+ETCD_INITIAL_CLUSTER: {% for host in groups['etcd_all'] %}{{ hostvars[host]['ansible_hostname'] }}={{ INTERNAL_PROTOCOL }}://{{ host }}:2380{% if not loop.last %},{% endif %}{% endfor %}
+
+ETCD_INITIAL_CLUSTER_TOKEN: {{ ETCD_INITIAL_CLUSTER_TOKEN }}
+ETCD_INITIAL_CLUSTER_STATE: {{ ETCD_INITIAL_CLUSTER_STATE }}
+ETCD_LOCALIP: {{ inventory_hostname }}
+ETCD_LOGDIR: {{ ETCD_LOGDIR }}
+ETCD_LISTEN_PORT: {{ ETCD_LISTEN_PORT }}
+ETCD_LOG_PACKAGE_LEVELS: "etcdserver=WARNING"
+
+ETCD_NODE_ROLE: "server"
+
+{% if VAULT is not defined or (VAULT is defined and VAULT.enabled == False) %}
+ETCD_ROOT_PASSWORD: {{ ETCD_ROOT_PASSWORD }}
+{% endif %}
+ETCD_INITIAL_CLUSTER_MASTER: {% for host in groups['etcd_all'][0:1] %}{{ hostvars[host]['ansible_hostname'] }}={{ INTERNAL_PROTOCOL }}://{{ host }}:2380{% if not loop.last %},{% endif %}{% endfor %}
+
+ETCD_INITIAL_CLUSTER_SECONDARY: {% for host in groups['etcd_all'][0:2] %}{{ hostvars[host]['ansible_hostname'] }}={{ INTERNAL_PROTOCOL }}://{{ host }}:2380{% if not loop.last %},{% endif %}{% endfor %}

@@ -1,0 +1,102 @@
+
+# *. Get the existing ssh public file and delete it from PoD hosts
+# *. Backup the public and private file with timestamp
+# *. Generate new public and private keys if none is specified by the reconfigure
+# *. If key is specified copy it to the default file /root/.ssh/zenoss_id_rsa.pub
+# *. Store the public key in the PoD hosts
+
+- debug:
+    msg: "nfvimon ssh key defined is: {{ nfvimon_ssh_key| default('No file')}}"
+  run_once: True
+  delegate_to: localhost
+
+- name: "Check if specified keys exist"
+  stat: path={{ nfvimon_ssh_key}}
+  register: specified_key
+  delegate_to: localhost
+  run_once: True
+  when: nfvimon_ssh_key is defined
+
+- name: "Get current date stamp"
+  set_fact: nfvimon_ts="{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+  delegate_to: localhost
+  run_once: True
+
+- name: "Remove nfvimon public key from the PoD hosts authorized_keys file"
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=absent
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Remove nfvimon public key from the mgmt node authorized_keys file"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=absent
+  delegate_to: localhost
+  run_once: True
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Check if nfvimon keys exists locally"
+  stat: path="/home/{{ item[0] }}/.ssh/{{ item[1] }}"
+  register: keys_stat
+  delegate_to: localhost
+  run_once: True
+  with_nested:
+    - "{{ NFVIMON.NFVIMON_ADMIN }}"
+    - [ 'id_rsa', 'id_rsa.pub' ]
+
+- name: "Backup and remove any exisiting nfvimon ssh keys"
+  command: mv {{item.stat.path}} {{item.stat.path}}.{{nfvimon_ts}}
+  with_items: "{{ keys_stat.results }}"
+  delegate_to: localhost
+  run_once: True
+  when: item.stat.exists
+
+- name: "Create new nfvimon ssh keys"
+  delegate_to: localhost
+  run_once: true
+  user:
+    name: "{{ item }}"
+    generate_ssh_key: yes
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/id_rsa
+    groups: wheel
+    state: present
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+  when: nfvimon_ssh_key is not defined
+
+- name: "Copy the public key to the default location and filename"
+  copy: src={{ nfvimon_ssh_key}} dest=/home/{{ item }}/.ssh/id_rsa.pub
+  delegate_to: localhost
+  run_once: True
+  when: nfvimon_ssh_key is defined
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Add the new nfvimon public key to mgmt node authorized keys file"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=present
+  delegate_to: localhost
+  run_once: True
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+
+- name: "Add the new nfvimon public key to PoD hosts authorized_keys file"
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  authorized_key:
+    user="{{ item }}"
+    key="{{ lookup('file', '/home/{{ item }}/.ssh/id_rsa.pub') }}"
+    state=present
+  with_items:
+    "{{ NFVIMON.NFVIMON_ADMIN }}"
+

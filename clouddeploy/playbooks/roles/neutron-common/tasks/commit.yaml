@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron common directory
+  file:
+    path: "/docker/neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}" }
+
+- name: Remove neutron common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_common.name }}"
+    tag: "{{ NEUTRON_COMMON_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

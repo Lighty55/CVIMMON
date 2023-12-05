@@ -1,0 +1,90 @@
+# First remove the new container and artifacts and gnocchi statsd
+- name: Rollback | Shut off gnocchi statsd docker service
+  service:
+    name: docker-gnocchi-statsd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Rollback | Remove gnocchistatsd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-statsd.service"
+    state: absent
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Stop and remove gnocchi-statsd docker container
+  docker_container:
+    image: ""
+    name: "gnocchistatsd_{{ docker.gnocchi_statsd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Rollback | Remove gnocchi docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_statsd.name }}"
+    tag: "{{ docker.gnocchi_statsd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove contents of gnocchi statsd volume
+- name: Rollback | List contents of gnocchi statsd volume
+  shell: ls -A1 /docker/gnocchi_statsd/
+  register: contents
+
+- name: Rollback | Remove gnocchi statsd contents
+  file:
+    path: /docker/gnocchi_statsd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the gnocchi statsd volume contents
+- name: Rollback | Recover gnocchi statsd volume contents
+  shell: cp /docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}/* /docker/gnocchi_statsd/.
+
+- name: Rollback | Modify owner and group of ceph.conf
+  file: path=/docker/gnocchi_statsd/ceph.conf owner=gnocchi group=mercury
+
+# Now remove the backup volume
+- name: Rollback | Remove back up gnocchi STATSD Directory
+  file:
+    path: "/docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Rollback | Copy Containers restart-on-boot files.
+  command: cp /docker/gnocchi_statsd/docker-gnocchi-statsd.service /usr/lib/systemd/system/docker-gnocchi-statsd.service
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Rollback | Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchistatsd='in_container gnocchistatsd_"
+    line: "alias gnocchistatsd='in_container gnocchistatsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}'"
+
+# Start the container
+- name: Rollback | Start the gnocchi statsd service
+  service:
+    name: docker-gnocchi-statsd
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Rollback | Check if Gnocchi Statsd Docker container has started running
+  shell: docker ps -a | grep Up | grep gnocchistatsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Rollback | Fail if container is not UP
+  fail: msg="Gnocchi Statsd Container does not seem to be running"
+  when: not command_result.stdout

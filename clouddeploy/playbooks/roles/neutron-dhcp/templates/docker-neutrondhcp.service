@@ -1,0 +1,32 @@
+[Unit]
+Description=Neutron DHCP Agent Docker
+{% if MECHANISM_DRIVERS == "linuxbridge" %}
+Wants=docker-neutronlb.service
+After=docker-neutronlb.service
+{% elif MECHANISM_DRIVERS == "openvswitch" %}
+Wants=docker-ovs_vswitch.service docker-neutron_ovsagent.service
+After=docker-ovs_vswitch.service docker-neutron_ovsagent.service
+{% elif MECHANISM_DRIVERS == "vts" %}
+Requires=docker-neutron_vtf.service
+Wants=docker-neutron_vtf.service
+After=docker-neutron_vtf.service
+{% elif MECHANISM_DRIVERS == "vpp" %}
+Wants=docker-neutronsrv.service
+After=docker-neutronsrv.service
+{% elif MECHANISM_DRIVERS == "aci" %}
+Requires=docker.service
+After=docker.service
+{% endif %}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a neutron_dhcp_agent_{{ docker.neutron_dhcp_agent.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 neutron_dhcp_agent_{{ docker.neutron_dhcp_agent.image_tag }}
+
+
+[Install]
+WantedBy=multi-user.target

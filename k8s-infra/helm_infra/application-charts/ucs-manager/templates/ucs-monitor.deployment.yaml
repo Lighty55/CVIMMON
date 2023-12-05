@@ -1,0 +1,46 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    chart: '{{.Chart.Name}}-{{.Chart.Version}}'
+    component: ucs-monitor
+    heritage: '{{.Release.Service}}'
+    release: '{{.Release.Name}}'
+    version: v1
+  name: '{{ template "ucs-monitor.fullname" . }}'
+  namespace: '{{.Values.ucsmonitor.namespace}}'
+spec:
+  replicas: {{.Values.ucsmonitor.replicas}}
+  template:
+    metadata:
+      labels:
+        component: ucs-monitor
+        version: v1
+    spec:
+      volumes:
+      - configMap:
+          name: '{{ template "ucs-monitor.fullname" . }}'
+        name: config
+      - hostPath:
+          path: '{{.Values.hostvolumes.logs.path}}'
+        name: logs
+      - hostPath:
+          path: '{{.Values.hostvolumes.time.path}}'
+        name: time
+      containers:
+      - image: '{{.Values.ucsmonitor.ucsmcvim.image}}:{{.Values.ucsmonitor.ucsmcvim.imageTag}}'
+        imagePullPolicy: '{{.Values.ucsmonitor.ucsmcvim.imagePullPolicy}}'
+        name: ucsm-cvim
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /docker/ucs-monitor/
+          name: config
+          readOnly: true
+        - mountPath: /var/log/ucs-monitor
+          name: logs
+        - mountPath: /etc/localtime
+          name: time
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master

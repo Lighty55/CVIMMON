@@ -1,0 +1,6 @@
+# Execute the rollback play only if the preinstall of update began
+- stat: path=/docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists

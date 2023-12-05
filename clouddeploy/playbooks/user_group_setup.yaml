@@ -1,0 +1,160 @@
+- name: Create cvim user and groups
+  hosts: host_power_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  max_fail_percentage: 0
+  tags:
+     - host_setup
+  tasks:
+     - name: Create groups
+       group:
+         name: "{{ item.name }}"
+         gid: "{{ item.gid }}"
+         state: present
+       with_items:
+         - { name: 'aim', gid: '2025' }
+         - { name: 'calipso', gid: '2033' }
+         - { name: 'ceilometer', gid: '2005' }
+         - { name: 'ceph', gid: '2006' }
+         - { name: 'cinder', gid: '2007' }
+         - { name: 'cloudpulse', gid: '2029' }
+         - { name: 'consul', gid: '2036' }
+         - { name: 'curator', gid: '2023' }
+         - { name: 'cvim_mon', gid: '2027' }
+         - { name: 'dockbler', gid: '2017' }
+         - { name: 'elasticsearch', gid: '2020' }
+         - { name: 'etc', gid: '2200' }
+         - { name: 'fluentd', gid: '2024' }
+         - { name: 'glance', gid: '2008' }
+         - { name: 'gnocchi', gid: '2031' }
+         - { name: 'haproxy', gid: '2009' }
+         - { name: 'heat', gid: '2010' }
+         - { name: 'insight', gid: '2030' }
+         - { name: 'ironic', gid: '2205' }
+         - { name: 'keystone', gid: '2011' }
+         - { name: 'kibana', gid: '2022' }
+         - { name: 'magnum', gid: '2206' }
+         - { name: 'mcast', gid: '2026' }
+         - { name: 'memcached', gid: '2203' }
+         - { name: 'mercury', gid: '500' }
+         - { name: 'neutron', gid: '2014' }
+         - { name: 'nfvbench', gid: '2204' }
+         - { name: 'nfvimon', gid: '2032' }
+         - { name: 'nova', gid: '2012' }
+         - { name: 'rabbitmq', gid: '2013' }
+         - { name: 'ucsmonitor', gid: '2028' }
+         - { name: 'telegraf', gid: '2034' }
+         - { name: 'vault', gid: '2035' }
+         - { name: 'vimconfig', gid: '2018' }
+         - { name: 'vmtp', gid: '2019' }
+         - { name: 'mysql', gid: '27' }
+       when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != 'ceph')
+
+     - name: Create users
+       user:
+         name: "{{ item.name }}"
+         uid:  "{{ item.uid }}"
+         group: "{{ item.name }}"
+         groups: "{{ item.groups }}"
+         shell: /sbin/nologin
+       with_items:
+         - { name: 'aim', uid: '2025', groups: 'mercury' }
+         - { name: 'calipso', uid: '2033', groups: 'mercury' }
+         - { name: 'ceilometer', uid: '2005', groups: 'mercury' }
+         - { name: 'ceph', uid: '2006', groups: 'mercury' }
+         - { name: 'cinder', uid: '2007', groups: 'mercury' }
+         - { name: 'cloudpulse', uid: '2029', groups: 'mercury' }
+         - { name: 'consul', uid: '2036', groups: 'mercury' }
+         - { name: 'curator', uid: '2023', groups: 'mercury' }
+         - { name: 'cvim_mon', uid: '2027', groups: 'mercury' }
+         - { name: 'dockbler', uid: '2017', groups: 'mercury' }
+         - { name: 'elasticsearch', uid: '2020', groups: 'mercury' }
+         - { name: 'etc', uid: '2200', groups: 'mercury' }
+         - { name: 'fluentd', uid: '2024', groups: 'mercury' }
+         - { name: 'glance', uid: '2008', groups: 'mercury' }
+         - { name: 'gnocchi', uid: '2031', groups: 'mercury' }
+         - { name: 'haproxy', uid: '2009', groups: 'mercury' }
+         - { name: 'heat', uid: '2010', groups: 'mercury' }
+         - { name: 'insight', uid: '2030', groups: 'mercury' }
+         - { name: 'ironic', uid: '2205', groups: 'mercury' }
+         - { name: 'keystone', uid: '2011', groups: 'mercury' }
+         - { name: 'kibana', uid: '2022', groups: 'mercury' }
+         - { name: 'magnum', uid: '2206', groups: 'mercury' }
+         - { name: 'mcast', uid: '2026', groups: 'mercury' }
+         - { name: 'memcached', uid: '2203', groups: 'mercury' }
+         - { name: 'neutron', uid: '2014', groups: 'mercury' }
+         - { name: 'nfvbench', uid: '2204', groups: 'mercury' }
+         - { name: 'nfvimon', uid: '2032', groups: 'mercury' }
+         - { name: 'nova', uid: '2012', groups: 'mercury' }
+         - { name: 'rabbitmq', uid: '2013', groups: 'mercury' }
+         - { name: 'ucsmonitor', uid: '2028', groups: 'mercury' }
+         - { name: 'telegraf', uid: '2034', groups: 'mercury' }
+         - { name: 'vault', uid: '2035', groups: 'mercury' }
+         - { name: 'vimconfig', uid: '2018', groups: 'mercury' }
+         - { name: 'vmtp', uid: '2019', groups: 'mercury' }
+         - { name: 'mysql', uid: '27', groups: 'mercury' }
+       when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != 'ceph')
+
+     - name: Create groups for Central Ceph POD
+       group:
+         name: "{{ item.name }}"
+         gid: "{{ item.gid }}"
+         state: present
+       with_items:
+         - { name: 'calipso', gid: '2033' }
+         - { name: 'ceph', gid: '2006' }
+         - { name: 'cloudpulse', gid: '2029' }
+         - { name: 'consul', gid: '2036' }
+         - { name: 'curator', gid: '2023' }
+         - { name: 'cvim_mon', gid: '2027' }
+         - { name: 'dockbler', gid: '2017' }
+         - { name: 'elasticsearch', gid: '2020' }
+         - { name: 'fluentd', gid: '2024' }
+         - { name: 'insight', gid: '2030' }
+         - { name: 'kibana', gid: '2022' }
+         - { name: 'mercury', gid: '500' }
+         - { name: 'ucsmonitor', gid: '2028' }
+         - { name: 'telegraf', gid: '2034' }
+         - { name: 'vault', gid: '2035' }
+         - { name: 'vimconfig', gid: '2018' }
+         - { name: 'vmtp', gid: '2019' }
+         - { name: 'mysql', gid: '27' }
+       when: PODTYPE is defined and PODTYPE == 'ceph'
+
+     - name: Create users
+       user:
+         name: "{{ item.name }}"
+         uid:  "{{ item.uid }}"
+         group: "{{ item.name }}"
+         groups: "{{ item.groups }}"
+         shell: /sbin/nologin
+       with_items:
+         - { name: 'calipso', uid: '2033', groups: 'mercury' }
+         - { name: 'ceph', uid: '2006', groups: 'mercury' }
+         - { name: 'cloudpulse', uid: '2029', groups: 'mercury' }
+         - { name: 'consul', uid: '2036', groups: 'mercury' }
+         - { name: 'curator', uid: '2023', groups: 'mercury' }
+         - { name: 'cvim_mon', uid: '2027', groups: 'mercury' }
+         - { name: 'dockbler', uid: '2017', groups: 'mercury' }
+         - { name: 'elasticsearch', uid: '2020', groups: 'mercury' }
+         - { name: 'fluentd', uid: '2024', groups: 'mercury' }
+         - { name: 'insight', uid: '2030', groups: 'mercury' }
+         - { name: 'kibana', uid: '2022', groups: 'mercury' }
+         - { name: 'ucsmonitor', uid: '2028', groups: 'mercury' }
+         - { name: 'telegraf', uid: '2034', groups: 'mercury' }
+         - { name: 'vault', uid: '2035', groups: 'mercury' }
+         - { name: 'vimconfig', uid: '2018', groups: 'mercury' }
+         - { name: 'vmtp', uid: '2019', groups: 'mercury' }
+         - { name: 'mysql', uid: '27', groups: 'mercury' }
+       when: PODTYPE is defined and PODTYPE == 'ceph'
+
+     - name: Add mercury groups to apache and mysql
+       user:
+         append: yes
+         name: "{{ item.name }}"
+         groups: "{{ item.groups }}"
+         shell: /sbin/nologin
+       with_items:
+         - { name: 'mysql', groups: 'mercury' }
+         - { name: 'apache', groups: 'mercury' }

@@ -1,0 +1,4 @@
+- include: magnum_conductor_update_prepare.yaml
+- include: magnum_conductor_install.yaml
+- include: magnum_conductor_config.yaml
+- include: magnum_conductor_start.yaml

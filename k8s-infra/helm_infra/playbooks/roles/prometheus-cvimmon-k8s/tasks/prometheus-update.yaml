@@ -1,0 +1,125 @@
+- name: "CVIMMON-Kubernetes-Monitor->Render Prometheus-k8s-cluster-monitor Helm Values File | Helm Values File"
+  become: true
+  template: { src: "prometheus-values.yaml", dest: "{{ directory_matched.stdout }}/{{ prometheus_app_directory }}/values.yaml" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list | grep {{ prometheus_deployment_name }}
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list {{ prometheus_deployment_name }} | tail -n +2 | awk '{print $2}'
+  register: prometheus_cvim_old_version
+
+- name: "CVIMMON-Kubernetes-Monitor->Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ prometheus_helm_upgrade_path }}/prometheus-values.yaml", dest: "{{ prometheus_helm_upgrade_path }}/prometheus-values-{{ prometheus_cvim_old_version.stdout }}.yaml" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Render Prometheus-k8s-cluster-monitor Specific Prometheus Helm Values File | Helm Values File for Metro"
+  become: true
+  template: { src: "prometheus-values.yaml", dest: "{{ prometheus_helm_upgrade_path }}" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Save the old version of the helm stack"
+  lineinfile: { dest: "{{ prometheus_helm_upgrade_path }}/prometheus-cvim-old-version", regexp: '^PROMETHEUS-CVIM-OLD-REVISION=', line: 'PROMETHEUS-CVIM-OLD-REVISION={{ prometheus_cvim_old_version.stdout }}', create: yes }
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the ingress url for prometheus server"
+  shell: "kubectl get ingress -n cvimmon-monitor | grep prometheus | awk '{print $2}'"
+  register: prom_server_url
+
+- include: regenerate-certs.yaml
+  when: "'{{ CLUSTER_NAME }}' not in '{{ prom_server_url.stdout }}'"
+
+- name: "CVIMMON-Kubernetes-Monitor->Upgrade Prometheus-k8s-cluster-monitor with Helm."
+  command: >
+    /usr/bin/helm upgrade -f "{{ prometheus_metro_values_path }}" "{{ prometheus_deployment_name }}" --namespace "{{ prometheus_namespace }}" "{{ directory_matched.stdout }}"/"{{ prometheus_app_directory }}"
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-server Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-server"
+  register: prometheus_cvim_server_status
+  ignore_errors: yes
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-alertmanager Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-alertmanager"
+  register: prometheus_cvim_alertmanager_status
+  ignore_errors: yes
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-kube-state-metrics Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-kube-state-metrics"
+  register: prometheus_cvim_kubestate_status
+  ignore_errors: yes
+
+- fail:
+  ignore_errors: yes
+  register: prometheus_cvim_update_status
+  when: prometheus_cvim_server_status is failed or prometheus_cvim_alertmanager_status is failed or prometheus_cvim_kubestate_status is failed
+
+- name: "CVIMMON-Kubernetes-Monitor->Check the status of Prometheus--k8s-cluster-monitor Deployment once rolled-out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ prometheus_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ prometheus_deployment_name }}-server"
+    - "{{ prometheus_deployment_name }}-alertmanager"
+    - "{{ prometheus_deployment_name }}-kube-state-metrics"
+  when: prometheus_cvim_update_status is not failed
+
+- name: "CVIMMON-Kubernetes-Monitor->Ensure Prometheus--k8s-cluster-monitor Deployment and pods are up and running."
+  changed_when: false
+  register: "prometheus_state"
+  vars:
+    prometheus_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=prometheus --output=json --namespace={{ prometheus_namespace }}"
+  until:
+      - "prometheus_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "prometheus_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+  when: prometheus_cvim_update_status is not failed
+
+- name: "CVIMMON-Kubernetes-Monitor->Register Prometheus podname"
+  shell: "kubectl get pods -n {{ prometheus_namespace }} | grep prometheus-{{ prometheus_namespace }}-server | awk '{ print $1 }'"
+  register: prometheuspod
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy promtool to /opt/cisco/"
+  shell: "kubectl cp {{ prometheuspod.stdout }}:/bin/promtool -c prometheus-server -n {{ prometheus_namespace }} /opt/cisco/promtool"
+
+- name: "CVIMMON-Kubernetes-Monitor->Change promtool permission"
+  file:
+    path: /opt/cisco/promtool
+    mode: '0770'
+
+- name: "CVIMMON-Kubernetes-Monitor->Register Prometheus-alertmanager podname"
+  shell: "kubectl get pods -n {{ prometheus_namespace }} | grep prometheus-{{ prometheus_namespace }}-alertmanager | awk '{ print $1 }'"
+  register: alertmanagerpod
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy amtool to /opt/cisco/"
+  shell: "kubectl cp {{ alertmanagerpod.stdout }}:/bin/amtool -c prometheus-alertmanager -n {{ prometheus_namespace }} /opt/cisco/amtool"
+
+- name: "CVIMMON-Kubernetes-Monitor->Change amtool permission"
+  file:
+    path: /opt/cisco/amtool
+    mode: '0770'
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy check_promtool.py to /opt/cisco"
+  copy:
+    src: "{{ playbook_dir }}/roles/prometheus-cvimmon-k8s/files/check_promtool.py"
+    dest: "/opt/cisco/check_promtool.py"
+    mode: '0770'
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy merge_alerting_rules.py to /opt/cisco"
+  copy:
+    src: "{{ playbook_dir }}/roles/prometheus-cvimmon-k8s/files/merge_alerting_rules.py"
+    dest: "/opt/cisco/merge_alerting_rules.py"
+    mode: '0770'
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy merge_configs.py to /opt/cisco"
+  copy:
+    src: "{{ playbook_dir }}/roles/prometheus-cvimmon-k8s/files/merge_configs.py"
+    dest: "/opt/cisco/merge_configs.py"
+    mode: '0770'
+
+- include: prometheus-rollback.yaml
+  when: prometheus_cvim_update_status is failed

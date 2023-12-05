@@ -1,0 +1,48 @@
+- name: create directories to backup build data
+  file: path="{{ item }}" state=directory
+  with_items:
+    - "/opt/cisco/"
+    - "/root/.ssh/"
+    - "/root/.kube/"
+    - "/var/log/cvimmonha/"
+    - "/var/cisco/artifacts/"
+    - "/var/cisco/argus/nfs/"
+    - "/etc/"
+    - "/var/lib/etcd/"
+    - "{{ argus_image_path }}"
+
+- name: Synchronizing all the build data
+  synchronize: src="{{ backupdir }}/{{ item }}" dest="{{ item }}" compress=no perms=yes rsync_opts="--xattrs"
+  with_items:
+    - "/opt/cisco/"
+    - "/root/.ssh/"
+    - "/root/.kube/"
+    - "/var/log/cvimmonha/"
+    - "/var/cisco/artifacts/"
+    - "/etc/mercury-version.txt"
+    - "/etc/hosts"
+    - "/etc/ntp.conf"
+    - "/etc/resolv.conf"
+    - "/var/lib/etcd/"
+    - "/var/cisco/artifacts/"
+    - "/root/cvimha_certs/"
+    - "{{ argus_image_path }}/{{ argus_image_name }}"
+
+- stat: path="{{ backupdir }}/var/cisco/artifacts/"
+  register: offline
+  ignore_errors: yes
+
+- name: create artifacts directory
+  file: path="/var/cisco/artifacts/" state=directory
+  when: offline is defined and offline.stat.exists
+
+- name: Synchronize artifacts directory
+  synchronize: dest="{{ item }}" src="{{ backupdir }}/{{ item }}" compress=no perms=yes rsync_opts="--xattrs"
+  with_items:
+    - "/var/cisco/artifacts/"
+  when: offline is defined and offline.stat.exists
+
+- name: Copy argus image to nfs dir
+  copy:
+    src: "{{ argus_image_path }}/{{ argus_image_name }}"
+    dest: /var/cisco/argus/nfs/

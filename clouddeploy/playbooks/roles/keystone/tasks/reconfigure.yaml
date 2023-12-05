@@ -1,0 +1,279 @@
+- name: Copy the new keystone configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "keystone_config.j2", dest: "{{docker.keystone.host_data_dir }}/keystone_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/keystone/keystone_config /docker/keystone/keystone_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/keystone/keystone_reconfigure /docker/keystone/keystone_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/keystone/keystone_reconfigure state=absent
+  when: command_result.stdout == ""
+
+- name: Copy Keystone Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/keystone/templates/{{ item }}"
+    dest: "{{docker.keystone.host_data_dir }}/{{ item }}_reconfigure"
+  with_items:
+    - "keystone_policy.json"
+
+- name: Compare old and new rendered policy
+  command: diff /docker/keystone/keystone_policy.json /docker/keystone/keystone_policy.json_reconfigure
+  ignore_errors: True
+  failed_when: false
+  register: policy_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/keystone/keystone_policy.json_reconfigure /docker/keystone/keystone_policy.json
+  when: policy_diff.stdout != ""
+
+# Remove the reconfigure policy when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/keystone/keystone_policy.json_reconfigure state=absent
+  when: policy_diff.stdout == ""
+
+- name: Check if cacert exists on management node
+  local_action: stat path={{ HAPROXY_CACERT }}
+  register: cacert
+
+- name: Copy cacert from management node
+  copy:
+    src: "{{ HAPROXY_CACERT }}"
+    dest: "{{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}_reconfigure"
+    mode: "0644"
+  when: cacert.stat.exists
+
+# Handle the scenario where the cert does not exist and is brought in via reconfigure
+- name: Check if cacert exists on controller node
+  stat: path={{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}
+  register: ctrl_cacert
+  when: cacert.stat.exists
+
+- name: Copy cacert from management node to the staging folder if CACERT file does not exist
+  copy:
+    src: "{{ HAPROXY_CACERT }}"
+    dest: "{{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}"
+    mode: "0644"
+  when: ctrl_cacert is defined and ctrl_cacert.stat.exists == False
+
+- name: Copy the CA cert into the container if it does not exist
+  command:  docker cp {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }} keystone_{{ docker.keystone.image_tag }}:{{ CACERT_LOCATION }}/{{ CACERT_FILE }}
+  when: ctrl_cacert is defined and ctrl_cacert.stat.exists == False
+
+- name: Compare old and new CA certificate
+  command: diff {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}_reconfigure {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_cacert
+  when: cacert.stat.exists
+
+- name: Copy the new CA cert if different
+  command: mv {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}_reconfigure {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}
+  when: command_result_cacert is defined and command_result_cacert.stdout != ""
+
+- name: Update cacert within the container if different
+  command: docker cp {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }} keystone_{{ docker.keystone.image_tag }}:{{ CACERT_LOCATION }}/{{ CACERT_FILE }}
+  when: command_result_cacert is defined and command_result_cacert.stdout != ""
+
+- name: Remove reconfigure CA cert file if it was the same
+  file: path={{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}_reconfigure state=absent
+  when: command_result_cacert is defined and command_result_cacert.stdout == ""
+
+- name: Fetch old admin password
+  shell: cat {{ lookup('env','HOME') }}/openstack-configs/openrc | grep OS_PASSWORD | cut -f2 -d "="
+  register: OLD_ADMIN_PASSWORD
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Generate the reconfig credentials
+  command: docker exec keystone_{{ docker.keystone.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec keystone_{{ docker.keystone.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec keystone_{{ docker.keystone.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    KEYSTONE_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/KEYSTONE_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+- set_fact:
+    admin_pass_changed: true
+  when: "(secrets_result|changed and  'ADMIN_USER_PASSWORD' in secrets_result.stdout ) or  'ADMIN_USER_PASSWORD' in command_result.stdout "
+
+# Now update the ADMIN_USER_PASSWORD if part of update
+- name: Update admin user password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+            os_auth_url={{ INTERNAL_PROTOCOL }}://{{ internal_lb_vip_address }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+            os_username={{ ADMIN_USER }}
+            os_password={{ OLD_ADMIN_PASSWORD.stdout }}
+            os_tenant_name={{ ADMIN_TENANT_NAME }}
+            username={{ ADMIN_USER }}
+            password={{ ADMIN_USER_PASSWORD }}
+            project={{ ADMIN_TENANT_NAME }}
+            role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: admin_pass_changed is defined and admin_pass_changed == true and inventory_hostname == groups['keystone_all'][0]
+
+# Now update the SQL password if the KEYSTONE_DB_PASSWORD is part of update
+- name: Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ KEYSTONE_USER }}'@'%' = PASSWORD('{{ KEYSTONE_DB_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'KEYSTONE_DB_PASSWORD' in secrets_result.stdout ) or  'KEYSTONE_DB_PASSWORD' in command_result.stdout "
+
+# Now delete the template file inside the container
+- name: Delete the keystone config file inside container to force a reconfigure
+  command: docker cp /docker/keystone/keystone_config keystone_{{ docker.keystone.image_tag }}:/opt/kolla/keystone_config
+  when: command_result.stdout != ""
+
+- name: Reset the SELinux labelling for new files
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.keystone.host_data_dir }}"
+  when: policy_diff.stdout != "" or (command_result_cacert is defined and command_result_cacert.stdout != "")
+
+- name: Check if restart needed
+  set_fact:
+    needs_restart: true
+  when: command_result.stdout != "" or policy_diff.stdout != "" or (secrets_result|changed and secrets_result.stdout != "") or (command_result_cacert is defined and command_result_cacert.stdout != "") or (ctrl_cacert is defined and ctrl_cacert.stat.exists == False)
+
+# Now restart the service
+- name: Restart keystone service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-keystone
+  when: needs_restart is defined and needs_restart == true
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: needs_restart is defined and needs_restart == true
+
+- name: Check if Keystone Docker container has started running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: needs_restart is defined and needs_restart == true
+
+- name: Fail if container is not UP.
+  fail: msg="Keystone Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the ADMIN_USER_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep ADMIN_USER_PASSWORD
+  register: admin_user_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^ADMIN_USER_PASSWORD" line="ADMIN_USER_PASSWORD{{ ":" }} {{ ADMIN_USER_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and admin_user_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the KEYSTONE_DB_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep KEYSTONE_DB_PASSWORD
+  register: keystone_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^KEYSTONE_DB_PASSWORD" line="KEYSTONE_DB_PASSWORD{{ ":" }} {{ KEYSTONE_DB_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and keystone_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/ADMIN_USER_PASSWORD value={{ ADMIN_USER_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['keystone_all'][0] }}"
+    - secrets_result|changed and 'ADMIN_USER_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/KEYSTONE_DB_PASSWORD value={{ KEYSTONE_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['keystone_all'][0] }}"
+    - secrets_result|changed and 'KEYSTONE_DB_PASSWORD' in secrets_result.stdout
+
+- name: Determine Desired Keystone Public Endpoint
+  delegate_to: localhost
+  run_once: True
+  set_fact:
+    public_endpoint: "{{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:{{ KEYSTONE_PUBLIC_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+
+- name: Get Current Keystone Public Endpoint from DB
+  shell: >
+         mysql -N -s -h {{ inventory_hostname }} -ukeystone -p{{ KEYSTONE_DB_PASSWORD }}
+         keystone -e 'select url from endpoint where interface = "public" and
+         service_id = (select id from service where service.type = "identity");'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: current_endpoint
+  changed_when: False
+  when: inventory_hostname == "{{ groups['keystone_all'][0] }}"
+
+- name: Update Keystone Public Endpoint
+  shell: >
+         mysql -N -s -h {{ inventory_hostname }} -ukeystone -p{{ KEYSTONE_DB_PASSWORD }}
+         keystone -e "update endpoint set url = '{{ public_endpoint }}'
+         where interface = 'public' and
+         service_id = (select id from service where service.type = 'identity');"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: inventory_hostname == "{{ groups['keystone_all'][0] }}" and current_endpoint.stdout_lines != public_endpoint

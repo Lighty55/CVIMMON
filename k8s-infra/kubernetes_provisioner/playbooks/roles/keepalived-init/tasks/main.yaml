@@ -1,0 +1,91 @@
+
+- name: "Get Br_Api IPV6 Addresses of the Host"
+  shell: ip addr show dev br_api | grep global | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv6_api_address
+  failed_when: false
+  when: 'DHCP_MODE is defined and DHCP_MODE == "v6" and ansible_nodename == inventory_hostname'
+
+- name: "Set Br_Api IPV6 Addresses"
+  set_fact: ipv6_api_address={{ local_ipv6_api_address.stdout }}
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Get Br_Api IPV6 Addresses of the Other Hosts"
+  shell: ip addr show dev br_api | grep global | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d' > /tmp/ipv6-{{ ansible_hostname }}
+  register: remote_ipv6_api_address
+  failed_when: false
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Copy Temporary files to localhost"
+  fetch: src=/tmp/ipv6-{{ ansible_hostname }} dest=/tmp/ipv6-{{ ansible_hostname }} flat=true
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Generate List of all IP Addresses on the Host"
+  shell: "cat /tmp/ipv6-* > /tmp/ipv6_all"
+  run_once: true
+  delegate_to: localhost
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Copy all ipv6 addresses to all the nodes"
+  copy: src=/tmp/ipv6_all dest=/tmp
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: Get the IPv6 addresses
+  shell: "cat /tmp/ipv6_all"
+  register: all_ipv6_addrs
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: Remove temporary files
+  shell: rm -rf /tmp/ipv6*
+  delegate_to: localhost
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- set_fact:
+    ipv6_peers="{{ all_ipv6_addrs.stdout_lines | difference(ipv6_api_address) | to_json }}"
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+############################For-Br_Mgmt#############################
+
+- name: "Get Br_Mgmt IPV6 Addresses of the Host"
+  shell: ip addr show dev br_mgmt | grep global | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv6_mgmt_address
+  failed_when: false
+  when: 'ansible_nodename == inventory_hostname and  DHCP_MODE is defined and DHCP_MODE == "v6"'
+
+- name: "Set Br_Mgmt IPV6 Addresses"
+  set_fact: ipv6_mgmt_address={{ local_ipv6_mgmt_address.stdout }}
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Get Br_Mgmt IPV6 Addresses of the Other Hosts"
+  shell: ip addr show dev br_mgmt | grep global | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d' > /tmp/ipv6-mgmt-{{ ansible_hostname }}
+  register: remote_ipv6_mgmt_address
+  failed_when: false
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Copy Temporary files to localhost"
+  fetch: src=/tmp/ipv6-mgmt-{{ ansible_hostname }} dest=/tmp/ipv6-mgmt-{{ ansible_hostname }} flat=true
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Generate List of all IP Addresses on the Host"
+  shell: "cat /tmp/ipv6-mgmt-* > /tmp/ipv6_mgmt_all"
+  run_once: true
+  delegate_to: localhost
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Copy all ipv6 addresses to all the nodes"
+  copy: src=/tmp/ipv6_mgmt_all dest=/tmp
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Get the IPv6 addresses"
+  shell: "cat /tmp/ipv6_mgmt_all"
+  register: all_ipv6_mgmt_addrs
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Remove temporary files"
+  shell: rm -rf /tmp/ipv6*
+  delegate_to: localhost
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- set_fact:
+    ipv6_mgmt_peers="{{ all_ipv6_mgmt_addrs.stdout_lines | difference(ipv6_mgmt_address) | to_json }}"
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+

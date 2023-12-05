@@ -1,0 +1,38 @@
+- name: Install ipvsadm package
+  yum: name=ipvsadm state=present
+
+- name: Run ipvsadm
+  command: ipvsadm -L
+
+- name: Start Docker service
+  service: name=docker state=started
+
+##################################
+# sysctl changes for VRRP.
+###################################
+- name: "sysctl change"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    state: present
+    line: "{{ item }}"
+  with_items:
+    - net.ipv4.ip_nonlocal_bind=1
+
+- name: "propagate changes"
+  command: sysctl -p
+
+#####################################
+# Update selinux policy             #
+#####################################
+- name: Copy SELinux policy files
+  copy:
+    src: "{{ item }}"
+    dest: "{{ docker.haproxy.host_data_dir }}/"
+    mode: "0755"
+  with_items:
+    - "ip_mounton.pp"
+    - "ip_mounton.te"
+
+- name: Enable SELinux policy
+  command: semodule -i {{ docker.haproxy.host_data_dir }}/{{ item }}
+  with_items: "ip_mounton.pp"

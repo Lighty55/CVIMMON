@@ -1,0 +1,5 @@
+- include: neutron_server_upgrade_prepare.yaml
+- include: neutron_server_service_install.yaml
+- include: neutron_server_service_bootstrap.yaml
+  when: SKIP_UPGRADE is defined and inventory_hostname == groups['neutron_server_all'][0]
+- include: neutron_server_service_start.yaml

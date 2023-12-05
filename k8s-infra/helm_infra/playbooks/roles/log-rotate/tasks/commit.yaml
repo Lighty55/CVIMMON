@@ -1,0 +1,19 @@
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+
+#######################################
+# Remove the old volume
+#######################################
+- name: "{{ metro_name }} Commit | Remove log-rotate backup directory"
+  file:
+    name: "/opt/cisco/update/log_rotate_{{ LOG_ROTATE_PREVIOUS_TAG }}/{{ metro_name }}"
+    state: absent
+
+- name: "{{ metro_name }} Commit | Check if it is last directory"
+  find: paths=/opt/cisco/update/log_rotate_{{ LOG_ROTATE_PREVIOUS_TAG }} file_type=directory patterns="*"
+  register: dir_files
+
+- name: "{{ metro_name }} Commit | Remove log-rotate update directory"
+  file:
+    name: "/opt/cisco/update/log_rotate_{{ LOG_ROTATE_PREVIOUS_TAG }}"
+    state: absent
+  when: dir_files.matched|int == 0

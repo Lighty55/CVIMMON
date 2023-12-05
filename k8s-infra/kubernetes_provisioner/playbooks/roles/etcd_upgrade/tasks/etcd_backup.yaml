@@ -1,0 +1,144 @@
+---
+- name: Configure | Check if etcd cluster is healthy
+  shell: "/usr/bin/etcdctl --ca-file /etc/kubernetes/pki/etcd/ca.pem --cert-file /etc/kubernetes/pki/etcd/client.pem --key-file /etc/kubernetes/pki/etcd/client-key.pem --peers https://{{ ansible_br_mgmt.ipv4.address }}:2379 cluster-health | grep -q 'cluster is healthy'"
+  register: etcd_cluster_is_healthy
+  ignore_errors: true
+  changed_when: false
+  check_mode: no
+  until: etcd_cluster_is_healthy.rc == 0
+  retries: 10
+  delay: 5
+
+- name: Make sure etcd backup local root directory {{ etcd_backup_local_root_dir }} exists and has correct permissions
+  become: yes
+  file:
+    path: "{{ etcd_backup_local_root_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+
+- name: Check etcd backup remote root directory {{ etcd_backup_remote_root_dir }}
+  local_action: stat
+  args:
+    path: "{{ etcd_backup_remote_root_dir }}"
+  register: etcd_backup_remote_root_dir_check
+  run_once: true
+
+- name: Abort if etcd backup remote root directory {{ etcd_backup_remote_root_dir }} doesn't exist or is not a directory
+  fail:
+    msg: >
+       {{ etcd_backup_remote_root_dir }} either does not exist or is not a directory.
+  when: (etcd_backup_remote_root_dir_check.stat.exists == false) or
+        (etcd_backup_remote_root_dir_check.stat.isdir == false)
+  run_once: true
+
+- name: Check available disk space for local etcd backup
+  shell: df --output=avail -k {{ etcd_backup_local_root_dir }} | tail -n 1
+  register: local_avail_disk_space
+
+- name: Check current etcd disk usage
+  become: yes
+  shell: du -k {{ etcd_data_dir }}/member | tail -n 1 | cut -f1
+  register: etcd_disk_usage
+
+- name: Abort if insufficient disk space for local etcd backup
+  fail:
+    msg: >
+      {{ etcd_disk_usage.stdout | int * 3 }} KB disk space required for local etcd backup, but
+      {{ local_avail_disk_space.stdout }} KB available.
+  when: (etcd_disk_usage.stdout | int * 3) > (local_avail_disk_space.stdout | int)
+
+- name: Set backup_name fact
+  set_fact:
+    backup_name: "{{ etcd_backup_node_name.split('.')[0] }}-etcd_snapshot-{{ ansible_date_time.date }}"
+
+- name: Set etcd_backup_dir fact
+  set_fact:
+    etcd_backup_dir: "{{ etcd_backup_local_root_dir }}/{{ backup_name }}"
+
+- name: Set etcd_backup_archive_file fact
+  set_fact:
+    etcd_backup_archive_file: "{{ backup_name }}.tgz"
+
+- name: Create local etcd backup directory {{ etcd_backup_dir }} and set correct permissions
+  become: yes
+  file:
+    path: "{{ etcd_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+
+- name: Create etcd v3 data backup file
+  become: yes
+  # https://coreos.com/etcd/docs/latest/op-guide/recovery.html
+  shell: |
+    ETCDCTL_API=3 etcdctl --endpoints=https://{{ ansible_br_mgmt.ipv4.address }}:2379 --cacert=/etc/kubernetes/pki/etcd/ca.pem --key=/etc/kubernetes/pki/etcd/client-key.pem --cert=/etc/kubernetes/pki/etcd/client.pem snapshot save {{ etcd_backup_dir }}/snapshot.db
+
+- name: Archive etcd backup directory
+  become: yes
+  shell: |
+    tar -zcvf {{ etcd_backup_local_root_dir }}/{{ etcd_backup_archive_file }} {{ etcd_backup_dir }}
+
+- name: Delete no longer needed etcd backup directory {{ etcd_backup_dir }}
+  become: yes
+  file:
+    path: "{{ etcd_backup_dir }}"
+    state: absent
+
+- name: Set etcd_backup_remote_dir fact
+  set_fact:
+    etcd_backup_remote_dir: "{{ etcd_backup_remote_root_dir }}"
+
+- name: Sync etcd backup file {{ etcd_backup_archive_file }} from {{ etcd_backup_node_name }} to localhost
+  become: yes
+  synchronize:
+    use_ssh_args: yes
+    mode: pull
+    src: "{{ etcd_backup_local_root_dir }}/{{ etcd_backup_archive_file }}"
+    dest: "{{ etcd_backup_remote_dir }}"
+  when: inventory_hostname == etcd_backup_node_name
+
+- name: Sync etcd backup file {{ etcd_backup_archive_file }} from localhost to all etcd nodes except {{ etcd_backup_node_name }}
+  synchronize:
+    use_ssh_args: yes
+    src: "{{ etcd_backup_remote_dir }}/{{ etcd_backup_archive_file }}"
+    dest: "{{ etcd_backup_local_root_dir }}"
+
+- name: Fix backup file {{ etcd_backup_archive_file }} ownership on all etcd nodes except {{ etcd_backup_node_name }}
+  file:
+    path: "{{ etcd_backup_local_root_dir }}/{{ etcd_backup_archive_file }}"
+    owner: root
+    group: root
+  become: yes
+  when: inventory_hostname != etcd_backup_node_name
+
+- name: Get local backup files list
+  become: yes
+  find:
+    path: "{{ etcd_backup_local_root_dir }}"
+    patterns: '*.tgz'
+  register: local_backup_files
+
+- name: Delete old local backups except for the last {{ etcd_backup_keep_local_files }}
+  become: yes
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  with_items: "{{ (local_backup_files.files | sort(attribute='mtime', reverse=true))[etcd_backup_keep_local_files:] }}"
+
+- name: Get remote backup files list
+  local_action: find
+  args:
+    path: "{{ etcd_backup_remote_dir }}"
+    patterns: '*.tgz'
+  register: remote_backup_files
+
+- name: Delete old remote backups except for the last {{ etcd_backup_keep_remote_files }}
+  local_action: file
+  args:
+    path: "{{ item.path }}"
+    state: absent
+  with_items: "{{ (remote_backup_files.files | sort(attribute='mtime', reverse=true))[etcd_backup_keep_remote_files:] }}"
+  when: inventory_hostname == etcd_backup_node_name

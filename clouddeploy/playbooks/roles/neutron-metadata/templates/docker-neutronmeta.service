@@ -1,0 +1,28 @@
+[Unit]
+Description=Neutron Metadata Agent Docker
+{% if MECHANISM_DRIVERS == "linuxbridge" %}
+Wants=docker-neutronlb.service
+After=docker-neutronlb.service
+{% elif MECHANISM_DRIVERS == "openvswitch" %}
+Wants=docker-neutron_ovsagent.service
+After=docker-neutron_ovsagent.service
+{% elif MECHANISM_DRIVERS == "vts" %}
+Requires=docker-neutron_vtf.service
+Wants=docker-neutron_vtf.service
+After=docker-neutron_vtf.service
+{% elif MECHANISM_DRIVERS == "vpp" %}
+Wants=docker-neutron_vpp.service
+After=docker-neutron_vpp.service
+{% endif %}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

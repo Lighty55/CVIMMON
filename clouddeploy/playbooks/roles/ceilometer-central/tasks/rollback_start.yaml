@@ -1,0 +1,91 @@
+# First shutoff and disable the new ceilometer central container
+- name: Shut off ceilometer central docker service
+  service:
+    name: docker-ceilometercentral
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove ceilometercentral service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercentral.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ceilometer-central docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometercentral_{{ docker.ceilometer_central.image_tag }}" }
+
+- name: Remove ceilometer docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_central.name }}"
+    tag: "{{ docker.ceilometer_central.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: List the ceilometer central files
+  shell: ls -A1 /docker/ceilometer_central/
+  register: contents
+
+- name: Remove ceilometer central files
+  file:
+    path: /docker/ceilometer_central/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+#  Recover the ceilometer central volume contents
+- name: recover ceilometer central volume contents
+  shell: cp /docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}/* /docker/ceilometer_central/.
+
+# Now remove the backup volume
+- name: Remove back up ceilometer central Directory
+  file:
+    path: "/docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/ceilometer_central/docker-ceilometercentral.service /usr/lib/systemd/system/docker-ceilometercentral.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ceilometercentral='in_container ceilometercentral_"
+    line: "{{ item }}"
+  with_items:
+    - alias ceilometercentral='in_container ceilometercentral_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start ceilometercentral service
+  service:
+    name: docker-ceilometercentral
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if ceilometer central docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometercentral_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer central container does not seem to be running"
+  when: command_result.stdout == ""

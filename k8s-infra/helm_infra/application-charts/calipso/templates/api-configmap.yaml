@@ -1,0 +1,19 @@
+{{- if (empty .Values.calipsoApi.configMapOverrideName) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- include "calipso.calipsoApi.labels" . | nindent 4 }}
+  name: {{ template "calipso.calipsoApi.fullname" . }}
+data:
+{{- $root := . -}}
+
+{{- range $key, $value := .Values.calipsoApiFiles }}
+  {{ $key }}: {{ toYaml $value | default "{}" | indent 4 }}
+{{- end -}}
+
+{{- range $key, $value := .Values.calipsoApiFreeformFiles }}
+  {{ $key }}: {{ $value | quote }}
+{{- end -}}
+
+{{- end -}}

@@ -1,0 +1,26 @@
+- name: "Looking for {{ IRONIC_INVENTORY_PATH }}"
+  stat:
+    path: "{{ IRONIC_INVENTORY_PATH }}"
+  register: ironic_inventory_stat
+  delegate_to: localhost
+
+- block:
+    - name: "Read {{ IRONIC_INVENTORY_PATH }}"
+      set_fact:
+        IRONIC_INVENTORY: "{{ lookup('file', IRONIC_INVENTORY_PATH) | from_yaml }}"
+      delegate_to: localhost
+
+    - name: Overriding PROCESSING_ADD_PORTS if portgroups defined for at least one server
+      set_fact:
+        PROCESSING_ADD_PORTS: all
+      when: "{{ IRONIC_INVENTORY | json_query('SERVERS.*.portgroups') }}"
+  when: 'ironic_inventory_stat.stat.exists'
+
+- name: Copy Ironic Inspector config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ironic_inspector_config.j2",
+        dest: "{{ docker.ironic_inspector.host_data_dir }}/{{ IRONIC_INSPECTOR_CONFIG_FILE | default('ironic_inspector_config') }}" }

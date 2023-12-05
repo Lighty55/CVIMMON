@@ -1,0 +1,48 @@
+# ceilometer API
+- name: Shut off ceilometer api docker service
+  service:
+    name: docker-ceilometerapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ceilometerapi_uninstall
+
+- name: Remove ceilometer api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometerapi.service"
+    state: absent
+  tags:
+    - ceilometerapi_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ceilometerapi_uninstall
+
+- name: Stop and remove ceilometer api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometerapi_{{ docker.ceilometer_api.image_tag }}" }
+  tags:
+    - ceilometerapi_uninstall
+
+- name: Remove ceilometer api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_api.name }}"
+    tag: "{{ docker.ceilometer_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ceilometerapi_uninstall
+
+- name: Remove ceilometer API Directory
+  file:
+    path: "{{ docker.ceilometer_api.host_data_dir }}"
+    state: absent
+  tags:
+    - ceilometerapi_uninstall

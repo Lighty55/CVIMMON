@@ -1,0 +1,16 @@
+- name: Create plugin dir
+  file:
+    path: /usr/libexec/kubernetes/kubelet-plugins/volume/exec/dims.io~docker-flexvol/
+    state: directory
+
+- name: Download flexvol plugin
+  get_url:
+    url: http://172.29.172.152/downloads/cvim_ha_k8s/docker-flexvol
+    dest: /usr/libexec/kubernetes/kubelet-plugins/volume/exec/dims.io~docker-flexvol/docker-flexvol
+    mode: 0755
+
+- name: Install jq binary
+  get_url:
+    url: http://172.29.172.152/downloads/cvim_ha_k8s/jq
+    dest: /usr/bin/jq
+    mode: 0755

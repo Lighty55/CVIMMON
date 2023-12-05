@@ -1,0 +1,80 @@
+---
+################Portworx########################
+
+- name: "Render PortWorx Storage Class Manifest"
+  become: true
+  template: { src: "portworx-sc.yaml", dest: "/tmp/kubeadm-ha/portworx-sc.yaml" }
+  register: "rendering"
+
+- name: "Deploy PortWorx Storage Class"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/kubeadm-ha/portworx-sc.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+
+- name: "Get Cluster ID"
+  shell: uuidgen
+  register: uuidval
+
+- name: "Render PortWorx Storage Class Manifest"
+  become: true
+  template: { src: "portworx.yaml.j2", dest: "/tmp/portworx.yaml" }
+
+- name: "Deploy PortWorx Deployment"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/portworx.yaml"
+
+- name: "Ensure if Portworx Daemonset Rolled out Properly."
+  register: "portworxds_state"
+  command: "kubectl get daemonset portworx --output=json --ignore-not-found=true --namespace=kube-system"
+  changed_when: false
+  vars:
+    portworxds_state: { stdout: "{}" }
+    ready: "{{ portworxds_state.stdout|from_json|json_query(\"status.numberReady\") }}"
+    desired: "{{ portworxds_state.stdout|from_json|json_query(\"status.desiredNumberScheduled\") }}"
+  until: "ready >= 3"
+  retries: 50
+  delay: 10
+
+- name: "Ensure Portworx-Stork deployment and pods are up and running."
+  changed_when: false
+  register: "storkdep_state"
+  vars:
+    storkdep_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=tier=control-plane --output=json --namespace=kube-system"
+  until:
+      - "storkdep_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "storkdep_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 30
+  delay: 10
+
+- name: "Ensure Portworx-Stork-Scheduler deployment and pods are up and running."
+  changed_when: false
+  register: "scheddep_state"
+  vars:
+    scheddep_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=component=scheduler --output=json --namespace=kube-system"
+  until:
+      - "scheddep_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "scheddep_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 30
+  delay: 10
+
+- name: "Ensure Portworx-LightHouse deployment and pods are up and running."
+  changed_when: false
+  register: "lightdep_state"
+  vars:
+    lightdep_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=tier=px-web-console --output=json --namespace=kube-system"
+  until:
+      - "lightdep_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "lightdep_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 30
+  delay: 10

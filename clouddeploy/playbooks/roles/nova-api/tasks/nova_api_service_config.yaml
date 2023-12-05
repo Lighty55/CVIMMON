@@ -1,0 +1,15 @@
+- name: Copy Nova API config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_api_config.j2",
+        dest: "{{ docker.nova_api.host_data_dir }}/nova_api_config" }
+
+- name: Copy Nova Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/nova-api/templates/{{ item }}"
+    dest: "{{docker.nova_api.host_data_dir }}/{{ item }}"
+  with_items:
+    - "nova_policy.json"

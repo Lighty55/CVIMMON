@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ironic Inspector Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.ironic_inspector.host_data_dir }}_{{ IRONIC_INSPECTOR_PREVIOUS_TAG }}"
+
+# Back up the ironic inspector volume contents
+- name: Back up the Ironic Inspector volume contents
+  shell: "cp -r {{ docker.ironic_inspector.host_data_dir }}/. {{ docker.ironic_inspector.host_data_dir }}_{{ IRONIC_INSPECTOR_PREVIOUS_TAG }}/"
+
+# Backup the systemd file
+- name: Back up the Ironic Inspector systemd file
+  command: "cp /usr/lib/systemd/system/docker-ironicinspector.service {{ docker.ironic_inspector.host_data_dir }}_{{ IRONIC_INSPECTOR_PREVIOUS_TAG }}/"
+
+#####################################################
+# Shut down the old ironic inspector containers
+####################################################
+- name: Shut off Ironic Inspector docker service
+  service:
+    name: docker-ironicinspector
+    enabled: no
+    state: stopped
+
+- name: Remove Ironic Inspector service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicinspector.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove ironic inspector volume contents
+- name: List Ironic Inspector volume contents
+  shell: ls -A1 {{ docker.ironic_inspector.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic Inspector volume contents
+  file:
+    path: "{{ docker.ironic_inspector.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

@@ -1,0 +1,23 @@
+#####################################################
+# Shut down the old nova libvirt containers
+####################################################
+# Nova libvirt.
+- name: Shut off nova libvirt docker service
+  service:
+    name: docker-novalibv
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove nova libvirt service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novalibv.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Remove nova libvirt Directory
+  file:
+    path: "{{ docker.nova_libvirt.host_data_dir }}"
+    state: absent

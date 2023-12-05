@@ -1,0 +1,68 @@
+- name: Copy docker api check.py to /tmp
+  copy: src="docker-api-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+- name: Run Docker API Check for actual container data on target
+  shell: python /tmp/docker-api-check.py get_actual_docker_data
+  delegate_to: localhost
+  run_once: True
+  register: result
+
+- name: Save actual docker tag results JSON output
+  set_fact:
+    actual_docker_tags: "{{ result.stdout | from_json }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Determine containers to verify
+  set_fact:
+     skips: 'mariadb'
+  delegate_to: localhost
+  run_once: True
+
+- name: Test container names/version
+  shell: python /tmp/docker-api-check.py verify_container_tag {{ actual_docker_tags[item]['name'] }} {{ actual_docker_tags[item]['image_name'] }} {{ actual_docker_tags[item]['tag'] }}
+  with_items: "{{ actual_docker_tags.keys() }}"
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: True
+  when: actual_docker_tags[item]['name'] not in skips
+  register: container_version_result
+
+- name: Management - Container version check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ item.stdout }}"
+  failed_when: item.stdout.find('FAIL') != -1
+  when: item.changed == True
+  with_items: "{{ container_version_result.results }}"
+
+- name: Test current container status
+  shell: python /tmp/docker-api-check.py get_exited_containers
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: True
+  register: result
+
+- name: Save container status JSON output
+  set_fact:
+    container_status_result: "{{ result.stdout | from_json }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Verify Container status
+  shell: python /tmp/docker-api-check.py verify_container_status {{ container_status_result[item]['raw_name'] }} {{ container_status_result[item]['name'] }} {{ container_status_result[item]['tag'] }}
+  with_items: "{{ container_status_result.keys() }}"
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: True
+  register: exited_cont_result
+
+- name: Management - Docker container exit status check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ item.stdout_lines }}"
+  failed_when: item.stdout.find('FAIL') != -1
+  with_items: "{{ exited_cont_result.results }}"
+  when: RUN_CONTAINER_EXITED_CHECK and container_status_result.keys()|length > 0

@@ -1,0 +1,26 @@
+- include: generate-updatefile.yaml
+- include: fluentd-upgrade.yaml
+  when: SKIP_UPGRADE is not defined
+- include: memcached-reconfigure.yaml
+- include: haproxy-reconfigure.yaml
+- include: galera-upgrade.yaml
+- include: rabbitmq-upgrade.yaml
+- include: keystone-reconfigure.yaml
+- include: gnocchi-upgrade.yaml
+- include: glance-reconfigure.yaml
+- include: cinder-reconfigure.yaml
+- include: neutron-reconfigure.yaml
+- include: nova-reconfigure.yaml
+- include: ironic-upgrade.yaml
+- include: cloudpulse-reconfigure.yaml
+- include: horizon-reconfigure.yaml
+- include: heat-reconfigure.yaml
+- include: ceilometer-reconfigure.yaml
+- include: host-reconfigure.yaml
+- include: openrc.yaml
+- include: cloud-check.yaml
+- include: cvim-mon-configure.yaml
+- include: cloud-sanity.yaml
+- include: vts-sanity.yaml
+- include: openstack-update-cleanup.yaml
+  when: (ACTION is defined and ACTION == "upgrade") or (ACTION is defined and ACTION == "upgrade_rollback")

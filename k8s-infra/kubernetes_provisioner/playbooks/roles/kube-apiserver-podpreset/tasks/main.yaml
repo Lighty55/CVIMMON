@@ -1,0 +1,43 @@
+- name: Backup kube-apiserver.yaml Manifest
+  shell: cp /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/kube-apiserver.yaml.$(date +%Y%m%d%H%M%S)
+
+- name: Backup kube-controller-manager.yaml Manifest
+  shell: cp /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/kube-controller-manager.yaml.$(date +%Y%m%d%H%M%S)
+
+- name: Add runtime-config to kube-apiserver
+  lineinfile:
+    dest: /etc/kubernetes/manifests/kube-apiserver.yaml
+    regexp: '--runtime-config'
+    line: '    - --runtime-config=settings.k8s.io/v1alpha1=true'
+    insertbefore: '--etcd-servers='
+    backup: no
+
+- name: Add node-monitor-period to kube-controller-manager
+  lineinfile:
+    dest: /etc/kubernetes/manifests/kube-controller-manager.yaml
+    regexp: '--node-monitor-period'
+    line: '    - --node-monitor-period=15s'
+    insertbefore: '--root-ca-file='
+    backup: no
+
+- name: Add node-monitor-grace-period to kube-controller-manager
+  lineinfile:
+    dest: /etc/kubernetes/manifests/kube-controller-manager.yaml
+    regexp: '--node-monitor-grace-period'
+    line: '    - --node-monitor-grace-period=15s'
+    insertbefore: '--root-ca-file='
+    backup: no
+
+- name: Add pod-eviction-timeout to kube-controller-manager
+  lineinfile:
+    dest: /etc/kubernetes/manifests/kube-controller-manager.yaml
+    regexp: '--pod-eviction-timeout'
+    line: '    - --pod-eviction-timeout=15s'
+    insertbefore: '--root-ca-file='
+    backup: no
+
+#- replace:
+#    path: /etc/kubernetes/manifests/kube-apiserver.yaml
+#    regexp: '--admission-control='
+#    replace: '--admission-control=PodPreset,'
+#    backup: no

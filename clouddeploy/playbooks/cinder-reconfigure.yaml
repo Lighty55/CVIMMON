@@ -1,0 +1,54 @@
+- name: Cinder API Update
+  hosts: cinder_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-api", tags: ["base", "cinder_upgrade", "cinder-api"] }
+  serial: "30%"
+
+- name: Cinder Scheduler Update
+  hosts: cinder_scheduler_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-scheduler", tags: ["base", "cinder_upgrade", "cinder-scheduler"] }
+  serial: "30%"
+
+- name: Cinder Volume Update
+  hosts: cinder_volume_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-volume", tags: ["base", "cinder_upgrade", "cinder-volume"] }
+  serial: "30%"
+
+- name: Cinder Backup Service Update
+  hosts: cinder_volume_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-backup", tags: ["cinder-backup"] }
+  serial: "30%"
+
+- name: Upgrade force restart of cinder api and scheduler on skip upgrade
+  hosts:  cinder_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Restart cinder api and cinder scheduler service on a skip upgrade
+      service:
+        name: "{{ item }}"
+        enabled: yes
+        state: restarted
+      with_items:
+        - docker-cinderapi
+        - docker-cindersch
+      when: ACTION is defined and ACTION == "upgrade" and SKIP_UPGRADE is defined and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+  tags:
+    - base
+    - cinder-api

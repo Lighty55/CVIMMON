@@ -1,0 +1,3 @@
+- include: gobgp_service_update_prepare.yaml
+- include: gobgp_service_install.yaml
+- include: gobgp_service_start.yaml

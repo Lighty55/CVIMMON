@@ -1,0 +1,52 @@
+- hosts: localhost
+  become: yes
+  roles:
+    - { role: "check-kubernetes-node", tags: ["delete_controller","delete_worker"] }
+
+# First stop keepalived on node if its reachable
+- hosts: localhost
+  become: yes
+  tasks:
+    - name: Check if the node to be replaced is reachable
+      command: "ssh -q -o 'StrictHostKeyChecking=no' {{ node_operation_host }} systemctl stop keepalived"
+      tags: ["delete_controller"]
+      ignore_errors: yes
+      failed_when: False
+    - pause: seconds=60 prompt="Waiting for sometime in case this was master node"
+      tags: ["delete_controller"]
+
+- hosts: localhost
+  become: yes
+  roles:
+    - { role: "delete-kubernetes-node", tags: ["delete_controller","delete_worker"] }
+    - { role: "decide-master", tags: ["delete_controller"] }
+
+- include: portworx-delete-node.yaml
+
+- hosts: ha_master
+  become: yes
+  roles:
+    - { role: "get-master-vip-hostname", tags: ["delete_controller"] }
+    - { role: "delete-etcd-member", tags: ["delete_controller"] }
+
+- name: Fix /etc/hosts
+  hosts: localhost,all-servers,!{{ node_operation_host }}
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        state: absent
+        regexp: "{{ node_operation_host }}"
+  tags:
+     - delete_worker
+     - delete_controller
+
+- name: Fix management node /etc/hosts
+  hosts: localhost
+  tasks:
+    - lineinfile:
+        dest: /root/.ssh/known_hosts
+        state: absent
+        regexp: "{{ node_operation_host }}"
+  tags:
+     - delete_worker
+     - delete_controller

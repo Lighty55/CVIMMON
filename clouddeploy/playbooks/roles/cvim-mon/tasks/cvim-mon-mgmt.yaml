@@ -1,0 +1,164 @@
+- name: Check if central CVIM-MON is enabled
+  set_fact:
+    CENTRAL_CVIM_MON: '{{ CVIM_MON.central is defined and CVIM_MON.central == True }}'
+
+- include: cvim-mon-setup.yaml
+  when: CVIM_MON_ENABLED and not CENTRAL_CVIM_MON
+
+# When Central MON enabled, we don't need CVIM_MON_SERVER_PASSWORD for generate_telegraf_config.py
+- name: Detect CVIM_MON_PROXY_PASSWORD and KIBANA_PASSWORD
+  set_fact:
+    CVIM_MON_PROXY_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CVIM_MON_PROXY_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    KIBANA_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/KIBANA_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CVIM_MON_SERVER_PASSWORD: 'dummy_password'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True and (CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == True)
+
+- name: Look for Prometheus password CVIM_MON_SERVER_PASSWORD only when not CENTRAL_CVIM_MON
+  set_fact:
+    CVIM_MON_SERVER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CVIM_MON_SERVER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    KIBANA_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/KIBANA_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  when: VAULT is defined and VAULT.enabled == True and ((CVIM_MON_ENABLED and not CENTRAL_CVIM_MON) or (CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == False))
+
+- set_fact:
+    RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HAPROXY_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/HAPROXY_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True and PODTYPE is defined and PODTYPE != "ceph"
+
+- include_vars: /root/openstack-configs/secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Update HAPROXY password entry if the password is changed
+  shell: grep HAPROXY /var/lib/cvim_mon/cvim_mon_config | grep {{ HAPROXY_PASSWORD }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: haproxy_password
+  when: PODTYPE is defined and PODTYPE != "ceph"
+
+- name: Modify the cvim-mon config if HAPROXY password is changed
+  lineinfile: dest=/var/lib/cvim_mon/cvim_mon_config regexp="^HAPROXY_PASSWORD" line="HAPROXY_PASSWORD{{ ":" }} {{ HAPROXY_PASSWORD }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: haproxy_password.stdout == "" and PODTYPE is defined and PODTYPE != "ceph"
+
+- name: Update RabbitMQ password entry if the password is changed
+  shell: grep RABBIT /var/lib/cvim_mon/cvim_mon_config | grep {{ RABBITMQ_PASSWORD }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: rabbitmq_password
+  when: PODTYPE is defined and PODTYPE != "ceph"
+
+- name: Modify the cvim-mon config if RabbitMQ password is changed
+  lineinfile: dest=/var/lib/cvim_mon/cvim_mon_config regexp="^RABBITMQ_PASSWORD" line="RABBITMQ_PASSWORD{{ ":" }} {{ RABBITMQ_PASSWORD }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: rabbitmq_password.stdout == "" and PODTYPE is defined and PODTYPE != "ceph"
+
+- name: Detect CVIM release tag
+  shell: grep ^RELEASE_TAG "{{ playbook_dir }}/../../openstack-configs/defaults.yaml" | cut -f2 -d':' | tr -d " "
+  register: RELEASE_TAG
+
+- name: Detect CVIM version
+  shell: grep ^image_tag "{{ playbook_dir }}/../../openstack-configs/defaults.yaml" | cut -f2 -d':' | tr -d " \""
+  register: CVIM_VERSION
+
+- name: Create directory for telegraf configuration templates
+  file:
+    path: /var/lib/cvim_mon/conf-template
+    state: directory
+
+- name: Copy CVIM-MON config file
+  template:
+    src: config.yaml
+    dest: /var/lib/cvim_mon/config.yaml
+    owner: "2027"
+    group: "2027"
+    mode: "0600"
+
+- name: Copy CPU information and Host Information from cobbler_data and setup_data
+  script: generate_cvim_mon_config.py -w "{{playbook_dir }}/../../" -d /var/lib/cvim_mon/
+
+- name: Copy telegraf configuration templates
+  template:
+    src: "{{ item }}"
+    dest: /var/lib/cvim_mon/conf-template
+    mode: "0600"
+  with_fileglob:
+    - conf-template/*
+
+
+# Look for KIBANA_PASSWORD when VAULT is not enabled
+- name: get the passwords from secrets.yaml file when vault is not enabled
+  shell: grep 'KIBANA_PASSWORD' /root/openstack-configs/secrets.yaml | awk '{print $2}'
+  register: SECRET_KIBANA
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False)
+
+# Look for CVIM_MON_SERVER_PASSWORD when VAULT is not enabled and when local cvim mon
+- name: get the passwords from secrets.yaml file when vault is not enabled
+  shell: grep 'CVIM_MON_SERVER_PASSWORD' /root/openstack-configs/secrets.yaml | awk '{print $2}'
+  register: SECRET_CVIM_MON_SERVER
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False) and ((CVIM_MON_ENABLED and not CENTRAL_CVIM_MON) or (CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == False))
+
+# Set passwords variables for KIBANA and CVIM_MON_SERVER_PASSWORD when VAULT is not enabled and when local cvim mon
+- name: register KIBANA and CVIM_MON_SERVER_PASSWORD to yaml variables
+  set_fact:
+    KIBANA_PASSWORD: "{{ SECRET_KIBANA.stdout }}"
+    CVIM_MON_SERVER_PASSWORD: "{{ SECRET_CVIM_MON_SERVER.stdout }}"
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False) and ((CVIM_MON_ENABLED and not CENTRAL_CVIM_MON) or (CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == False))
+
+# Set passwords variables for KIBANA and CVIM_MON_SERVER_PASSWORD when VAULT is not enabled and when central cvim mon
+- name: Give dummy password to CVIM_MON_SERVER_PASSWORD when central cvim mon
+  set_fact:
+    KIBANA_PASSWORD: "{{ SECRET_KIBANA.stdout }}"
+    CVIM_MON_SERVER_PASSWORD: 'dummy_password'
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False) and (CENTRAL_CVIM_MON is defined and CENTRAL_CVIM_MON == True)
+
+- name: Generate telegraf config
+  script: generate_telegraf_config.py -c /var/lib/cvim_mon/config.yaml -p {{ CVIM_MON_SERVER_PASSWORD }} {{ KIBANA_PASSWORD }}
+
+- name: Wait for configurations files to be created
+  wait_for:
+    path: /var/lib/cvim_mon/mgmt.conf
+    timeout: 1200
+
+- name: Install telegraf
+  yum:
+    name: telegraf
+    state: present
+
+- name: Copy directory plugin
+  template:
+    src: directory-plugin.sh
+    dest: /var/lib/cvim_mon/directory-plugin.sh
+    owner: "2027"
+    group: "2027"
+    mode: "0600"
+
+- name: Check if telegraf configuration exists
+  stat:
+     path: /var/lib/cvim_mon/mgmt.conf
+  register: conf_stat
+
+- name: Copy new telegraf configuration file
+  template:
+    src: /var/lib/cvim_mon/mgmt.conf
+    dest: /etc/telegraf.conf
+    mode: "0600"
+  register: telegraf_reconfigure
+  when: conf_stat.stat.exists == True
+
+- name: Systemctl daemon-reload.
+  command: /bin/systemctl daemon-reload
+
+- name: Restart telegraf if config has changed
+  service:
+    name: telegraf
+    enabled: yes
+    state: restarted

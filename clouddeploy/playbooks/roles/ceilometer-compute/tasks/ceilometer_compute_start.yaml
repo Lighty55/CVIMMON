@@ -1,0 +1,55 @@
+- name: Check if Ceilometer compute is already running
+  shell: docker ps -a | grep Up | grep ceilometercompute_{{ docker.ceilometer_compute.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ceilometercompute='in_container ceilometercompute_"
+    line: "{{ item }}"
+  with_items:
+    - alias ceilometercompute='in_container ceilometercompute_{{ docker.ceilometer_compute.image_tag }}'
+
+- name: Start the Ceilometer compute Docker
+  docker_container:
+    name: "ceilometercompute_{{ docker.ceilometer_compute.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ceilometer_compute.name }}:{{ docker.ceilometer_compute.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.ceilometer_compute.host_data_dir }}:{{ docker.ceilometer_compute.host_data_dir }}:ro,z"
+      - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}:z"
+      - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}:z"
+      - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}:z"
+      - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}:z"
+      - /dev:/dev:z
+      - /etc/iscsi/:/etc/iscsi/:z
+      - /lib/modules:/lib/modules:ro,z
+      - /run:/run:shared
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ceilometer:/var/log/ceilometer:z
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ceilometer compute Docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometercompute_{{ docker.ceilometer_compute.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer compute container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ceilometercompute
+  tags:
+    - reboot-on-failure

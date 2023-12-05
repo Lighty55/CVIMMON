@@ -1,0 +1,31 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create ovs_dbserver Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}
+
+# Backup the systemd file
+- name: back up the ovs_dbserver systemd file
+  command: cp /usr/lib/systemd/system/docker-ovs_dbserver.service /docker/ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}/docker-ovs_dbserver.service
+
+#####################################################
+# Shut down the old ovs_dbserver containers
+####################################################
+- name: Shut off ovs_dbserver docker service
+  service:
+    name: docker-ovs_dbserver
+    enabled: no
+    state: stopped
+
+- name: Remove ovs_dbserver service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_dbserver.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload

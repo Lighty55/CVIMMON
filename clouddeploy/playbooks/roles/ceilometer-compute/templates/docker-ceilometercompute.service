@@ -1,0 +1,17 @@
+[Unit]
+Description=Ceilometer compute docker
+Requires=docker.service
+Wants=docker-novalibv.service
+After=docker-novacpu.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a ceilometercompute_{{ docker.ceilometer_compute.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 ceilometercompute_{{ docker.ceilometer_compute.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,51 @@
+- name: Copy the new Magnum api configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "magnum_api_config.j2", dest: "{{docker.magnum_api.host_data_dir }}/magnum_api_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/magnum_api/magnum_api_config /docker/magnum_api/magnum_api_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/magnum_api/magnum_api_reconfigure /docker/magnum_api/magnum_api_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/magnum_api/magnum_api_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the magnum api config file inside container to force a reconfigure
+  command: docker cp /docker/magnum_api/magnum_api_config magnumapi_{{ docker.magnum_api.image_tag }}:/opt/kolla/magnum_api_config
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart magnum api service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-magnumapi
+  when: command_result.stdout != ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != ""
+
+- name: Check if Magnum api Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumapi_{{ docker.magnum_api.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != ""
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum api Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

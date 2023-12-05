@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    chart: '{{.Chart.Name}}-{{.Chart.Version}}'
+    component: snmp
+    heritage: '{{.Release.Service}}'
+    release: '{{.Release.Name}}'
+  name: '{{ template "snmp.fullname" . }}'
+spec:
+  ports:
+  - name: http
+    nodePort: 30008
+    port: 1161
+    protocol: TCP
+    targetPort: 1161
+  selector:
+    component: '{{.Release.Name}}-snmp'
+  type: '{{.Values.snmpcvim.serviceType}}'

@@ -1,0 +1,8 @@
+- name: Check for supported Edge POD hardware
+  shell: "dmidecode -t 1 | grep -Ew 'Product Name:\\s+{{ ami_bios_utilities.hardware_supported }}'"
+  register: supported_edge_hardware
+  ignore_errors: true
+  failed_when: false
+
+- include: edge-pod-bios-update.yaml
+  when: supported_edge_hardware.rc == 0 and ACTION is undefined and PODTYPE is defined and PODTYPE == "edge" and "compute" in server_role

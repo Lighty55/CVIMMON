@@ -1,0 +1,54 @@
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: InitConfiguration
+localAPIEndpoint:
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+  advertiseAddress: "{{ hostvars[inventory_hostname]['ansible_use_api_v6'] }}"
+{% else %}
+  advertiseAddress: {{ hostvars[inventory_hostname]['ansible_usehost'] }}
+{% endif %}
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: ClusterConfiguration
+imageRepository: {{ management_node_ip }}:5000
+networking:
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+  serviceSubnet: {{ calico_ipv6_service_cidr }}
+  podSubnet: {{ calico_ipv6_pool_cidr }}
+{% else %}
+  podSubnet: {{pod_network_cidr}}
+{% endif %}
+kubernetesVersion: {{kubernetes_version}}
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+controlPlaneEndpoint: "[{{external_loadbalancer_ip}}]:6443"
+{% else %}
+controlPlaneEndpoint: {{internal_loadbalancer_ip}}:6443
+{% endif %}
+apiServer:
+  extraArgs:
+    endpoint-reconciler-type: lease
+    apiserver-count: "3"
+    bind-address: 0.0.0.0
+scheduler:
+  extraArgs:
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+    bind-address: "::"
+{% else %}
+    bind-address: 0.0.0.0
+{% endif %}
+controllerManager:
+  extraArgs:
+    node-monitor-grace-period: 40s
+    node-monitor-period: 5s
+    pod-eviction-timeout: 5m0s
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+    bind-address: "::"
+{% else %}
+    bind-address: 0.0.0.0
+{% endif %}
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+bindAddress: 0.0.0.0
+{% if DHCP_MODE is defined and DHCP_MODE == "v6" %}
+clusterCIDR: {{ calico_ipv6_pool_cidr }}
+{% endif %}

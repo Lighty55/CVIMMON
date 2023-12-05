@@ -1,0 +1,4 @@
+- include: nova_common_service_update_prepare.yaml
+- include: nova_common_service_install.yaml
+- include: nova_common_service_config.yaml
+- include: nova_common_service_start.yaml

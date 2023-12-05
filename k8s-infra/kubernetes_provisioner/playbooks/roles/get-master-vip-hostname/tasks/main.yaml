@@ -1,0 +1,21 @@
+- name: Get Hostname of HA Master
+  shell: "hostname -f"
+  register: masterha_hostname
+  changed_when: false
+  ignore_errors: yes
+
+- debug: msg="{{ masterha_hostname.stdout }}"
+
+- name: force use vip for master name (MasterHA case)
+  set_fact: master_name={{ internal_loadbalancer_ip }}
+  when:
+  - groups['all-masters'] | length > 1
+  register: master_name
+
+- debug:
+    msg: "{{ master_name }}"
+
+- name: create variable out of stdout results
+  set_fact:
+    masterha: "{{ masterha_hostname.stdout }}"
+    cacheable: true

@@ -1,0 +1,29 @@
+- include: calipso-host-control-reconfigure.yaml
+  static: no
+  when: host_control and (ACTION is defined and ACTION == "reconfigure")
+
+# Mgmt node deploy during reconfigure is called in calipso-host-control-reconfigure.yaml
+- include: calipso-mgmt-deploy.yaml
+  static: no
+  when: mgmt and ACTION is undefined
+
+- include: calipso-host-control-deploy.yaml
+  static: no
+  when: host_control and (ACTION is undefined or ACTION == "reconfigure")
+
+
+- name: check whether build Calipso is part of update scope
+  shell: cat "{{ playbook_dir }}/../../openstack-configs/update_scope.yaml" | grep "^- calipso"
+  register: update_calipso
+  when: ACTION is defined and (ACTION == "update" or ACTION == "rollback" or ACTION == "commit")
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: True
+  failed_when: False
+
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update" and update_calipso.stdout != ""
+- include: commit.yaml
+  when: ACTION is defined and ACTION == "commit" and update_calipso.stdout != "" and host_control
+- include: rollback.yaml
+  when: ACTION is defined and ACTION == "rollback" and update_calipso.stdout != ""

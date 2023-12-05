@@ -1,0 +1,35 @@
+- name: Shut off haproxy docker service
+  service:
+    name: docker-haproxy
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove haproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-haproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove haproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "haproxy_{{ docker.haproxy.image_tag }}" }
+
+- name: Remove haproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.haproxy.name }}"
+    tag: "{{ docker.haproxy.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove HAproxy Directory
+  file:
+    path: "{{ docker.haproxy.host_data_dir }}"
+    state: absent

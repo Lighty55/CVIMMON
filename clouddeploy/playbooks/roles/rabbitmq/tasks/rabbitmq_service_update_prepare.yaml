@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create rabbitmq Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}
+
+# Back up the rabbitmq volume contents
+- name: back up the rabbitmq volume contents
+  shell: cp /docker/rabbit/* /docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the rabbitmq systemd file
+  command: cp /usr/lib/systemd/system/docker-rabbitmq.service /docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}/docker-rabbitmq.service
+
+#####################################################
+# Shut down the old rabbitmq containers
+####################################################
+# Rabbitmq.
+- name: Shut off rabbitmq docker service
+  service:
+    name: docker-rabbitmq
+    enabled: no
+    state: stopped
+
+- name: Remove rabbitmq service file
+  file:
+    path: "/usr/lib/systemd/system/docker-rabbitmq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove rabbitmq volume contents
+- name: List rabbitmq volume contents
+  shell: ls -A1 /docker/rabbit/
+  register: contents
+
+- name: Remove rabbitmq volume contents
+  file:
+    path: /docker/rabbit/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

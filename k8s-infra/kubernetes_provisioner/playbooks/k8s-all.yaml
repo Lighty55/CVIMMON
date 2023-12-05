@@ -1,0 +1,20 @@
+#Bootstrap Adds the Role Below
+#- include: docker.yaml
+#####Core_Install#####################
+- include: prepare-hosts.yaml
+- include: prepare-disks.yaml
+- include: keepalived-preconfig.yaml
+- include: kubernetes-masters.yaml
+- include: podpreset.yaml
+- include: kubernetes-add-workers.yaml
+- include: masters-post-tasks.yaml
+- include: telegraf.yaml
+- include: portworx.yaml
+- include: kubernetes-node-labels.yaml
+- include: sanity.yaml
+#####Optional#########################
+#- include: flexvol-plugin.yaml
+######Enable-Storage-Provisioner#####
+#- include: encrypting-secrets.yaml
+#- include: heapster.yaml
+#- include: smoke-test.yaml

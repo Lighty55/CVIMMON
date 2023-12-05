@@ -1,0 +1,38 @@
+#!/bin/sh
+{% if 'bgp_mgmt_addresses' in SERVERS[ansible_nodename] %}
+{% for net in NETWORKING.networks if net.segments[0][:5] == 'vxlan' or net.segments[0] == 'sr-mpls-tenant' %}
+
+NETNS=gobgp_{{ net.segments[0] }}
+# Linux network interface has a length limit of 16 bytes
+
+{% if net.segments[0] == 'sr-mpls-tenant' %}
+INTF_NAME={{ net.segments[0][:7] }}
+{% else %}
+INTF_NAME={{ net.segments[0][6:16] }}
+{% endif %}
+
+if ! sudo ip netns | grep -q $NETNS; then
+    echo "Configuring namespace $NETNS..."
+    UNDERLAY_INTF={{ CONTROL_INTERFACE_NAME }}.{{ net.vlan_id }}
+    UNDERLAY_GW={{ net.gateway }}
+    UNDERLAY_IP=$(ip addr show $UNDERLAY_INTF | grep -Po 'inet \K[\d.]+\/[\d.]+')
+    MGMT_IP={{ SERVERS[ansible_nodename]['bgp_mgmt_addresses'][net.segments[0]] }}
+
+    # Set up samx subinterface for BGP peer reachability over L3 default gateway
+    sudo ip netns add $NETNS
+    sudo ip link set $UNDERLAY_INTF netns $NETNS
+    sudo ip netns exec $NETNS ip link set lo up
+    sudo ip netns exec $NETNS ip addr add $UNDERLAY_IP dev $UNDERLAY_INTF
+    sudo ip netns exec $NETNS ip link set $UNDERLAY_INTF up
+    sudo ip netns exec $NETNS ip route add 0.0.0.0/0 via $UNDERLAY_GW dev $UNDERLAY_INTF
+
+    # Set up veth pair for etcd cluster reachability over MGMT network
+    sudo ip link add gbgp_$INTF_NAME type veth peer name tap_$INTF_NAME
+    sudo ip link set tap_$INTF_NAME netns $NETNS
+    sudo ip netns exec $NETNS ip link set tap_$INTF_NAME up
+    sudo ip link set gbgp_$INTF_NAME up
+    sudo ip netns exec $NETNS ip addr add $MGMT_IP/{{ control_cidr }} dev tap_$INTF_NAME
+    sudo brctl addif br_mgmt gbgp_$INTF_NAME
+fi
+{% endfor %}
+{% endif %}

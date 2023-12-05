@@ -1,0 +1,37 @@
+---
+- name: "Check if Masters are already Tainted"
+  shell: kubectl describe nodes {{inventory_hostname}} | grep Taints
+  register: taint_conf
+
+- name: Taint Masters to Allow Scheduling Work-Loads
+  shell: |
+    kubectl taint nodes {{ groups['all-masters'] | join(' ') }} node-role.kubernetes.io/master-
+  ignore_errors: yes
+  when: '"<none>" not in taint_conf.stdout'
+
+#########KubernetesDashboard#############################
+- name: "Render Kubernetes Dashboard Deployment Manifest"
+  become: true
+  template: { src: "kubernetes-dashboard.yaml", dest: "/tmp/kubeadm-ha/kubernetes-dashboard.yaml" }
+  register: "rendering"
+
+- name: "Install Kubernetes Dashboard Deployment"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/kubeadm-ha/kubernetes-dashboard.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+
+- name: "Ensure Kubernetes Dashboard deployment and pods are up and running."
+  changed_when: false
+  register: "dashboard_state"
+  vars:
+    dashboard_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=k8s-app=kubernetes-dashboard --output=json --namespace=kube-system"
+  until:
+      - "dashboard_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "dashboard_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 10
+  delay: 5
+

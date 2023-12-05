@@ -1,0 +1,58 @@
+#############################################################################
+# Check cluster integrity
+#
+# Cluster integrity when all nodes in it receive and replicate write-sets
+# from all other nodes by making sure all the members:
+# - have the same cluster size that matches the expected value
+# - belong to a primary component (cluster status)
+# - belong to the same cluster (same state uuid)
+# - is in sync with all the cluster members (same conf id)
+#############################################################################
+- name: cluster integrity | check cluster size
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_size"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_size
+  until: cluster_size.stdout | int == {{ groups['mariadb_all'] | length }} and not cluster_size.stderr | search("ERROR")
+  retries: 60
+  delay: 1
+
+- name: cluster integrity | check cluster status
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_status"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_status
+  until: cluster_status.stdout == "Primary" and not cluster_status.stderr | search("ERROR")
+  retries: 60
+  delay: 1
+
+- name: cluster integrity | get cluster state uuid
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_state_uuid"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_state_uuid
+  until: cluster_state_uuid.stdout != "" and not cluster_state_uuid.stderr | search("ERROR")
+  retries: 60
+  delay: 1
+
+- name: cluster integrity | get cluster conf id
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_conf_id"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_conf_id
+  until: cluster_conf_id.stdout != "" and not cluster_conf_id.stderr | search("ERROR")
+  retries: 60
+  delay : 1
+
+- name: cluster integrity | create cluster state uuid list and cluster conf id list for all mariadb hosts
+  set_fact:
+    cluster_state_uuid_list: "[{% for host in groups['mariadb_all'] if hostvars[host].cluster_state_uuid.stdout %} '{{ hostvars[host].cluster_state_uuid.stdout }}', {% endfor %}]"
+    cluster_conf_id_list: "[{% for host in groups['mariadb_all'] if hostvars[host].cluster_conf_id.stdout %} {{ hostvars[host].cluster_conf_id.stdout | int }}, {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: cluster integrity | check cluster state uuid and conf id are the same for all mariadb hosts
+  assert:
+    that:
+      - "{{ cluster_state_uuid_list | length }} == {{ groups['mariadb_all'] | length }}"
+      - "{{ cluster_conf_id_list | length }} == {{ groups['mariadb_all'] | length }}"
+      - "{{ cluster_state_uuid_list | unique | length }} == 1"
+      - "{{ cluster_conf_id_list | unique | length }} == 1"
+  run_once: true
+  delegate_to: 127.0.0.1

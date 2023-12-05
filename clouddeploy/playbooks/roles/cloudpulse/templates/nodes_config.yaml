@@ -1,0 +1,6 @@
+control-1:
+    ip: {{ CLOUDPULSE_SERVER_BIND_IP }}
+    user: root
+    role: controller
+    galerauser: {{ WSREP_USERNAME }}
+    galerapassword: {{ WSREP_PASSWORD }}

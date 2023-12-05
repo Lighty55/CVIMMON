@@ -1,0 +1,90 @@
+# First remove the new container and artifacts and gnocchi metricd
+- name: Rollback | Shut off gnocchi metricd docker service
+  service:
+    name: docker-gnocchi-metricd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Rollback | Remove gnocchimetricd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-metricd.service"
+    state: absent
+
+- name: Rollback | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Stop and remove gnocchi-metricd docker container.
+  docker_container:
+    image: ""
+    name: "gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Rollback | Remove gnocchi docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_metricd.name }}"
+    tag: "{{ docker.gnocchi_metricd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove contents of gnocchi metricd volume
+- name: Rollback | List contents of gnocchi metricd volume
+  shell: ls -A1 /docker/gnocchi_metricd/
+  register: contents
+
+- name: Rollback | Remove gnocchi metricd contents
+  file:
+    path: /docker/gnocchi_metricd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the gnocchi metricd volume contents
+- name: Rollback | recover gnocchi metricd volume contents
+  shell: cp /docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}/* /docker/gnocchi_metricd/.
+
+- name: Rollback | Modify owner and group of ceph.conf
+  file: path=/docker/gnocchi_metricd/ceph.conf owner=gnocchi group=mercury
+
+# Now remove the backup volume
+- name: Rollback | Remove back up gnocchi METRICD Directory
+  file:
+    path: "/docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Rollback | Copy Containers restart-on-boot files
+  command: cp /docker/gnocchi_metricd/docker-gnocchi-metricd.service /usr/lib/systemd/system/docker-gnocchi-metricd.service
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Rollback | Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchimetricd='in_container gnocchimetricd_"
+    line: "alias gnocchimetricd='in_container gnocchimetricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}'"
+
+# Start the container
+- name: Rollback | Start the gnocchi metricd service
+  service:
+    name: docker-gnocchi-metricd
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Rollback | Check if Gnocchi Metricd Docker container has started running
+  shell: docker ps -a | grep Up | grep gnocchimetricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Rollback | Fail if container is not UP.
+  fail: msg="Gnocchi Metricd Container does not seem to be running"
+  when: not command_result.stdout

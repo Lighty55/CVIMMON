@@ -1,0 +1,16 @@
+global:
+      resolve_timeout: 5m
+
+receivers:
+  - name: 'snmp'
+    webhook_configs:
+    - send_resolved: true
+      url: 'http://{{ metro_name }}-snmp-svc.{{ metro_name }}.svc.cluster.local:1161/alarms'
+
+route:
+  group_by: ['...']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 8737h
+  # A default receiver
+  receiver: snmp

@@ -1,0 +1,91 @@
+# First shutoff and disable the new ceilometer notification container
+- name: Shut off ceilometer notification docker service
+  service:
+    name: docker-ceilometernotification
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove ceilometernotification service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometernotification.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ceilometer-notification docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometernotification_{{ docker.ceilometer_notification.image_tag }}" }
+
+- name: Remove ceilometer docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_notification.name }}"
+    tag: "{{ docker.ceilometer_notification.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove the contents of ceilometer notification files
+- name: List contents of ceilometer notification files
+  shell: ls -A1 /docker/ceilometer_notification/
+  register: contents
+
+- name: Remove content of ceilometer notification files
+  file:
+    path: /docker/ceilometer_notification/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the ceilometer notification volume contents
+- name: recover ceilometer notification volume contents
+  shell: cp /docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}/* /docker/ceilometer_notification/.
+
+# Now remove the backup volume
+- name: Remove back up ceilometer notification Directory
+  file:
+    path: "/docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/ceilometer_notification/docker-ceilometernotification.service /usr/lib/systemd/system/docker-ceilometernotification.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ceilometernotification='in_container ceilometernotification_"
+    line: "{{ item }}"
+  with_items:
+    - alias ceilometernotification='in_container ceilometernotification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start ceilometernotification service
+  service:
+    name: docker-ceilometernotification
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if ceilometer notification docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometernotification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer notification container does not seem to be running"
+  when: command_result.stdout == ""

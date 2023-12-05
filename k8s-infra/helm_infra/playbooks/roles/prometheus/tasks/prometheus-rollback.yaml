@@ -1,0 +1,49 @@
+---
+- name: "{{ metro_name }}->Get the old version number from the saved file"
+  slurp: { src: "{{ prometheus_helm_upgrade_path }}/prometheus-old-version" }
+  register: prometheus_revision_file
+
+- name: "{{ metro_name }}->Get the old version"
+  set_fact:
+    prometheus_old_version="{{ prometheus_revision_file['content'] | b64decode | regex_findall('PROMETHEUS-OLD-REVISION=(.+)') | first }}"
+
+- name: "{{ metro_name }}->Helm rollback to old version"
+  command: >
+    /usr/bin/helm rollback "{{ prometheus_deployment_name }}-{{ metro_name }}" {{ prometheus_old_version }}
+
+- name: "{{ metro_name }}->Check Rollout Status of Prometheus-{{ metro_name }}-server Deployment"
+  command: kubectl -n "{{ metro_name }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-{{ metro_name }}-server"
+
+- name: "{{ metro_name }}->Check the status of Prometheus-{{ metro_name }} Deployment once rolled-out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ metro_name }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ prometheus_deployment_name }}-{{ metro_name }}-server"
+
+- name: "{{ metro_name }}->Ensure Prometheus-{{ metro_name }} Deployment and pods are up and running."
+  changed_when: false
+  register: "prometheus_state"
+  vars:
+    prometheus_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.containerStatuses[].ready"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=prometheus --output=json --namespace={{ metro_name }}"
+  until:
+      - "prometheus_state.stdout|from_json|json_query(pods_query)|unique == [true]"
+      - "prometheus_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+
+- name: "{{ metro_name }}->Clear the old-version file"
+  file:
+    state: absent
+    path: "{{ prometheus_helm_upgrade_path }}/prometheus-old-version"
+
+- name: "{{ metro_name }}->Faile the update if rollback was due to update failure"
+  fail:
+    msg: "The {{ prometheus_deployment_name }}-{{ metro_name }} update failed and it was rollbacked to the old version"
+  when: prometheus_update_status is failed

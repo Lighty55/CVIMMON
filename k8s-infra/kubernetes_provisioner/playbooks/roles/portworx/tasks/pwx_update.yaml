@@ -1,0 +1,25 @@
+- name: "Render PortWorx Update Manifest"
+  become: true
+  template: { src: "portworx_update.yaml.j2", dest: "/tmp/portworx_update.yaml" }
+
+- name: "Deploy PortWorx Deployment"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/portworx_update.yaml"
+
+- name: Check Rollout Status of Portworx-Stork-Scheduler deployment
+  command: kubectl -n kube-system rollout status --timeout=1200s deployment stork-scheduler
+
+- name: "Ensure Portworx-Stork-Scheduler deployment and pods are up and running."
+  changed_when: false
+  register: "scheddep_state"
+  vars:
+    scheddep_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=component=scheduler --output=json --namespace=kube-system"
+  until:
+      - "scheddep_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "scheddep_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 30
+  delay: 10

@@ -1,0 +1,39 @@
+- name: Update filter in /etc/lvm/lvm.conf file
+  lineinfile:
+    dest: /etc/lvm/lvm.conf
+    regexp: '^\s+filter\s*='
+    insertafter: '^\s+# filter = \[ "a\|.\*/\|" \]'
+    line: '        filter = [ "a|/dev/disk/by-path/pci-.*|", "a|/dev/md/.*|", "r|.*|" ]'
+  register: filter_patch
+
+- name: Update global_filter in /etc/lvm/lvm.conf file
+  lineinfile:
+    dest: /etc/lvm/lvm.conf
+    regexp: '^\s+global_filter\s*='
+    insertafter: '^\s+# global_filter = \[ "a\|.\*/\|" \]'
+    line: '        global_filter = [ "a|/dev/disk/by-path/pci-.*|", "a|/dev/md/.*|", "r|.*|" ]'
+  register: global_filter_patch
+
+# NOTE: This will only look for devices-mapper that is explicitly (L)ive,
+#       (s)uspended, and read-(w)rite only; L-sw, anything else will be ignore.
+- name: Get all suspended device-mapper
+  shell: dmsetup info -c | awk 'match($4,/L-sw/) {print $1}'
+  register: suspended_dm_list
+
+# Resume any device-mapper that is in suspended state to prevent hanging during
+# LVM operation.
+- name: Resume any suspended device-mapper
+  shell: dmsetup resume {{ item }}
+  with_items:
+    - "{{ suspended_dm_list.stdout_lines | default('') }}"
+
+- name: Get all installed kernel version
+  script: get_all_kernel_versions.sh
+  register: kernel_version_list
+  when: filter_patch | changed or global_filter_patch | changed or suspended_dm_list.stdout_lines | length > 0
+
+- name: Perform dracut force on these kernel version
+  shell: dracut -f /boot/initramfs-{{ item }}.img {{ item }}
+  with_items:
+    - "{{ kernel_version_list.stdout_lines | default('') }}"
+  when: kernel_version_list.stdout_lines is defined

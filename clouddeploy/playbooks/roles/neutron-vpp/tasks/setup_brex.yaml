@@ -1,0 +1,9 @@
+- name: Check if bridges are present
+  shell: brctl show | grep br-ex
+  register: br_result
+  ignore_errors: True
+  failed_when: false
+
+- name: Create bridges, if not present
+  shell: brctl addbr br-ex
+  when: br_result.stdout == ""

@@ -1,0 +1,28 @@
+[Unit]
+Description=Neutron L3 Agent Docker
+Wants=docker-neutrondhcp.service
+After=docker-neutrondhcp.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+{% if EXT_VNIC is defined and EXT_VNIC == true and MECHANISM_DRIVERS == "openvswitch" %}
+    {% if UCSMCOMMON is defined and UCSMCOMMON.ucsm_ip is defined %}
+ExecStartPre=/usr/bin/sh -c "(/usr/sbin/tc qdisc ls dev e  | /usr/bin/grep parent| /usr/bin/grep ffff) || (/usr/sbin/tc qdisc add dev e handle ffff: ingress;/usr/sbin/tc filter add dev e parent ffff: pref 1 protocol 802.1Q u32 match u32 0 0 flowid 1:1 action vlan pop reclassify)"
+    {% else %}
+ExecStartPre=/usr/bin/sh -c "(/usr/sbin/tc qdisc ls dev e0  | /usr/bin/grep parent| /usr/bin/grep ffff) || (/usr/sbin/tc qdisc add dev e0 handle ffff: ingress;/usr/sbin/tc filter add dev e0 parent ffff: pref 1 protocol 802.1Q u32 match u32 0 0 flowid 1:1 action vlan pop reclassify)"
+ExecStartPre=/usr/bin/sh -c "(/usr/sbin/tc qdisc ls dev e1  | /usr/bin/grep parent| /usr/bin/grep ffff) || (/usr/sbin/tc qdisc add dev e1 handle ffff: ingress;/usr/sbin/tc filter add dev e1 parent ffff: pref 1 protocol 802.1Q u32 match u32 0 0 flowid 1:1 action vlan pop reclassify)"
+    {% endif %}
+{% endif %}
+ExecStart=/usr/bin/docker start -a neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }}
+ExecStop=/usr/bin/docker exec neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }}  /usr/bin/neutron-netns-cleanup \
+--config-file /usr/share/neutron/neutron-dist.conf \
+--config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l3_agent.ini \
+--force --agent-type l3
+ExecStop=/usr/bin/docker stop -t 8 neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

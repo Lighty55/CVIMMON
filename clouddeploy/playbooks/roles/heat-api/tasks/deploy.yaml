@@ -1,0 +1,3 @@
+- include: heat_api_install.yaml
+- include: heat_api_config.yaml
+- include: heat_api_start.yaml

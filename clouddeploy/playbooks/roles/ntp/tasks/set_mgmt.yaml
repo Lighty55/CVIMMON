@@ -1,0 +1,124 @@
+# Now we modify NTP fields on /etc/ntp.conf file of mgmt node if needed
+- name: Mgmt | Copy the ntp config into a template
+  command: cp /etc/ntp.conf /tmp/ntp_reconf
+  delegate_to: localhost
+  run_once: True
+
+- name: Mgmt | Make all controllers peers of management node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "peer {{ item }}"
+  with_items: "{{ groups['host_control_mgmt_ip'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != "ceph")
+
+- name: Mgmt | On ceph, all controllers peers of management node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "peer {{ item }}"
+  with_items: "{{ groups['ceph_mon_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is defined and PODTYPE == "ceph"
+
+- name: Mgmt | Add IPv6 peer of controllers on mgmt node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "peer {{ hostvars[item]['management_ipv6'] }}"
+  when: hostvars[item]['management_ipv6'] is defined and
+        hostvars[item]['server_role'] is defined and
+        hostvars[item]['server_role']|intersect(['control'])
+  with_items: "{{ groups['host_power_all'] }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Mgmt | Remove restrict lines on mgmt node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    regexp: '^restrict *'
+    state: absent
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Add generic restrict lines on mgmt node
+  blockinfile:
+    dest: /tmp/ntp_reconf
+    marker: ""
+    block: |
+       restrict default kod nomodify notrap nopeer noquery
+       restrict 127.0.0.1
+       restrict -6 default kod nomodify notrap nopeer noquery
+       restrict ::1
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Add IPv6 ctrls to restrict on mgmt node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "restrict {{ hostvars[item]['management_ipv6'] }}"
+  when: hostvars[item]['management_ipv6'] is defined and
+        hostvars[item]['server_role'] is defined and
+        hostvars[item]['server_role']|intersect(['control'])
+  with_items: "{{ groups['host_power_all'] }}"
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Add ctrls on restrict list of management node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "restrict {{ item }}"
+  with_items: "{{ groups['host_control_mgmt_ip'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != "ceph")
+
+- name: Mgmt | On ceph, add ctrls on restrict list of management node
+  lineinfile:
+    dest: /tmp/ntp_reconf
+    line: "restrict {{ item }}"
+  with_items: "{{ groups['ceph_mon_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is defined and PODTYPE == "ceph"
+
+- name: Mgmt | Compare old and new rendered configs
+  shell: diff /tmp/ntp_reconf /etc/ntp.conf
+  ignore_errors: True
+  failed_when: False
+  register: diff
+
+- name: Mgmt | Stop ntpd service if running
+  service:
+    name: ntpd
+    state: stopped
+  when: diff.rc
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Copy the new rendered config if there is a change
+  command: mv /tmp/ntp_reconf /etc/ntp.conf
+  when: diff.rc
+  run_once: True
+  delegate_to: localhost
+
+- name : Mgmt | Restore selinux permissions
+  command: chcon system_u:object_r:net_conf_t:s0 /etc/ntp.conf
+  when: diff.rc
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Remove reconfigure file if there is no change
+  file: path=/tmp/ntp_reconfig state=absent
+  when: not diff.rc
+  run_once: True
+  delegate_to: localhost
+
+- name: Mgmt | Enable ntpd service
+  service:
+    name: ntpd
+    enabled: yes
+    state: started
+  when: diff.rc
+  run_once: True
+  delegate_to: localhost

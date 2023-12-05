@@ -1,0 +1,8 @@
+kubernetes_certificates:
+  - "admin.conf"
+  - "apiserver "
+  - "apiserver-etcd-client"
+  - "apiserver-kubelet-client"
+  - "controller-manager.conf"
+  - "front-proxy-client"
+  - "scheduler.conf"

@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron ovsagent Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}
+
+# Back up the neutron ovsagent volume
+- name: back up the neutron ovsagent volume
+  shell: cp /docker/neutron_ovsagent/* /docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the neutron ovsagent systemd file
+  command: cp /usr/lib/systemd/system/docker-neutron_ovsagent.service /docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}/docker-neutron_ovsagent.service
+
+#####################################################
+# Shut down the old neutron ovsagent containers
+####################################################
+- name: Shut off neutron ovsagent docker service
+  service:
+    name: docker-neutron_ovsagent
+    enabled: no
+    state: stopped
+
+- name: Remove neutron ovsagent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_ovsagent.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of neutron ovs agent volume
+- name: List the contents of neutron ovs agent volume
+  shell: ls -A1 /docker/neutron_ovsagent/
+  register: contents
+
+- name: Remove the contents of neutron ovs agent volume
+  file:
+    path: /docker/neutron_ovsagent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

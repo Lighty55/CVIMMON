@@ -1,0 +1,61 @@
+- name: Uninstall | Set NFVIMON Admins Backup File Location
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    backup_nfvimon_filename: "{{ playbook_dir }}/../../openstack-configs/.backup_nfvimon_admin.yaml"
+
+- name: Uninstall | Ensure NFVIMON Admin Backup File exists
+  delegate_to: localhost
+  run_once: true
+  local_action:
+    module: copy
+    content: "{{ [] | to_yaml }}"
+    dest: "{{ backup_nfvimon_filename }}"
+    force: no
+
+- name: Uninstall | Read Backup Copy of NFVIMON Admin
+  delegate_to: localhost
+  run_once: true
+  shell: "cat {{ backup_nfvimon_filename }}"
+  register: backup_nfvimon_admin
+
+- name: Uninstall | Read List of Configured Linux Users
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    old_nfvimon_admin: "{{ backup_nfvimon_admin.stdout | from_yaml }}"
+
+- name: Uninstall | Delete Removed NFVIMON Linux Users From Mgmt node
+  delegate_to: localhost
+  run_once: true
+  user:
+    name: "{{ item }}"
+    state: absent
+    remove: yes
+    force: yes
+  with_items:
+    "{{ old_nfvimon_admin }}"
+
+- name: Uninstall | Delete Removed NFVIMON Linux Users From All Hosts
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  user:
+    name: "{{ item }}"
+    state: absent
+    remove: yes
+    force: yes
+  with_items:
+    "{{ old_nfvimon_admin }}"
+
+- name: Uninstall | Delete passwordless sudo privileges on All Hosts
+  become_user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  lineinfile:
+    dest: /etc/sudoers
+    line: "Defaults     !authenticate"
+    state: absent
+
+- name: Uninstall | Remove the NFVIMON Admin Backup file
+  file: path="{{ backup_nfvimon_filename }}" state=absent
+  delegate_to: localhost
+  run_once: True

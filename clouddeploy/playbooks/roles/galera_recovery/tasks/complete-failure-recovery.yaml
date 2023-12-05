@@ -1,0 +1,159 @@
+#############################################################################
+# Complete failure recovery (cluster non-functional)
+#
+# Resetting the quorum when the nodes no longer consider themselves part of
+# primary component
+#
+# Recovery steps are:
+# - make sure all the mariadb service are stopped
+# - start the recover process by bootstrapping all the mariadb-app containers
+#   with --wsrep-recover option
+# - check which node has the highest sequence number of the last committed
+#   transaction from the docker container logs
+#   (in the case, where it's not possible to determine which node has the
+#    highest seqno, the node chosen will be determined by the order it was
+#    created during the galera installation process)
+# - with the node chosen from previous step, force it to be the primary
+#   component for the new cluster by bootstrapping the mariadb-app container
+#   with --wsrep-new-cluster option
+# - start the chosen node and wait for it to come online and responding to
+#   SQL query with the cluster status of primary
+# - start the remaining nodes so it will join the new cluster and replicate
+#   the existing data from the chosen node
+#############################################################################
+- name: complete failure recovery | stop docker-mariadb service
+  service:
+    name: docker-mariadb
+    state: stopped
+  register: mariadb_stopped
+  until: not mariadb_stopped | changed
+  retries: 30
+  delay: 5
+  any_errors_fatal: true
+
+# Remove the gvwstate.dat file as it might be corrupted
+- name: Remove the gvwstate.dat file
+  file:
+    path: /var/lib/docker/volumes/mariadbdata/_data/gvwstate.dat
+    state: absent
+
+- name: complete failure recovery | create temporary .bootstrap_args file with --wsrep-recover option
+  copy:
+    content: "--wsrep-recover"
+    dest: "/tmp/.bootstrap_args"
+  any_errors_fatal: true
+
+# Check if InnoDB has any pending transactions
+- name: complete failure recovery | check if InnoDB has pending transaction count
+  shell: docker logs {{ cur_mariadb.stdout }} 2>&1 | grep -E '.*ERROR.*Found [0-9]+ prepared transaction.*tc-heuristic-recover' | tail -1
+  register: pending_tc
+  any_errors_fatal: true
+
+# Perform ROLLBACK on uncommitted transactions if pending tc is > 0.  The wsrep-recover
+# switch fails to start mariadb if any pending transactions cannot be applied from
+# the redo logs in case of InnoDB crash
+- name: complete failure recovery | if tc > 0 rollback transactions with --wsrep-recover option
+  copy:
+    content: "--tc-heuristic-recover=ROLLBACK --wsrep-recover"
+    dest: "/tmp/.bootstrap_args"
+  when: pending_tc is defined and pending_tc.stdout_lines | length > 0
+  any_errors_fatal: true
+
+- name: complete failure recovery | copy temporary .bootstrap_args file to mariadb-app container
+  shell: docker cp /tmp/.bootstrap_args {{ cur_mariadb.stdout }}:/var/lib/mysql/
+  any_errors_fatal: true
+
+- name: complete failure recovery | start the wsrep recover process
+  shell: docker restart {{ cur_mariadb.stdout }}
+  any_errors_fatal: true
+
+- name: complete failure recovery | pause for sometime before checking wsrep recover process
+  pause:
+    seconds: 5
+
+- name: complete failure recovery | wait for the wsrep recover process to complete
+  shell: docker ps -a | grep Up | grep mariadb-app | awk '{print $1}'
+  register: mariadb_running
+  until: mariadb_running.stdout == ""
+  retries: 30
+  delay: 5
+  any_errors_fatal: true
+
+- name: complete failure recovery | get sequence number from last recovered position
+  shell: docker logs {{ cur_mariadb.stdout }} 2>&1 | grep -oE 'Recovered position .*:[0-9/-]+' | tail -1 | awk -F ':' '{print $NF}'
+  register: seqno
+  failed_when: not seqno.stdout | int >= -1
+  any_errors_fatal: true
+
+# create a list of sequence number of all the nodes for comparison later
+- name: complete failure recovery | create seqno list
+  set_fact:
+    seqno_list: "[{% for host in groups['mariadb_all'] if hostvars[host].seqno.stdout %} {{ hostvars[host].seqno.stdout | int }}, {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+# find the host with the highest sequence number from the generated list above
+# in the case where one or more hosts having the same value, use the galera
+# install order for tie break (since jinja does not support for loop break,
+# workaround by creating a best_host_list and index the first item instead)
+- name: complete failure recovery | create best host list to apply force bootstrap
+  set_fact:
+    best_host_list: "[{% for host in groups['mariadb_all'] if hostvars[host].seqno.stdout and hostvars[host].seqno.stdout | int == seqno_list | max | int %} '{{ host }}', {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: complete failure recovery | create temporary .bootstrap_args file with --wsrep-new-cluster option
+  copy:
+    content: "--wsrep-new-cluster"
+    dest: "/tmp/.bootstrap_args"
+  when: best_host_list[0] == inventory_hostname
+  any_errors_fatal: true
+
+- name: complete failure recovery | copy temporary .bootstrap_args file to the first best host
+  shell: docker cp /tmp/.bootstrap_args {{ cur_mariadb.stdout }}:/var/lib/mysql/
+  register: set_force_bootstrap
+  when: best_host_list[0] == inventory_hostname
+  any_errors_fatal: true
+
+- name: complete failure recovery | reset the failure
+  shell: systemctl reset-failed docker-mariadb
+  when: set_force_bootstrap | changed
+
+- name: complete failure recovery | start docker-mariadb service with force bootstrap set to true
+  service:
+    name: docker-mariadb
+    state: started
+  register: started_status
+  until: not started_status | changed
+  retries: 5
+  delay: 2
+  when: set_force_bootstrap | changed
+  any_errors_fatal: true
+
+- name: complete failure recovery | pause for sometime for the service to be up
+  pause:
+    seconds: 30
+
+- name: complete failure recovery | mariadb-app service validation on forced bootstrap host
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_status"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: service_validation
+  until: service_validation.stdout == "Primary" and not service_validation.stderr | search("ERROR")
+  retries: 30
+  delay: 5
+  when: set_force_bootstrap | changed
+  any_errors_fatal: true
+
+- name: complete failure recovery | reset the failure
+  shell: systemctl reset-failed docker-mariadb
+  when: set_force_bootstrap | skipped
+
+- name: complete failure recovery | start remaining docker-mariadb service
+  service:
+    name: docker-mariadb
+    state: started
+  register: started_status
+  until: not started_status | changed
+  retries: 5
+  delay: 2
+  when: set_force_bootstrap | skipped

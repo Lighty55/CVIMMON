@@ -1,0 +1,36 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+  tags:
+    - host_setup
+
+- name: Getting sys uptime
+  hosts: localhost
+  tasks:
+    - name: Getting sys uptime
+      shell: /usr/bin/uptime
+      register: result
+
+    - name: Print result
+      debug:
+        msg: "Uptime = {{ result }}"
+
+- name: check CEPH MON for any down OSD
+  hosts: host_control_mgmt_ip{{server|default('')}}
+  tasks:
+    # Discover current active cephmon container through systemd instead of from
+    # docker.yaml file to workaround old image tag issue for system that have
+    # been updated but have not been commit yet.
+    - name: get current cephmon container
+      shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+      register: cur_cephmon
+      run_once: True
+      failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+      when: ROLES.block_storage is defined and ROLES.block_storage
+
+    - name: get a list of down OSD
+      shell: docker exec {{ cur_cephmon.stdout }} ceph osd dump | awk '/\s+{{ hostvars[item]["storage_ip"] }}:/ && match($1,/osd\.(.*)/,osd) && match($2,/down/) {print osd[1]}'
+      register: down_osd
+      run_once: True
+      with_items: "{{ groups['ceph_osd_all'] }}"
+      when: ROLES.block_storage is defined and ROLES.block_storage

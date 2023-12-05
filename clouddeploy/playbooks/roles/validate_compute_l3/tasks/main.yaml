@@ -1,0 +1,42 @@
+- name: Copy the ping script
+  copy:
+    src: "ping.py"
+    dest: "/tmp/ping.py"
+    mode: "0111"
+
+# This elimniates ping checks between compute nodes for now
+# Potential functional impact is missed opportunity for failure
+# detection during live-migration only
+- name: Pinging all the server Management IPs towards control and storage nodes
+  command: python /tmp/ping.py {{ groups['rabbitmq_mgmt_ip'] | join (' ') }} {{ groups['ceph_osd_all'] | join(' ') }}
+  register: ping_output
+
+- name: Checking for Packet loss
+  fail: msg="Following hosts failed {{ ping_output.stdout_lines }}"
+  when: ping_output.stdout != ""
+
+- name: Pinging all the server tenant IPs
+  command: python /tmp/ping.py {{ groups['host_power_all_compute_tenant_ips'] | join (" ") }}
+  when: TENANT_NETWORK_TYPES != "VLAN"
+  register: ping_output
+
+- name: Checking for Packet loss
+  fail: msg="Following hosts failed {{ ping_output.stdout_lines }}"
+  when: TENANT_NETWORK_TYPES != "VLAN" and ping_output.stdout != ""
+
+# This elimniates ping checks resolution between compute nodes for now
+# Potential functional impact is missed opportunity for failure
+# detection during live-migration only
+- name: Pinging all the server Management IPv6s towards control and storage nodes
+  command: python /tmp/ping.py {% for host in groups['rabbitmq_mgmt_ip'] if hostvars[host]['management_ipv6'] is defined %}{{ hostvars[host]['management_ipv6'] }} {% endfor %} {% for host in groups['ceph_osd_all'] if hostvars[host]['management_ipv6'] is defined %}{{ hostvars[host]['management_ipv6'] }} {% endfor %}
+  when: management_ipv6 is defined and management_ipv6 != ""
+  register: ping_output_v6
+
+- name: Checking for IPv6 Packet loss
+  fail: msg="Following hosts failed {{ ping_output_v6.stdout_lines }}"
+  when: ping_output_v6 is defined and ping_output_v6.stdout != ""
+
+- name: Remove the ping script
+  file:
+    path: /tmp/ping.py
+    state: absent

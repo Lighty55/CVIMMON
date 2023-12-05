@@ -1,0 +1,4 @@
+- name: Check reachability of Nodes
+  ignore_errors: true
+  local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "docker rm -f neutron_linuxbridge_agent_v1"
+  with_items: "{{ COMPUTE }}"

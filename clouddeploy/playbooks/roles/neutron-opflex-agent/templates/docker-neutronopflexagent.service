@@ -1,0 +1,16 @@
+[Unit]
+After=docker-agentovs.service
+Wants=docker-agentovs.service
+Before=docker-novacpu.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

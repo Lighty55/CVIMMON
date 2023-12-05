@@ -1,0 +1,118 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep etcd_{{ docker.etcd.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias etcd='in_container etcd_"
+    line: "{{ item }}"
+  with_items:
+    - alias etcd='in_container etcd_{{ docker.etcd.image_tag }}'
+
+- name: Create log directories
+  file:
+    path: /var/log/etcd
+    state: directory
+    group: 500
+    recurse: yes
+    owner: 2200
+
+- name: Create log directories
+  file:
+    path: /var/log/etcd
+    state: directory
+    group: 500
+    mode: 0770
+    owner: 2200
+
+- name: Check to see if this is a new member to join existing cluster
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ inventory_hostname }}:{{ ETCD_LISTEN_PORT }}/health"
+    return_content: yes
+    follow_redirects: all
+  register: member_health
+  failed_when: False
+
+- stat: path=/var/lib/docker/volumes/etcddata/_data
+  register: dir_check
+
+# If cluster is healthy, but this local member is not serving properly, some
+# recovery works are performed here. It happens when a controller is being
+# replaced.
+- block:
+  # (re-)add the member to the cluster.
+  - include: etcd_request.yaml
+    vars:
+      name: "Getting member list in the etcd cluster"
+      url: "members"
+      method: "GET"
+      return_content: yes
+
+  - name: "Generating member list"
+    set_fact:
+      etcd_cluster_members:
+        "{{ (result.results|selectattr('json', 'defined')|map(attribute='json')|list|unique)[0] }}"
+
+  # Do not use member.name because it might be empty if the node did not join cluster
+  # during previous attempt
+  - include: etcd_request.yaml
+    vars:
+      name: "Remove the dead member from the cluster"
+      url: "members/{{ item.id }}"
+      method: "DELETE"
+      status_code: [204]
+    when: "{{ INTERNAL_PROTOCOL + '://' + inventory_hostname + ':2380' in item.peerURLs }}"
+    with_items: "{{ etcd_cluster_members.members }}"
+
+  - name: Remove the etcd Data container
+    shell: docker volume rm etcddata
+    ignore_errors: true
+    failed_when: false
+
+  - include: etcd_request.yaml
+    vars:
+      name: "Add the current member back to the cluster"
+      url: "members"
+      method: "POST"
+      body:
+        peerURLs:
+          - "{{ INTERNAL_PROTOCOL }}://{{ inventory_hostname }}:2380"
+  when: "{{ ETCD_INITIAL_CLUSTER_STATE == 'existing' and member_health.status != 200 and not dir_check.stat.exists }}"
+
+- name: Start the etcd Docker Service.
+  docker_container:
+    name: "etcd_{{ docker.etcd.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.etcd.name }}:{{ docker.etcd.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.etcd.host_data_dir }}:{{ docker.etcd.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/etcd:/var/log/etcd:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      - etcddata:/var/lib/etcd
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == "" and (ACTION is undefined or (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "upgrade"))
+
+- name: Waiting for etcd service.
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ inventory_hostname }}:{{ ETCD_LISTEN_PORT }}/health"
+    return_content: yes
+  register: etcd_member_health
+  until: "{{ etcd_member_health.status == 200 and 'true' in etcd_member_health.content }}"
+  retries: 20
+  delay: 1
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-etcd
+  tags:
+    - reboot-on-failure

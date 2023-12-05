@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old memcached containers
+####################################################
+# Memcached.
+- name: Shut off memcached docker service
+  service:
+    name: docker-memcached
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove memcached service file
+  file:
+    path: "/usr/lib/systemd/system/docker-memcached.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove memcached docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "memcached_{{ MEMCACHED_PREVIOUS_TAG }}" }
+
+- name: Remove memcached docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ MEMCACHED_PREVIOUS_NAME }}"
+    tag: "{{ MEMCACHED_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove memcached Directory
+  file:
+    path: "{{ docker.memcached.host_data_dir }}"
+    state: absent

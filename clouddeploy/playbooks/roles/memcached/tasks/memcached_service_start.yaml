@@ -1,0 +1,40 @@
+- name: Check if Memcached Docker container is already running
+  shell: docker ps -a | grep Up | grep memcached_{{ docker.memcached.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias memcached='in_container memcached_"
+    line: "{{ item }}"
+  with_items:
+    - alias memcached='in_container memcached_{{ docker.memcached.image_tag }}'
+
+- name: Start the Memcached Docker Service
+  docker_container:
+    name: "memcached_{{ docker.memcached.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.memcached.name }}:{{ docker.memcached.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.memcached.host_data_dir }}:{{ docker.memcached.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/memcached:/var/log/memcached:z
+    ports: "11211:11211"
+    network_mode: "host"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: command_result.stdout == ""
+
+- name: Wait for memcached to be alive
+  wait_for: host={{ MEMCACHED_SERVICE_HOST }} port={{ MEMCACHED_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-memcached
+  tags:
+    - reboot-on-failure

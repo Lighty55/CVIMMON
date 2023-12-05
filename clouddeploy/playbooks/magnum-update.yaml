@@ -1,0 +1,17 @@
+- name: Magnum Conductor Update
+  hosts: magnum_conductor_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "magnum-conductor", tags: ["magnum_update", "magnum_upgrade", "magnum-conductor"] }
+  serial: "30%"
+
+- name: Magnum API Update
+  hosts: magnum_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "magnum-api", tags: ["magnum_update", "magnum_upgrade", "magnum-api"] }
+  serial: "30%"

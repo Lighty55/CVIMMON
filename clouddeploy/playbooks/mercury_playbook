@@ -1,0 +1,129 @@
+#!/bin/bash
+
+#####################################################################
+# Openstack Cisco VIM Installer - Ansible Orchestrator.
+# Simple wrapper for ansible-playbook.
+#
+# Usage: ./mercury_playbook openstack-install.yaml
+#
+# Why use mercury_playbook?
+# - Simplifies executing the playbook, by hiding the EXTRA_VARS
+# - Performs validations for user config files to avoid basic user errors.
+#
+#####################################################################
+CWD=$(pwd)
+PLAYBOOK_DIRNAME="playbooks"
+USERINPUT_DIRNAME="${HOME}/openstack-configs"
+USERSETUP_FILENAME="${USERINPUT_DIRNAME}/setup_data.yaml"
+DEFAULTS_FILENAME="${USERINPUT_DIRNAME}/defaults.yaml"
+SECRETS_FILENAME="${USERINPUT_DIRNAME}/secrets.yaml"
+SERVICECONFIG_FILENAME="${USERINPUT_DIRNAME}/docker.yaml"
+DEFAULT_SERVICECONFIG_FILENAME="system_configs/docker/docker.yaml"
+DEFAULT_LOGDIR="/var/log/mercury"
+OS_CONFIG_FILE="${USERINPUT_DIRNAME}/openstack_config.yaml"
+
+function fail_with_message () {
+    msg=$1
+    printf "ERROR: $msg\n"
+    exit 1
+}
+
+
+function check_logdir ()
+{
+    if [[ ! -d $DEFAULT_LOGDIR ]]; then
+        echo "Log Directory [${DEFAULT_LOGDIR}] does not exist. creating.."
+        mkdir ${DEFAULT_LOGDIR}
+    else
+        printf "%-20s %10s\n" "CHECK LOGDIR:" "OK"
+    fi
+}
+
+
+function get_root_directory ()
+{
+    lastdirname=$(dirname $CWD)
+    lastdirname=$(dirname $lastdirname)
+    lastdirname=$(dirname $lastdirname)
+    echo "$lastdirname"
+}
+
+
+function check_pathname () {
+    local cwd=$1
+    lastdirname=${cwd##*/}
+    if [[ $lastdirname == $PLAYBOOK_DIRNAME ]]; then
+        printf "%-20s %10s\n" "CHECK PLAYBOOK PATH:" "OK"
+    else
+        fail_with_message "Executing playbook from incorrect directory"
+    fi
+}
+
+function check_userconfig () {
+    if [[ -d $USERINPUT_DIRNAME ]]; then
+        printf "%-20s %10s [%s]\n" "CHECK USERDIR:" "OK" ${USERINPUT_DIRNAME}
+    else
+        fail_with_message "User director $USERINPUT_DIRNAME does not exist"
+    fi
+
+    if [[ ! -e $USERSETUP_FILENAME ]]; then
+        fail_with_message "Setup file $USERSETUP_FILENAME does not exist"
+    fi
+
+    if [[ ! -e $DEFAULTS_FILENAME ]]; then
+        fail_with_message "Defaults $DEFAULTS_FILENAME does not exist"
+    fi
+
+    if [[ ! -e $SECRETS_FILENAME ]]; then
+        fail_with_message "User secrets $SECRETS_FILENAME does not exist"
+    fi
+
+    if [[ ! -e $OS_CONFIG_FILE ]]; then
+        fail_with_message "Openstack config $OS_CONFIG_FILE does not exist"
+    fi
+}
+
+function get_serviceconfig_file() {
+    local cwd=$1
+    if [[ -e ${SERVICECONFIG_FILENAME} ]]; then
+        echo "${SERVICECONFIG_FILENAME}"
+    else
+        lastdirname=$(dirname $cwd)
+        lastdirname=$(dirname $lastdirname)
+        echo "$lastdirname/${DEFAULT_SERVICECONFIG_FILENAME}"
+    fi
+}
+
+# Argument is playbook name to run.
+PLAYBOOK_CMD=$*
+
+if [[ $# -lt 1 ]]; then
+    fail_with_message "Argument required: playbook name to run!"
+fi
+
+if [[ $1 == "openstack-uninstall.yaml" ]]; then
+    printf "\n\n"
+    if [[ ! -z ${MERCURY_FORCE_CLEAN}  ]]; then
+        echo "You are uninstalling openstack from the setup."
+    else
+        read -p "You are about to uninstall openstack from the setup. To continue press (y)"
+        if [[ ! $REPLY =~ ^[Yy]$ ]];then
+            exit 1
+        fi
+    fi
+fi
+
+cwd=$(pwd)
+check_pathname $cwd
+check_userconfig
+check_logdir
+echo
+svc_cfg_file=$(get_serviceconfig_file ${cwd})
+
+echo "CMD: ansible-playbook -e @$USERSETUP_FILENAME -e @$SECRETS_FILENAME -e @$DEFAULTS_FILENAME -e @$OS_CONFIG_FILE -e @${svc_cfg_file}  $PLAYBOOK_CMD"
+
+# Run Ansible Playbook
+ansible-playbook -e @$USERSETUP_FILENAME -e @$DEFAULTS_FILENAME -e @$SECRETS_FILENAME\
+    -e @$OS_CONFIG_FILE -e @${svc_cfg_file}  $PLAYBOOK_CMD
+
+

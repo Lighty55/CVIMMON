@@ -1,0 +1,67 @@
+- name: Create etcd Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.etcd.host_data_dir }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-etcd.service",
+        dest: "/usr/lib/systemd/system/docker-etcd.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: "Get health state of etcd cluster"
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ item }}:{{ ETCD_LISTEN_PORT }}/health"
+    timeout: 5
+    follow_redirects: all
+    return_content: yes
+  with_items: "{{ groups['etcd_all'] }}"
+  failed_when: no
+  register: etcd_health
+
+- name: "Get all status"
+  set_fact:
+    all_status: "{{ etcd_health.results|map(attribute='status')|list }}"
+
+# Set initial-cluster-state='existing' for all (even for running) nodes if cluster exists. Running nodes
+# gets info from data-dir and ignores initial-cluster-state flag.
+# https://github.com/coreos/etcd/issues/2179
+- name: Set etcd member facts.
+  set_fact:
+    # If cluster is up running, set the initial cluster state to "existing"
+    ETCD_INITIAL_CLUSTER_STATE: "{{ 'existing' if all_status|unique|intersect([200])|length == 1 else 'new' }}"
+    ETCD_INITIAL_CLUSTER_TOKEN: "{{ lookup('file', '/etc/machine-id') | hash('md5') }}"
+    ETCD_CONFIG_PATH: "{{ docker.etcd.host_data_dir }}/etcd_config"
+
+- name: Read current etcd_config if it exists
+  shell: "if [ -f {{ ETCD_CONFIG_PATH }} ]; then cat {{ ETCD_CONFIG_PATH }}; else echo ''; fi"
+  register: etcd_config
+
+- name: Load current etcd_config
+  set_fact:
+    etcd_config: "{{ etcd_config.stdout | from_yaml }}"
+
+- name: Copy etcd Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "etcd_config.j2",
+        dest: "{{ ETCD_CONFIG_PATH }}" }

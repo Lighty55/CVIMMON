@@ -1,0 +1,50 @@
+- name: Add Grafana Url endpoint to /etc/hosts if not present
+  lineinfile:
+     dest: /etc/hosts
+     regexp: '.*{{ ingress_host_grafana }}$'
+     line: "{{ external_loadbalancer_ip }} {{ ingress_host_grafana }}"
+     state: present
+
+- name: "CVIMMON-->Fetch Grafana Password"
+  shell: "cat {{ password_file_path }} | grep Grafana-Password-{{ clustermon_namespace }} | awk -F ':' '{print $NF}' | awk '{$1=$1};1'"
+  register: grafana_password
+
+- name: "Wait for dashboard to come up"
+  uri:
+    url: 'https://{{ ingress_host_grafana }}'
+    return_content: yes
+    validate_certs: no
+    url_username: admin
+    url_password: "{{ grafana_password.stdout }}"
+    force_basic_auth: yes
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 300
+  delay: 1
+
+- name: Get the dashboard id of the cluster overview dashboard
+  uri:
+    url: 'https://{{ ingress_host_grafana }}/api/search?query=Cluster%20Health%20Overview'
+    return_content: yes
+    validate_certs: no
+    url_username: admin
+    url_password: "{{ grafana_password.stdout }}"
+    force_basic_auth: yes
+  ignore_errors: yes
+  failed_when: false
+  register: grafanadashboard
+
+- name: Set default dashboard
+  uri:
+    url: "https://{{ ingress_host_grafana }}/api/org/preferences"
+    method: PUT
+    body: '{"homeDashboardId": {{ grafanadashboard.json[0].id | int }}}'
+    body_format: json
+    validate_certs: no
+    url_username: admin
+    url_password: "{{ grafana_password.stdout }}"
+    force_basic_auth: yes
+  ignore_errors: yes
+  failed_when: false
+  when: grafanadashboard is defined and grafanadashboard.status == 200 and (grafanadashboard.json|length > 0)

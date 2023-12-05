@@ -1,0 +1,16 @@
+- name: upgrade kubeadm
+  yum:
+    name: kubeadm-{{kubeadm_version}}
+    state: present
+
+- name: pip install pexpect
+  pip:
+    name: pexpect
+
+- name: Run kubeadm upgrade
+  expect:
+    command: kubeadm upgrade apply {{upgrade_version}}
+    echo: yes
+    timeout: 250
+    responses:
+      upgrade?: "y"

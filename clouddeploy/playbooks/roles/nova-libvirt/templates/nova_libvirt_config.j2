@@ -1,0 +1,27 @@
+LIBVIRT_START_SCRIPT_PATH: {{ docker.nova_libvirt.host_data_dir }}
+SECRET_UUID: {{ SECRET_UUID }}
+CEPH_CINDER_USER: {{ CEPH_CINDER_USER }}
+PUBLIC_PROTOCOL: {{ PUBLIC_PROTOCOL }}
+INTERNAL_PROTOCOL: {{ INTERNAL_PROTOCOL }}
+LIBVIRTD_KEEPALIVE_INTERVAL: {{ LIBVIRTD_KEEPALIVE_INTERVAL }}
+LIBVIRTD_KEEPALIVE_COUNT: {{ LIBVIRTD_KEEPALIVE_COUNT }}
+NOVA_HOST: {{ NOVA_HOST }}
+HOSTCPUS: "{{ hostcpus }}"
+LIBVIRTCPUS: "{{ libvirtcpus }}"
+IS_NFV_HOST: "{{ is_nfv_host }}"
+MAX_WORKERS: {{ MAX_WORKERS }}
+MECHANISM_DRIVERS: {{ MECHANISM_DRIVERS }}
+{% if NETAPP is defined %}
+ENABLE_NETAPP: True
+{% endif %}
+{% if ZADARA is defined %}
+ENABLE_ZADARA: True
+{% endif %}
+{% if vm_hugepage_size is defined %}
+VM_HUGEPAGE_SIZE: {{ vm_hugepage_size }}
+{% endif %}
+{% if 'seccomp_sandbox' in SERVERS[ansible_nodename] %}
+seccomp_sandbox: {{ SERVERS[ansible_nodename]['seccomp_sandbox'] }}
+{% else %}
+seccomp_sandbox: {{ seccomp_sandbox }}
+{% endif %}

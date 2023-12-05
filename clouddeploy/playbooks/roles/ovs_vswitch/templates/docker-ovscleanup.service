@@ -1,0 +1,18 @@
+[Unit]
+Description=Neutron OVS Cleanup Service
+After=docker-ovs_vswitch.service
+Before=docker-neutron_ovsagent.service
+
+[Service]
+Restart=always
+RestartSec=5
+StartLimitInterval=10m
+StartLimitBurst=10
+KillMode=none
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl --if-exists del-br br-int
+ExecStartPre=/usr/bin/docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl --if-exists del-br br-inst
+ExecStart=/usr/bin/docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl --if-exists del-br br-prov
+
+[Install]
+WantedBy=multi-user.target

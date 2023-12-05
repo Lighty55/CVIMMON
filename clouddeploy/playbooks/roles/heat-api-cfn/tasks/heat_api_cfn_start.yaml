@@ -1,0 +1,39 @@
+- name: Check if Heat API CFN is already running
+  shell: docker ps -a | grep Up | grep heatapicfn_{{ docker.heat_api_cfn.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias heatapicfn='in_container heatapicfn_"
+    line: "{{ item }}"
+  with_items:
+    - alias heatapicfn='in_container heatapicfn_{{ docker.heat_api_cfn.image_tag }}'
+
+- name: Start the Heat API CFN Docker
+  docker_container:
+    name: "heatapicfn_{{ docker.heat_api_cfn.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.heat_api_cfn.name }}:{{ docker.heat_api_cfn.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.heat_api_cfn.host_data_dir }}:{{ docker.heat_api_cfn.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/heat:/var/log/heat:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Wait for Heat API CFN to be alive
+  wait_for: host={{ HEAT_HOST }} port={{ HEAT_API_CFN_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-heatapicfn
+  tags:
+    - reboot-on-failure

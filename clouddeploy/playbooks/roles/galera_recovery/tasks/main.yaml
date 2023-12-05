@@ -1,0 +1,209 @@
+###############################################################################
+# Galera cluster failure recovery ansible role
+#
+# Please refer to the following links for more info on the recovery procedures
+# and how to monitor the cluster status:
+# - http://galeracluster.com/documentation-webpages/quorumreset.html
+# - http://galeracluster.com/documentation-webpages/monitoringthecluster.html
+###############################################################################
+
+###############################################################################
+# Before starting the recovery, check to determine type of recovery is needed
+# by running SQL query for the cluster status and cluster size.
+###############################################################################
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: get wsrep cluster status
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_status"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_status
+  tags:
+    - determine-failure
+
+- name: get wsrep ready
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_ready"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: ready
+  tags:
+    - determine-failure
+
+- name: get wsrep cluster size
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_size"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_size
+  tags:
+    - determine-failure
+
+- name: create wsrep cluster status list, wsrep ready list, and wsrep cluster size list
+  set_fact:
+    cluster_status_list: "[{% for host in groups['mariadb_all'] if hostvars[host].cluster_status.stdout %} '{{ hostvars[host].cluster_status.stdout }}', {% endfor %}]"
+    ready_list: "[{% for host in groups['mariadb_all'] if hostvars[host].ready.stdout %} '{{ hostvars[host].ready.stdout }}', {% endfor %}]"
+    cluster_size_list: "[{% for host in groups['mariadb_all'] if hostvars[host].cluster_size.stdout %} {{ hostvars[host].cluster_size.stdout | int }}, {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+  tags:
+    - determine-failure
+
+###############################################################################
+# Complete failure recovery (resetting the quorum) is needed if:
+# - all nodes are down
+#   (all SQL queries returned ERROR which most likely indicate all containers
+#    either exited or mariadb process hung)
+# or
+# - none of the running nodes are primary
+#   (rare situation where there was some kind of networking issue where nodes
+#    lost connectivity between each or other and was later restored but they
+#    could not determine who should be the primary component)
+# or
+# - none of the running nodes are queries ready (rare situation)
+###############################################################################
+- name: determine if complete failure recovery is needed
+  set_fact:
+    complete_recovery_needed: "yes"
+  when: cluster_status_list | length == 0 or
+        (cluster_status_list | unique | length == 1 and cluster_status_list[0] != "Primary") or
+        (ready_list | unique | length == 1 and ready_list[0] != "ON")
+  run_once: true
+  delegate_to: 127.0.0.1
+  tags:
+    - determine-failure
+
+###############################################################################
+# Partial failure recovery is needed if:
+# - complete failure recovery is not needed
+# and
+# (- cluster size is between 1 and total number of nodes
+#    (galera cluster is partially working where at least one or more nodes is
+#     responding to SQL query and is part of the cluster/primary component)
+#  or
+#  - any node not queries ready)
+###############################################################################
+- name: determine if partial failure recovery is needed
+  set_fact:
+    partial_recovery_needed: "yes"
+  when: complete_recovery_needed is not defined and
+        ((cluster_size_list | length < groups['mariadb_all'] | length or cluster_size_list | max | int > 0 and cluster_size_list | max | int < groups['mariadb_all'] | length) or
+         (ready_list | length < groups['mariadb_all'] | length or ready_list | unique | length != 1 or ready_list[0] != "ON"))
+  run_once: true
+  delegate_to: 127.0.0.1
+  tags:
+    - determine-failure
+
+###############################################################################
+# Discover current active mariadb container through systemd instead of from
+# docker.yaml file to workaround old image tag issue for system that have been
+# updated but have not been commit yet.
+###############################################################################
+- name: get current mariadb container
+  shell: systemctl cat docker-mariadb | awk '/ExecStart=.*docker.* start / {print $NF}'
+  register: cur_mariadb
+  failed_when: cur_mariadb.rc != 0 or cur_mariadb.stdout == ""
+  tags:
+    - determine-failure
+
+###############################################################################
+# Invoke the appropriate failure recovery needed from the result above.
+###############################################################################
+# partial failure recovery
+- include: partial-failure-recovery.yaml
+  when: complete_recovery_needed is not defined and partial_recovery_needed is defined
+  tags:
+    - partial-failure-recovery
+
+- name: pause for sometime after partial failure recovery
+  pause:
+    seconds: 30
+  when: complete_recovery_needed is not defined and partial_recovery_needed is defined
+  tags:
+    - partial-failure-recovery
+
+- name: mariadb-app service validation after partial failure recovery
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_status"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: service_validation
+  until: service_validation.stdout == "Primary" and not service_validation.stderr | search("ERROR")
+  retries: 360
+  delay: 5
+  ignore_errors: true
+  failed_when: false
+  when: complete_recovery_needed is not defined and partial_recovery_needed is defined
+  tags:
+    - partial-failure-recovery
+
+# NOTE: Potential false negative can occur if the DB size have grow so large
+#       that it could take longer than 30 minutes to complete the sync and
+#       cause unnecessary triggering of complete failure recovery.
+- name: determine if partial failure recovery was successful
+  set_fact:
+    partial_recovery_status_list: "[ {% for host in groups['mariadb_all'] %}{% if hostvars[host].service_validation | failed %}'failed',{% endif %}{% endfor %} ]"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: complete_recovery_needed is not defined and partial_recovery_needed is defined
+  tags:
+    - partial-failure-recovery
+
+- name: set to trigger complete failure recovery if partial failure recovery was not successful
+  set_fact:
+    complete_recovery_needed: "yes"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: partial_recovery_status_list is defined and partial_recovery_status_list | list | length > 0
+  tags:
+    - partial-failure-recovery
+
+# complete failure recovery
+- include: complete-failure-recovery.yaml
+  when: complete_recovery_needed is defined
+  tags:
+    - complete-failure-recovery
+
+- name: pause for sometime after complete failure recovery
+  pause:
+    seconds: 30
+  when: complete_recovery_needed is defined
+  tags:
+    - complete-failure-recovery
+
+# NOTE: Max 30 minutes wait time for DB sync to complete or recovery is aborted
+- name: mariadb-app service validation after complete failure recovery
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_status"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: service_validation
+  until: service_validation.stdout == "Primary" and not service_validation.stderr | search("ERROR")
+  retries: 360
+  delay: 5
+  when: complete_recovery_needed is defined
+  any_errors_fatal: true
+  tags:
+    - complete-failure-recovery
+
+###############################################################################
+# Monitor the galera cluster after recovery have been performed to make sure
+# it was successful.
+###############################################################################
+- include: cluster-integrity.yaml
+  tags:
+    - monitor-cluster-status
+    - cluster-integrity
+
+- include: node-status.yaml
+  tags:
+    - monitor-cluster-status
+    - node-status
+
+# NOTE: To avoid confusion and false negative, disable the replication health
+#       check since the values used were not thoroughly tested to reflect real
+#       deployment setup.
+#- include: replication-health.yaml
+#  tags:
+#    - monitor-cluster-status
+#    - replication-health
+- name: Restart cloudpulse when either a complete or partial recovery was done
+  service:
+    name: docker-cloudpulse
+    state: restarted
+  when: complete_recovery_needed is defined or partial_recovery_needed is defined

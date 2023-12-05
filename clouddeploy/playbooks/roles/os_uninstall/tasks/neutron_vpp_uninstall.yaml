@@ -1,0 +1,467 @@
+# Neutron dhcp agent.
+- name: Shut off neutron dhcp agent docker service
+  service:
+    name: docker-neutrondhcp
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove neutron dhcp agent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutrondhcp.service"
+    state: absent
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Stop and remove dhcp agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_dhcp_agent_{{ docker.neutron_dhcp_agent.image_tag}}" }
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove neutron dhcp docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_dhcp_agent.name }}"
+    tag: "{{ docker.neutron_dhcp_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove Neutron DHCP Agent Directory
+  file:
+    path: "{{ docker.neutron_dhcp_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Cleanup bridge br-ex
+  command: brctl delbr br-ex
+  ignore_errors: True
+
+# Neutron l3 agent.
+- name: Shut off neutron l3 agent docker service
+  service:
+    name: docker-neutronl3
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronl3_uninstall
+
+- name: Remove neutron l3 agent  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronl3.service"
+    state: absent
+  tags:
+    - neutronl3_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronl3_uninstall
+
+- name: Stop and remove neutron l3 agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag}}" }
+  tags:
+    - neutronl3_uninstall
+
+- name: Remove neutron l3 agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_l3_agent.name }}"
+    tag: "{{ docker.neutron_l3_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronl3_uninstall
+
+- name: Remove L3 Agent Directory
+  file:
+    path: "{{ docker.neutron_l3_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronl3_uninstall
+
+# Neutron VPP agent.
+- name: Shut off neutron VPP agent docker service
+  service:
+    name: docker-neutron_vpp
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Remove neutron vpp agent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_vpp.service"
+    state: absent
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Stop and remove neutron remove vpp agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "",
+        name: "neutron_vpp_{{ docker.neutron_vpp.image_tag}}" }
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Remove neutron vpp agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_vpp.name }}"
+    tag: "{{ docker.neutron_vpp.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Remove vpp Agent Directory
+  file:
+    path: "{{ docker.neutron_vpp.host_data_dir }}"
+    state: absent
+  tags:
+    - neutron_vpp_uninstall
+
+- name: Restore tenant interfaces including the member links and the bond interface
+  command: "ifup {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - t0
+    - t1
+    - t
+  tags:
+    - neutron_vpp_uninstall
+  when: '"compute" in server_role or "control" in server_role'
+
+# Neutron metadata agent.
+- name: Shut off neutron metadata agent docker service
+  service:
+    name: docker-neutronmeta
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronmetadata_uninstall
+
+- name: Remove neutron metadata agent  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronmeta.service"
+    state: absent
+  tags:
+    - neutronmetadata_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronmetadata_uninstall
+
+- name: Stop and remove neutron metadata agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "",
+        name: "neutron_metadata_agent_{{ docker.neutron_metadata_agent.image_tag }}" }
+  tags:
+    - neutronmetadata_uninstall
+
+- name: Remove neutron metadata agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_metadata_agent.name }}"
+    tag: "{{ docker.neutron_metadata_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronmetadata_uninstall
+
+- name: Remove Metadata Agent Directory
+  file:
+    path: "{{ docker.neutron_metadata_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronmetadata_uninstall
+
+# Neutron server
+- name: Shut off neutron server docker service
+  service:
+    name: docker-neutronsrv
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove neutron server  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronsrv.service"
+    state: absent
+  tags:
+    - neutronserver_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove neutron bootstrap container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_server_bootstrap_{{ docker.neutron_server.image_tag }}" }
+
+- name: Stop and remove neutron server docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_server_{{ docker.neutron_server.image_tag }}" }
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove neutron server docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_server.name }}"
+    tag: "{{ docker.neutron_server.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove Neutron Server Directory
+  file:
+    path: "{{ docker.neutron_server.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronserver_uninstall
+
+# Neutron common.
+- name: Shut off neutron common docker service
+  service:
+    name: docker-neutroncommon
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutroncommon_uninstall
+
+- name: Stop and remove neutron common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_common_{{ docker.neutron_common.image_tag }}" }
+  tags:
+    - neutroncommon_uninstall
+
+- name: Remove neutron common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_common.name }}"
+    tag: "{{ docker.neutron_common.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutroncommon_uninstall
+
+- name: Remove Neutron common Directory
+  file:
+    path: "{{ docker.neutron_common.host_data_dir }}"
+    state: absent
+  tags:
+    - neutroncommon_uninstall
+
+- include: etcd_uninstall.yaml
+
+# Neutron sriov agent.
+- name: Shut off neutron sriovagent docker service
+  service:
+    name: docker-neutron_sriov
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutron_sriov_uninstall
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Remove neutron sriov agent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_sriov.service"
+    state: absent
+  tags:
+    - neutron_sriov_uninstall
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Remove sriov service file
+  file:
+    path: "/usr/lib/systemd/system/sriov.service"
+    state: absent
+  tags:
+    - neutron_sriov_uninstall
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutron_sriov_uninstall
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Stop and remove neutron sriov agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_sriov_{{ docker.neutron_sriov.image_tag}}" }
+  tags:
+    - neutron_sriov_uninstall
+  ignore_errors: true
+  failed_when: false
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Remove neutron sriov agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_sriov.name }}"
+    tag: "{{ docker.neutron_sriov.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutron_sriov_uninstall
+  ignore_errors: true
+  failed_when: false
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Remove sriov directory
+  file:
+    path: "{{ docker.neutron_sriov.host_data_dir }}"
+    state: absent
+  tags:
+    - neutron_sriov_uninstall
+  when: intel_sriov is defined and intel_sriov == true
+
+# Neutron ncs agent.
+- name: Shut off neutron ncs agent docker service
+  service:
+    name: docker-neutron_ncsagent
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutron_ncs_agent_uninstall
+  when: 'NETWORK_OPTIONS is defined and "l3vpn" in NETWORK_OPTIONS'
+
+- name: Stop and remove neutron ncs agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_ncsagent_{{ docker.neutron_ncs_agent.image_tag }}" }
+  tags:
+    - neutron_ncs_agent_uninstall
+  ignore_errors: true
+  failed_when: false
+  when: 'NETWORK_OPTIONS is defined and "l3vpn" in NETWORK_OPTIONS'
+
+- name: Remove neutron ncs agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_ncs_agent.name }}"
+    tag: "{{ docker.neutron_ncs_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutron_ncs_agent_uninstall
+  ignore_errors: true
+  failed_when: false
+  when: 'NETWORK_OPTIONS is defined and "l3vpn" in NETWORK_OPTIONS'
+
+- name: Remove Neutron ncs agent Directory
+  file:
+    path: "{{ docker.neutron_ncs_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutron_ncs_agent_uninstall
+  when: 'NETWORK_OPTIONS is defined and "l3vpn" in NETWORK_OPTIONS'
+
+- name: Remove neutron lbaas
+  include: neutron_lbaas_uninstall.yaml
+  when: OPTIONAL_SERVICE_LIST is defined and 'lbaas' in OPTIONAL_SERVICE_LIST
+
+- name: Remove udev rules allocate sriov vfs file
+  file:
+    path: /etc/udev/rules.d/75-allocate-sriov-vfs.rules
+    state: absent
+  ignore_errors: True
+  when: '"compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+- name: Reload udev rules with allocate sriov vfs file removed
+  shell: udevadm control --reload-rules
+  ignore_errors: True
+  when: '"compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+- name: Get a list of SRIOV interfaces
+  shell: ls /sys/class/net/{{ SRIOV_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: sriov_intfs
+  ignore_errors: True
+  when: '"compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+- name: Clean the VFs on the SRIOV interfaces
+  shell: echo 0 > {{ item }}
+  ignore_errors: True
+  with_items: "{{ sriov_intfs.stdout_lines }}"
+  when: 'sriov_intfs.stdout_lines | length > 0 and "compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+- name: Get a list of FPGA interfaces
+  shell: ls /sys/class/net/{{ FPGA_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: fpga_intfs
+  ignore_errors: True
+  when: '"compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+- name: Clean the VFs on the FPGA interfaces
+  shell: echo 0 > {{ item }}
+  ignore_errors: True
+  with_items: "{{ fpga_intfs.stdout_lines }}"
+  when: 'fpga_intfs.stdout_lines | length > 0 and "compute" in server_role and intel_sriov is defined and intel_sriov == true'
+
+# Remove the neutron volume
+- name: Remove the neutron volume
+  shell: docker volume rm neutron
+  ignore_errors: true
+  failed_when: false

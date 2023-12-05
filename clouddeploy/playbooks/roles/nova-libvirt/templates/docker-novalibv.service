@@ -1,0 +1,21 @@
+[Unit]
+Description=Nova Libvirt Docker
+Requires=machine.slice
+After=docker-iptables.service
+Wants=docker.service
+{% if MECHANISM_DRIVERS == "openvswitch" %}
+Requires=docker-neutron_ovsagent.service
+After=docker-neutron_ovsagent.service
+{% endif %}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=10
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a novalibvirt_{{ docker.nova_libvirt.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 novalibvirt_{{ docker.nova_libvirt.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

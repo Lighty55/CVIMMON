@@ -1,0 +1,21 @@
+##############################################################
+# The Runner config file.
+##############################################################
+
+[STAGE_VALIDATION]
+id = 1
+module = "bootstrap_infra.orchestrator"
+
+[STAGE_CLEANUP]
+id = 2
+module = "kubernetes_provisioner.orchestrator"
+tags = "delete_worker"
+
+[STAGE_ARGUS_BAREMETAL]
+id = 3
+module = "argus.baremetal.orchestrator"
+
+[STAGE_GENERATE_INVENTORY]
+id = 4
+module = "bootstrap_infra.orchestrator"
+tags = "generate-inventory"

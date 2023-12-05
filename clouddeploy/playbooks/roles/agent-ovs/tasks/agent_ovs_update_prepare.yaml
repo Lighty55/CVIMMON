@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create agent ovs Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}
+
+# Back up the agent ovs volume
+- name: back up the agent ovs volume
+  shell: cp /docker/agent_ovs/* /docker/agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the agent ovs systemd file
+  command: cp /usr/lib/systemd/system/docker-agentovs.service /docker/agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}/docker-agentovs.service
+
+#####################################################
+# Shut down the old agent ovs containers
+####################################################
+- name: Shut off agent ovs docker service
+  service:
+    name: docker-agentovs
+    enabled: no
+    state: stopped
+
+- name: Remove agent ovs service file
+  file:
+    path: "/usr/lib/systemd/system/docker-agentovs.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of agent ovs volume
+- name: List the contents of agent ovs volume
+  shell: ls -A1 /docker/agent_ovs/
+  register: contents
+
+- name: Remove the contents of agent ovs volume
+  file:
+    path: /docker/agent_ovs/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

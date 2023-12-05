@@ -1,0 +1,108 @@
+---
+- name: "Check for existing etcd Certificates"
+  stat:
+   path: "/etc/kubernetes/pki/etcd/{{item}}"
+  register: cert_stats
+  with_items:
+  - ["ca.pem", "peer.pem", "client.pem", "server-key.pem", "client-key.pem"]
+
+- name: Generate etcd certs for each master node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl print-defaults csr > config.json
+  args:
+    executable: /bin/bash
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'CN/{s/example\.net'
+    replace: "{{ inventory_hostname }}"
+    backup: no
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'www\.example\.net'
+    replace: "{{ hostvars[inventory_hostname]['ansible_usehost'] }}"
+    backup: no
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'example\.net'
+    replace: "{{ inventory_hostname }}"
+    backup: no
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- name: Generate etcd peer certs for each master node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server config.json | /usr/bin/cfssljson -bare server
+  args:
+    executable: /bin/bash
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- name: Generate etcd server certs for each master node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer config.json | /usr/bin/cfssljson -bare peer
+  args:
+    executable: /bin/bash
+  when: not item.stat.exists
+  with_items: "{{ cert_stats.results }}"
+
+- name: install specific version of ETCD from Yum
+  yum:
+    name: etcd-{{ etcd_version }}
+    state: present
+
+- name: Configure | Check if etcd cluster is healthy before installing Keepalived
+  shell: "/usr/bin/etcdctl --ca-file /etc/kubernetes/pki/etcd/ca.pem --cert-file /etc/kubernetes/pki/etcd/client.pem --key-file /etc/kubernetes/pki/etcd/client-key.pem --peers https://{{ ansible_br_mgmt.ipv4.address }}:2379 cluster-health | grep -q 'cluster is healthy'"
+  register: etcd_cluster_status
+  ignore_errors: true
+  failed_when: false
+
+- name: stop etcd
+  systemd:
+    name: etcd
+    daemon_reload: yes
+    state: stopped
+  when: etcd_cluster_status.rc != 0
+
+- name: Delete etcd default configuration file
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /usr/lib/systemd/system/etcd.service
+    - /etc/etcd/etcd.conf
+  when: etcd_cluster_status.rc != 0
+
+- name: Copy etcd config file
+  template:
+    src: etcd.service
+    dest: /usr/lib/systemd/system/etcd.service
+  when: etcd_cluster_status.rc != 0
+
+- name: Copy etcd.env config file
+  template:
+    src: etcd.env
+    dest: /etc/etcd.env
+  when: etcd_cluster_status.rc != 0
+
+- name: start and enable etcd
+  systemd:
+    name: etcd
+    enabled: yes
+    daemon_reload: yes
+    state: started
+
+- name: SELinux Label etcd directories
+  shell: |
+    for i in {/var/lib/etcd,/etc/kubernetes/pki,/etc/kubernetes/pki/etcd,/etc/cni/net.d}; do mkdir -p $i && chcon -Rt svirt_sandbox_file_t $i; done

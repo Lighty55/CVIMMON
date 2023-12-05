@@ -1,0 +1,66 @@
+---
+
+#Global Prometheus TIme Intervals
+## How frequently to scrape targets by default
+prometheus_scrape_interval: 1m
+## How long until a scrape request times out
+prometheus_scrape_timeout: 10s
+## How frequently to evaluate rules
+prometheus_evaluation_interval: 15s
+
+#Helm Directory Information
+helm_parent_directory: "application-charts"
+prometheus_app_directory: "prometheus"
+prometheus_deployment_name: "prometheus"
+conf_bin_path: "/opt/cisco/cvimmon-metros"
+prometheus_values_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}"
+prometheus_helm_upgrade_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus"
+prometheus_metro_values_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/prometheus-values.yaml"
+
+#Prometheus Alertmanager Ingress
+ingress_class_alertmanager: "nginx"
+ingress_cert_alertmanager: "{{ metro_name }}/cvimmon-alertmanager-{{ metro_name }}"
+ingress_secret_alertmanager: "cvimmon-alertmanager-{{ metro_name }}"
+ingress_authsecret_alertmanager: "prometheus-auth-{{ metro_name}}"
+ingress_host_alertmanager: "cvimmon-alertmanager-{{ metro_name }}.{{ cvimmon_domain_suffix }}"
+
+#Prometheus Server Ingress
+ingress_class_server: "nginx"
+ingress_cert_server: "{{ metro_name }}/cvimmon-prometheus-{{ metro_name }}"
+ingress_secret_server: "cvimmon-prometheus-{{ metro_name }}"
+ingress_authsecret_server: "prometheus-auth-{{ metro_name}}"
+ingress_host_server: "cvimmon-prometheus-{{ metro_name }}.{{ cvimmon_domain_suffix }}"
+
+#Prometheus Certificates
+stackcert_pemfile: "{{ stack_ca_cert | default('') }}"
+domaincert_pemfile: "{{ cvimmon_domain_ca_cert | default('') }}"
+
+#Access Modes for Alertmanager and Server
+alertmanager_pv_accessmode: ReadWriteMany
+server_pv_accessmode: ReadWriteOnce
+
+#Prometheus Server and Alertmanaget PV Sizes
+alertmanager_pv_size: 50Gi
+#server_pv_size: 50Gi
+
+#Prometheus Server and Alertmanager Storage Class
+alertmanager_storage_class: portworx-sc
+server_storage_class: portworx-sc
+
+
+##Certificate Specific
+validity_days: 365
+bits: 2048
+
+##Temporary Cert File Paths
+cvimmon_key_out_path: /tmp/cvimmon.key
+cvimmon_cert_out_path: /tmp/cvimmon.crt
+cvimmon_alertmgr_key_out_path: /tmp/cvimmon_alertmgr.key
+cvimmon_alertmgr_cert_out_path: /tmp/cvimmon_alertmgr.crt
+
+##Passwords File Path
+password_file_path: /root/openstack-configs/secrets.yaml
+
+##CPU & MEM reservation for Prometheus
+PROM_MIN_CORES: 6
+PROM_MIN_RAM: 32

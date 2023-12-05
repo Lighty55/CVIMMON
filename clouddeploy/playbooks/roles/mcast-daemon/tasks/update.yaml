@@ -1,0 +1,9 @@
+- include: mcast_daemon_update_prepare.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: mcast_daemon_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: mcast_daemon_start.yaml
+  when: MECHANISM_DRIVERS == "aci"
+

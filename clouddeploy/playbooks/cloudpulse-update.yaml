@@ -1,0 +1,16 @@
+- name: Cloudpulse container update
+  hosts: cloudpulse_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse", tags: [ "cloudpulse" ] }
+  serial: "30%"
+
+- name: Cloudpulse populate
+  hosts: cloudpulse_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse-populate", tags: [ "cloudpulse" ] }

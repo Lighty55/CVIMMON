@@ -1,0 +1,6 @@
+- include: update_prepare.yaml
+  when: INTEL_SRIOV is defined and INTEL_SRIOV == true and ACTION is defined and ACTION == "update"
+
+- include: neutron_sriov_install.yaml
+  when: INTEL_SRIOV is defined and INTEL_SRIOV == true and ACTION is defined and ACTION == "update"
+

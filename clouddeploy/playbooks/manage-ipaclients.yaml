@@ -1,0 +1,38 @@
+# This playbook is mainly called from tooling
+# perspective.  Currently, only the un-enroll
+# option is called from unbootstrap.sh
+- name: Check reachable hosts before IPA Client unenrollment
+  hosts: "{{ target_hosts|default('') }}"
+  gather_facts: no
+  tasks:
+    - command: ping -c1 {{ inventory_hostname }}
+      delegate_to: localhost
+      register: ping_result
+      ignore_errors: True
+      no_log: True
+      failed_when: False
+    - group_by: key=reachable
+      when: ping_result is defined and ping_result|success
+  tags:
+     - base
+
+- name: Unenroll reachable IPA Client hosts
+  hosts: reachable
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ipa-config", ACTION: 'unenroll' }
+  tags:
+     - ipa-unenroll
+
+- name: Enroll reachable IPA Client hosts
+  hosts: host_power_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ipa-config" }
+  tags:
+     - ipa-enroll
+

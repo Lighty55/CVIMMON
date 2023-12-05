@@ -1,0 +1,4 @@
+- include: ceilometer_central_upgrade_prepare.yaml
+- include: ceilometer_central_install.yaml
+- include: ceilometer_central_config.yaml
+- include: ceilometer_central_start.yaml

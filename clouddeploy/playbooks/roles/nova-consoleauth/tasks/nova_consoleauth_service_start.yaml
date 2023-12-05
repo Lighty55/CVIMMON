@@ -1,0 +1,48 @@
+- name: Check if Nova Consoleauth Docker container is already running
+  shell: docker ps -a | grep Up | grep novaconsoleauth_{{ docker.nova_consoleauth.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias consoleauth='in_container novaconsoleauth_"
+    line: "{{ item }}"
+  with_items:
+    - alias consoleauth='in_container novaconsoleauth_{{ docker.nova_consoleauth.image_tag }}'
+
+- name: Start the Nova consoleauth Docker Service
+  docker_container:
+    name: "novaconsoleauth_{{ docker.nova_consoleauth.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_consoleauth.name }}:{{ docker.nova_consoleauth.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      -  "{{ docker.nova_consoleauth.host_data_dir }}:{{ docker.nova_consoleauth.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/nova:/var/log/nova:z
+    volumes_from:
+      - novacommon_{{ docker.nova_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if Nova Consoleauth Docker container has started running
+  shell: docker ps -a | grep Up | grep novaconsoleauth_{{ docker.nova_consoleauth.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Consoleauth Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novaconsoleauth
+  tags:
+    - reboot-on-failure

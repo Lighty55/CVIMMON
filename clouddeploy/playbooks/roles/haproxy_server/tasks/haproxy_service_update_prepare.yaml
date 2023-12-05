@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Haproxy Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}
+
+# Backup the haproxy volume contents
+- name: backup the haproxy volume contents
+  shell: cp /docker/haproxy/* /docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the haproxy systemd file
+  command: cp /usr/lib/systemd/system/docker-haproxy.service /docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}/docker-haproxy.service
+
+#####################################################
+# Shut down the old haproxy containers
+####################################################
+# Haproxy.
+- name: Shut off haproxy docker service
+  service:
+    name: docker-haproxy
+    enabled: no
+    state: stopped
+
+- name: Remove haproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-haproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove haproxy volume contents
+- name: List haproxy volume contents
+  shell: ls -A1 /docker/haproxy/
+  register: contents
+
+- name: Remove haproxy volume contents
+  file:
+    path: /docker/haproxy/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

@@ -1,0 +1,45 @@
+- name: Check if Cloudpulse server is already running
+  shell: docker ps -a | grep Up | grep cloudpulse_server_{{ docker.cloudpulse_server.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cloudpulse='in_container cloudpulse_server_"
+    line: "{{ item }}"
+  with_items:
+    - alias cloudpulse='in_container cloudpulse_server_{{ docker.cloudpulse_server.image_tag }}'
+
+- name: Start the Cloudpulse server Docker
+  docker_container:
+    name: "cloudpulse_server_{{ docker.cloudpulse_server.image_tag }}"
+    image: "{{ docker.common.registry}}/{{ docker.cloudpulse_server.name }}:{{ docker.cloudpulse_server.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.cloudpulse_server.host_data_dir }}:{{ docker.cloudpulse_server.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/cloudpulse:/var/log/cloudpulse:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "3306:3306, 9999:9999"
+    network_mode: "host"
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: False
+  when: command_result.stdout == ""
+
+- name: Wait for cloudpulse to be alive
+  wait_for: host={{ CLOUDPULSE_SERVER_BIND_IP }} port={{ CLOUDPULSE_PORT }}
+
+- name: Suppress ansible logging
+  shell: docker exec -iu root "cloudpulse_server_{{ docker.cloudpulse_server.image_tag }}" sed -i 's?#no_log = False?no_log = True?' /etc/ansible/ansible.cfg
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cloudpulse
+  tags:
+    - reboot-on-failure

@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova ssh Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}
+
+# Back up the nova ssh volume contents
+- name: back up the nova ssh volume contents
+  shell: cp /docker/nova_ssh/* /docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova ssh systemd file
+  command: cp /usr/lib/systemd/system/docker-novassh.service /docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}/docker-novassh.service
+
+#####################################################
+# Shut down the old nova ssh containers
+####################################################
+# Nova SSH.
+- name: Shut off nova ssh docker service
+  service:
+    name: docker-novassh
+    enabled: no
+    state: stopped
+
+- name: Remove novassh service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novassh.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of nova ssh volume
+- name: List contents of nova ssh volume
+  shell: ls -A1 /docker/nova_ssh/
+  register: contents
+
+- name: Remove contents of nova ssh volume
+  file:
+    path: /docker/nova_ssh/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

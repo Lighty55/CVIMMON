@@ -1,0 +1,44 @@
+- set_fact:
+    check_log_file: "{{ opt_cisco_n3000_dir }}/n3000-firmware-check-{{ ansible_date_time.epoch }}.log"
+
+- name: Checking if N3000 secure update is needed
+  shell:
+    chdir: "{{ opt_cisco_n3000_dir }}"
+    cmd: |
+      set -o pipefail; \
+      ./n3000-secure-update.sh -b {{ INTEL_N3000_FIRMWARE['user_image_bitstream_id'] }} \
+                               -f {{ INTEL_N3000_FIRMWARE['user_image_file'] }} 2>&1 | tee -a {{ check_log_file }}
+  register: n3000_secure_check_status
+  ignore_errors: true
+  failed_when: false
+  when: INTEL_N3000_FIRMWARE['user_image_bitstream_id'] is defined and INTEL_N3000_FIRMWARE['user_image_file'] is defined
+
+- debug:
+    msg: "{{ n3000_secure_check_status.stdout_lines }}"
+  when: n3000_secure_check_status.stdout_lines is defined
+
+- name: Check N3000 secure check status
+  fail:
+    msg: Failed to perform N3000 secure check
+  when: n3000_secure_check_status is defined and n3000_secure_check_status.rc == 1
+
+- name: Checking if N3000 XL710 update is needed
+  shell:
+    chdir: "{{ opt_cisco_n3000_dir }}"
+    cmd: |
+      set -o pipefail; \
+      ./n3000-xl710-update.sh -c {{ INTEL_N3000_FIRMWARE['xl710_config_file'] }} \
+                              -f {{ INTEL_N3000_FIRMWARE['xl710_image_file'] }} 2>&1 | tee -a {{ check_log_file }}
+  register: n3000_xl710_check_status
+  ignore_errors: true
+  failed_when: false
+  when: INTEL_N3000_FIRMWARE['xl710_config_file'] is defined and INTEL_N3000_FIRMWARE['xl710_image_file'] is defined
+
+- debug:
+    msg: "{{ n3000_xl710_check_status.stdout_lines }}"
+  when: n3000_xl710_check_status.stdout_lines is defined
+
+- name: Check N3000 XL710 check status
+  fail:
+    msg: Failed to perform N3000 XL7100 check
+  when: n3000_xl710_check_status is defined and n3000_secure_check_status.rc == 1

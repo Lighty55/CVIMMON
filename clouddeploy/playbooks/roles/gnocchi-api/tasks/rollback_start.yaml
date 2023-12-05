@@ -1,0 +1,83 @@
+# First remove the new container and artifacts and gnocchi api
+- name: Rollback | Shut off gnocchi api docker service
+  service:
+    name: docker-gnocchi-api
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Rollback | Remove gnocchi api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-api.service"
+    state: absent
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Stop and remove gnocchi-api docker container
+  docker_container:
+    image: ""
+    name: "gnocchiapi_{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Rollback | Remove gnocchi docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_api.name }}"
+    tag: "{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and Remove gnocchi config files
+- name: Rollback | List gnocchi API files
+  shell: ls -A1 /docker/gnocchi_api/
+  register: contents
+
+- name: Rollback | Remove gnocchi API files
+  file:
+    path: /docker/gnocchi_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the gnocchi api volume contents
+- name: Rollback | Recover gnocchi api volume contents
+  shell: cp /docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG | default('') }}/* /docker/gnocchi_api/.
+
+- name: Rollback | Modify owner and group of ceph.conf
+  file: path=/docker/gnocchi_api/ceph.conf owner=gnocchi group=mercury
+
+# Now remove the backup volume
+- name: Rollback | Remove back up gnocchi API Directory
+  file:
+    path: "/docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Rollback | Copy Containers restart-on-boot files
+  command: cp /docker/gnocchi_api/docker-gnocchi-api.service /usr/lib/systemd/system/docker-gnocchi-api.service
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Reset the failures
+  shell: systemctl reset-failed
+
+- name: Rollback | Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchiapi='in_container gnocchiapi_"
+    line: "alias gnocchiapi='in_container gnocchiapi_{{ GNOCCHI_API_PREVIOUS_TAG }}'"
+
+# Start the container via systemd
+- name: Rollback | Start the gnocchi api service
+  service:
+    name: docker-gnocchi-api
+    enabled: yes
+    state: started
+
+- name: Rollback | Wait for Gnocchi API to be alive
+  wait_for: host={{ GNOCCHI_API_HOST }} port={{ GNOCCHI_API_PORT }}

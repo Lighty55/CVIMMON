@@ -1,0 +1,236 @@
+#- name: This Destroys the Whole Kubernetes Environment and Wipes the Configuration....Abort if not needed.
+#  pause:
+#    minutes: 1
+
+# First perform a pxctl wipe of the cluster
+- name: "Render px-wipe.sh"
+  become: true
+  template: { src: "px-wipe.sh.j2", dest: "/opt/cisco/px-wipe.sh" }
+  delegate_to: localhost
+  run_once: true
+
+# Now perform a px-wipe
+- name: Run px-wipe.sh
+  shell: bash /opt/cisco/px-wipe.sh -f
+  delegate_to: localhost
+  ignore_errors: true
+  run_once: true
+
+# Check for btrfs volumes
+- name: Check for btrfs in blkid output
+  shell: blkid  | grep btrfs
+  register: blkid_status
+  ignore_errors: true
+  failed_when: false
+
+# Print blkid output if its not empty
+- debug:
+   var: blkdid_status.stdout
+  when: blkid_status is defined and blkid_status.stdout != ""
+
+- name: Stop kubelet systemd service
+  systemd: name=kubelet.service state=stopped enabled=no
+  ignore_errors: True
+  register: stop_kubelet_service
+
+- name: Stop docker systemd service
+  systemd: name={{ item }} state=stopped enabled=no
+  with_items:
+    - docker.service
+    - docker.socket
+  ignore_errors: True
+  register: stop_docker_service
+
+- name: disable etcd
+  systemd:
+    name: etcd
+    state: stopped
+    daemon_reload: yes
+    enabled: no
+
+- name: Remove Kubernetes Manifests Directory
+  file:
+    path: /etc/kubernetes
+    state: absent
+
+- name: Reset Kubernetes component
+  shell: "kubeadm reset --force"
+  register: reset_cluster
+
+- name: reset | remove all containers
+  shell: "docker ps -aq | xargs -r docker rm -fv"
+  register: remove_all_containers
+  retries: 4
+  until: remove_all_containers.rc == 0
+  delay: 5
+
+- name: Find kubelet mounted volumes
+  when: stop_kubelet_service
+  shell: "df | grep -o '/var/lib/kubelet.*'"
+  ignore_errors: True
+  register: find_mounts
+
+- name: Unmounting kubelet volumes
+  when: find_mounts
+  mount: name={{ item }} state=unmounted
+  with_items: "{{ find_mounts.stdout_lines | list }}"
+  ignore_errors: True
+
+- name: cleanup kubernetes related data
+  when: reset_cluster is succeeded
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /var/lib/cni
+    - /var/lib/kubelet
+    - /etc/keepalived
+    - /etc/cni
+    - /etc/kubernetes
+    - /var/lib/etcd/member
+    - /var/lib/etcd
+    - /usr/bin/etcd
+    - /usr/bin/etcdctl
+    - /usr/bin/helm
+    - /opt/helm
+    - /etc/systemd/system/etcd.service
+    - /tmp/etcd-*
+    - /tmp/kubeadm-ha
+    - /var/lib/heketi
+    - /etc/glusterfs
+    - /var/log/glusterfs
+    - /var/lib/glusterd
+    - /var/lib/misc/glusterfsd
+    - /var/lib/docker
+    - /etc/cni
+    - /etc/nginx
+    - /opt/cni
+    - /var/log/pods
+    - "/usr/bin/etcd"
+    - "/usr/bin/etcdctl"
+    - /usr/bin/cfssl
+    - /usr/bin/cfssljson
+    - /usr/bin/cfssl-certinfo
+    - /run/xtables.lock
+    - /run/kubernetes
+    - /etc/ssl/etcd
+    - /etc/etcd.env
+    - /var/kubernetes
+    - ~/.helm
+    - ~/.kube
+    - /opt/cisco/cvimmon-metros
+    - /opt/cisco/cvimmon-k8s
+    - /opt/cvimmon-kubernetes
+
+- name: Stop Kubernetes Related Services
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+  with_items:
+    - kubelet
+    - docker
+    - etcd
+    - keepalived
+
+- name: reset | remove services
+  file:
+    path: "/etc/systemd/system/{{ item }}.service"
+    state: absent
+  with_items:
+    - kubelet
+    - etcd
+
+- name: reset | systemctl daemon-reload
+  command: systemctl daemon-reload
+
+- name: Find network interfaces for Kubernetes
+  when: stop_kubelet_service
+  shell: "ip addr | grep {{ item }}"
+  with_items:
+    - "docker0"
+    - "flannel.1"
+    - "cni0"
+    - "tunl0"
+  register: find_eths
+  ignore_errors: True
+
+- name: Delete Any Network Interfaces on the Host
+  shell: |
+    ip link delete cni0
+    ip link delete flannel.1
+
+- name: Delete network interfaces for Kubernetes
+  when: stop_kubelet_service and item.stdout != ''
+  shell: "ip link delete {{ item.item }}"
+  with_items: "{{ find_eths['results'] }}"
+  ignore_errors: True
+
+- name: Find blackhole route rule
+  when: stop_kubelet_service
+  shell: "ip route | awk '/blackhole/ {print $2}'"
+  register: find_blackhole
+  ignore_errors: True
+
+- name: Delete blackhole route rule
+  when: stop_kubelet_service and find_blackhole.stdout != ''
+  shell: "ip route del {{ find_blackhole.stdout }}"
+  ignore_errors: True
+
+
+- name: cleanup iptables
+  shell: "iptables -F && iptables -X \
+        && iptables -F -t nat && iptables -X -t nat \
+        && iptables -F -t raw && iptables -X -t raw \
+        && iptables -F -t mangle && iptables -X -t mangle"
+
+- name: cleanup networks
+  shell: "ip link del docker0; \
+        ip link del tunl0; \
+        ip link del flannel.1; \
+        ip link del cni0; \
+        ip link del mynet0; \
+        ip link del kube-bridge; \
+        ip link del dummy0; \
+        ip link del kube-ipvs0; \
+        ip link del cilium_net; \
+        ip link del cilium_vxlan; \
+        systemctl restart networking; \
+        systemctl restart network"
+  ignore_errors: true
+
+- name: cleanup 'calico' routes
+  shell: "for rt in `ip route|grep bird|sed 's/blackhole//'|awk '{print $1}'`;do ip route del $rt;done;"
+  when: "CLUSTER_NETWORK == 'calico'"
+  ignore_errors: true
+
+- name: Create Directory for Keepalived
+  file: path=/etc/keepalived state=directory
+
+- name: Remove Kubelet, Kubectl and Kubeadm Packages
+  yum:
+    name: "{{ item }}"
+    state: absent
+  with_items:
+    - kubeadm
+    - kubectl
+    - kubelet
+    - etcd
+    - cfssl
+    - telegraf
+    - helm
+    - keepalived
+    - docker-ce
+
+- name: restart kubelet
+  systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+    enabled: yes

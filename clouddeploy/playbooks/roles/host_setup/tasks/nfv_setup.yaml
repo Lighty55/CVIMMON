@@ -1,0 +1,45 @@
+- name: Get the service CPU mask
+  script: get_cpu_mask.py --mask --anti {{ non_hostcpus }}
+  register: service_mask
+
+- name: Get the non-host CPU mask
+  script: get_cpu_mask.py --mask {{ non_hostcpus }}
+  register: non_host_mask
+
+- name: Set irq balancing config
+  lineinfile:
+    dest: /etc/sysconfig/irqbalance
+    state: present
+    regexp: "^IRQBALANCE_BANNED_CPUS="
+    line: "IRQBALANCE_BANNED_CPUS={{ non_host_mask.stdout }}"
+    insertafter: "^#IRQBALANCE_BANNED_CPUS"
+
+- name: Rebalance interrupts now
+  service:
+    name: irqbalance
+    enabled: yes
+    state: restarted
+
+- name: Rendering the script to perform CPU isolation
+  template:
+    src: cpu_isolation.sh.j2
+    dest: "{{ cpu_isolation_sh }}"
+    mode: 0775
+
+- name: Create the systemd unit files for CPU isolation
+  template:
+    src: cpu_isolation.service.j2
+    dest: "{{ cpu_isolation_service }}"
+    mode: 0664
+
+- name: Enable and run cpu_isolation service and ensure it is not masked
+  systemd:
+    name: cpu_isolation
+    enabled: yes
+    masked: no
+
+- name: Reapply the tuned profile
+  service:
+    name: tuned
+    enabled: yes
+    state: restarted

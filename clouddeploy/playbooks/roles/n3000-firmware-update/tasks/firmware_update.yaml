@@ -1,0 +1,62 @@
+- set_fact:
+    update_log_file: "{{ opt_cisco_n3000_dir }}/n3000-firmware-update-{{ ansible_date_time.epoch }}.log"
+
+- name: Performing N3000 secure update, can take more than an hour to complete!!!
+  shell:
+    chdir: "{{ opt_cisco_n3000_dir }}"
+    cmd: |
+      set -o pipefail; \
+      ./n3000-secure-update.sh -b {{ INTEL_N3000_FIRMWARE['user_image_bitstream_id'] }} \
+                               -f {{ INTEL_N3000_FIRMWARE['user_image_file'] }} \
+                               -u -y 2>&1 | tee -a {{ update_log_file }}
+  register: n3000_secure_update_status
+  ignore_errors: true
+  failed_when: false
+  when: INTEL_N3000_FIRMWARE['user_image_bitstream_id'] is defined and INTEL_N3000_FIRMWARE['user_image_file'] is defined
+
+- debug:
+    msg: "{{ n3000_secure_update_status.stdout_lines }}"
+  when: n3000_secure_update_status.stdout_lines is defined
+
+- name: Check N3000 secure update status
+  fail:
+    msg: "FIRMWARE UPDATE FAILED: {{ ansible_nodename }}"
+  when: n3000_secure_update_status is defined and n3000_secure_update_status.rc not in [0, 2]
+
+- name: Performing N3000 XL710 update, can take more than an hour to complete!!!
+  shell:
+    chdir: "{{ opt_cisco_n3000_dir }}"
+    cmd: |
+      set -o pipefail; \
+      ./n3000-xl710-update.sh -c {{ INTEL_N3000_FIRMWARE['xl710_config_file'] }} \
+                              -f {{ INTEL_N3000_FIRMWARE['xl710_image_file'] }} \
+                              -u -y 2>&1 | tee -a {{ update_log_file }}
+  register: n3000_xl710_update_status
+  ignore_errors: true
+  failed_when: false
+  when: INTEL_N3000_FIRMWARE['xl710_config_file'] is defined and INTEL_N3000_FIRMWARE['xl710_image_file'] is defined
+
+- debug:
+    msg: "{{ n3000_xl710_update_status.stdout_lines }}"
+  when: n3000_xl710_update_status.stdout_lines is defined
+
+- name: Check N3000 XL710 update status
+  fail:
+    msg: "FIRMWARE UPDATE FAILED: {{ ansible_nodename }}"
+  when: n3000_xl710_update_status is defined and n3000_secure_update_status.rc not in [0, 2]
+
+- name: Reboot server after firmware update
+  shell: sleep 2 && reboot
+  async: 1
+  poll: 0
+  ignore_errors: true
+  failed_when: false
+  when: (n3000_secure_update_status is defined and n3000_secure_update_status.rc == 2) or
+        (n3000_xl710_update_status is defined and n3000_xl710_update_status.rc == 2)
+
+- name: Waiting for server to come back
+  local_action: wait_for host={{ ansible_host }}
+                state=started delay=30 timeout=1200
+                connect_timeout=10 port=22
+  when: (n3000_secure_update_status is defined and n3000_secure_update_status.rc == 2) or
+        (n3000_xl710_update_status is defined and n3000_xl710_update_status.rc == 2)

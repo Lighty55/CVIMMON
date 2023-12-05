@@ -1,0 +1,293 @@
+# Note - the list of tasks performed here are done on the storage node.
+# Every single one of these steps is the same as what is done in
+# prepare.bash
+
+- name: Determine if RAID is present
+  shell:
+    cmd: "lsmod | grep megaraid"
+  register: RAID_type_HW
+  ignore_errors: True
+  failed_when: False
+
+- name: Get hostname
+  shell:
+    cmd: hostname
+  register: HOST_name
+
+- name: Get OSD details file name
+  set_fact:
+    file_name: "{{ OSD_DETAILS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Get OSD details data
+  include_vars:
+    file: "{{ file_name }}"
+    name: data
+  delegate_to: localhost
+
+- name: Determine the slot info for the bad OSD
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ osd_id }} | awk -F'Slot:' '{print $2}' | cut -d' ' -f1"
+  register: slot_result
+
+- name: Get new disk information if RAID is present
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/e{{ data.Enclosure_ID }}/s{{ slot_result.stdout }} show J"
+  register: hdd_result
+  when: RAID_type_HW.stdout != "" and slot_result.stdout != ""
+
+- name: Save storcli controller JSON output
+  set_fact:
+    storcli_disk_result: "{{ hdd_result.stdout | from_json }}"
+  when: RAID_type_HW.stdout != "" and hdd_result is defined and hdd_result.stdout != ""
+
+- name: If Raid is present check for Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/fall show J"
+  register: foreign_cfg_result
+  when: RAID_type_HW.stdout != ""
+
+- name: Save Foreign config result
+  set_fact:
+    fcfg: "{{ foreign_cfg_result.stdout | from_json }}"
+  when: RAID_type_HW.stdout != "" and foreign_cfg_result is defined and foreign_cfg_result.stdout != ""
+
+- name: Clear any Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/fall delete"
+  when: RAID_type_HW.stdout != "" and fcfg is defined and fcfg.Controllers[0]['Response Data']['FOREIGN CONFIGURATION'] is defined
+
+- name: If Raid is present check if the new disk is not in JBOD mode
+  set_fact:
+    new_hdd_state: "{{ storcli_disk_result.Controllers[0]['Response Data']['Drive Information'][0]['State'] }}"
+  when: RAID_type_HW.stdout != "" and storcli_disk_result is defined
+
+- name: Put the new disk into JBOD mode if RAID is present
+  shell:
+    cmd: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/e{{ data.Enclosure_ID }}/s{{ slot_result.stdout }} set jbod"
+  when: RAID_type_HW.stdout != "" and slot_result.stdout != "" and new_hdd_state is defined and new_hdd_state != "JBOD"
+
+- name: Get DID to help obtain mount label when RAID is present
+  set_fact:
+    DID_num: "{{ storcli_disk_result.Controllers[0]['Response Data']['Drive Information'][0]['DID'] }}"
+  when: RAID_type_HW.stdout != "" and storcli_disk_result is defined
+
+- name: Get new device mount label when RAID is present
+  shell:
+   cmd: "ls -l /dev/disk/by-path | grep ':{{ DID_num }}:' | grep -v 'part' | cut -d'/' -f3"
+  register: dev_mount_raid
+  until: dev_mount_raid.stdout != ""
+  retries: 6
+  delay: 10
+  when: RAID_type_HW.stdout != "" and DID_num is defined
+
+- name: Set phys_id to help obtain mount label if RAID is not present
+  set_fact:
+    phys_id: "{{ ((slot_result.stdout | int) -1) | int }}"
+  when: RAID_type_HW.stdout == "" and slot_result.stdout != ""
+
+- name: Get new device mount label when RAID is not present
+  shell:
+   cmd: "ls -l /dev/disk/by-path | grep -w phy{{ phys_id }} | grep -v 'part' | cut -d'/' -f3"
+  register: dev_mount_passthrough
+  when: RAID_type_HW.stdout == "" and phys_id is defined
+
+- name: Save the device mount label when RAID is not present
+  set_fact:
+    dev_mount: "{{ dev_mount_passthrough.stdout }}"
+  when: dev_mount_passthrough is defined and dev_mount_passthrough.stdout != ""
+
+- name: Save the device mount label when RAID is present
+  set_fact:
+    dev_mount: "{{ dev_mount_raid.stdout }}"
+  when: dev_mount_raid is defined and dev_mount_raid.stdout != ""
+
+- name: wipefs the device
+  shell:
+    cmd: "wipefs --all --force /dev/{{ dev_mount }}"
+  when: dev_mount is defined
+  ignore_errors: True
+
+- name: Run dd on target device
+  shell:
+    cmd: "dd if=/dev/zero of=/dev/{{ dev_mount }} bs=1M count=2048"
+  when: dev_mount is defined and "{{ CEPH_BACKEND }}" == "bluestore"
+  ignore_errors: True
+
+- name: Run sgdisk zap-all on target device
+  shell:
+    cmd: "sgdisk --zap-all -- /dev/{{ dev_mount }}"
+  register: sgdisk_result
+  until: sgdisk_result.rc == 0
+  retries: 3
+  delay: 30
+  when: dev_mount is defined and "{{ CEPH_BACKEND }}" == "bluestore"
+  ignore_errors: True
+
+- name: Run sgdisk clear/mbrtogpt on target device
+  shell:
+    cmd: "sgdisk --clear --mbrtogpt -- /dev/{{ dev_mount }}"
+  when: dev_mount is defined and "{{ CEPH_BACKEND }}" == "bluestore"
+  ignore_errors: True
+
+- name: Run udevadm settle on target device
+  shell:
+    cmd: "udevadm settle --timeout=600"
+  when: dev_mount is defined and "{{ CEPH_BACKEND }}" == "bluestore"
+  ignore_errors: True
+
+- name: Zap the device
+  shell:
+    cmd: "ceph-disk zap /dev/{{ dev_mount }}"
+  register: zap_result
+  until: zap_result.stdout.find('The operation has completed successfully') != -1
+  retries: 60
+  delay: 60
+  when: dev_mount is defined
+
+- name: Get the Journal UUID
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ osd_id }} | awk -F'Journal:' '{print $2}'"
+  register: journal_uuid
+
+- name: Get the journal device label - dedicated journal
+  shell:
+    cmd: "ls -l /dev/disk/by-partuuid | grep -w {{ journal_uuid.stdout }} | awk -F'{{ journal_uuid.stdout }}' '{print $2}' | cut -d'/' -f3"
+  register: journal_mnt_dev_dedicated
+  until: journal_mnt_dev_dedicated.stdout != ""
+  retries: 6
+  delay: 10
+  when: journal_uuid is defined and journal_uuid.stdout != ""
+
+- name: Prepare the ceph disk - dedicated journal - filestore
+  shell:
+    cmd: "ceph-disk prepare /dev/{{ dev_mount }} /dev/{{ journal_mnt_dev_dedicated.stdout }} > /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined and journal_mnt_dev_dedicated is defined and journal_mnt_dev_dedicated.stdout != "" and "{{ CEPH_BACKEND }}" == "filestore"
+
+- name: Prepare the ceph disk - dedicated journal - bluestore
+  shell:
+    cmd: "ceph-disk prepare /dev/{{ dev_mount }} --block.db /dev/{{ journal_mnt_dev_dedicated.stdout }}  > /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined and journal_mnt_dev_dedicated is defined and journal_mnt_dev_dedicated.stdout != "" and "{{ CEPH_BACKEND }}" == "bluestore"
+
+- name: Prepare the ceph disk - collocated journal - filestore
+  shell:
+    cmd: "ceph-disk prepare --filestore /dev/{{ dev_mount }} > /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined and journal_uuid.stdout == "" and "{{ CEPH_BACKEND }}" == "filestore"
+
+- name: Prepare the ceph disk - collocated journal - bluestore
+  shell:
+    cmd: "ceph-disk prepare /dev/{{ dev_mount }} > /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined and journal_uuid.stdout == "" and "{{ CEPH_BACKEND }}" == "bluestore"
+
+- name: Get the journal device label - collocated journal - filestore
+  shell:
+    cmd: "ceph-disk list /dev/{{ dev_mount }} | awk 'match($0,/journal \\/dev\\/(.*[0-9]+)$/,journal) {print journal[1]}'"
+  register: journal_mnt_dev_colocated
+  when: dev_mount is defined and journal_uuid.stdout == "" and "{{ CEPH_BACKEND }}" == "filestore"
+
+- name: Get the journal device label - collocated journal - bluestore
+  shell:
+    cmd: "ceph-disk list /dev/{{ dev_mount }} | awk 'match($0,/block \\/dev\\/(.*[0-9]+)$/,journal) {print journal[1]}'"
+  register: journal_mnt_dev_colocated
+  when: dev_mount is defined and journal_uuid.stdout == "" and "{{ CEPH_BACKEND }}" == "bluestore"
+
+- name: sdparm WCE
+  shell:
+    cmd: "sdparm --set WCE=0 /dev/{{ dev_mount }} >> /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined
+
+- name: sdparm RCD
+  shell:
+    cmd: "sdparm --set RCD=0 /dev/{{ dev_mount }} >> /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_mount is defined
+
+- name: Get device mount partition
+  shell:
+    cmd: "cat /tmp/replace_osd_{{ osd_id }}_prepare.log | grep -oh meta-data=/dev/{{ dev_mount }}[0-9]* | sed 's/meta-data=//'"
+  register: dev_partition_label
+  when: dev_mount is defined
+
+- name: Activate the new ceph disk
+  shell:
+    cmd: "ceph-disk activate {{ dev_partition_label.stdout }} >> /tmp/replace_osd_{{ osd_id }}_prepare.log"
+  when: dev_partition_label is defined and dev_partition_label.stdout != ""
+
+- name: Get new osd_id
+  shell:
+    cmd: "cat /etc/mtab | grep -w {{ dev_partition_label.stdout }} | awk -F'ceph-' '{print $2}' | cut -d' ' -f1"
+  register: new_osd_id
+  when: dev_partition_label is defined and dev_partition_label.stdout != ""
+
+- name: Get old dev_uuid
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ osd_id }} | grep -o 'UUID=.*' | cut -d' ' -f1"
+  register: old_dev_uuid
+
+- name: Get new dev_uuid
+  shell:
+    cmd: "blkid -o export {{ dev_partition_label.stdout }} | grep -o '^UUID=.*'"
+  register: new_dev_uuid
+  when: dev_partition_label is defined and dev_partition_label.stdout != ""
+
+- name: Update /etc/fstab with new ceph id
+  replace:
+    dest: /etc/fstab
+    regexp: 'ceph-{{ osd_id }} '
+    replace: 'ceph-{{ new_osd_id.stdout }} '
+  when: new_osd_id is defined and new_osd_id.stdout != ""
+
+- name: Update /etc/fstab with new UUID
+  replace:
+    dest: /etc/fstab
+    regexp: '#+{{ old_dev_uuid.stdout }}'
+    replace: '{{ new_dev_uuid.stdout }}'
+  when: old_dev_uuid is defined and old_dev_uuid.stdout != "" and new_dev_uuid is defined and new_dev_uuid.stdout != ""
+
+- name: systemctl daemon-reload after /etc/fstab update
+  shell:
+    cmd: /usr/bin/systemctl daemon-reload
+
+- name: Write replace results old_osd_id to file
+  shell:
+    cmd: "echo 'old_osd_id: {{ osd_id }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Write replace results new_osd_id to file
+  shell:
+    cmd: "echo 'new_osd_id: {{ new_osd_id.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Write replace results hdd_slot to file
+  shell:
+    cmd: "echo 'hdd_slot: {{ slot_result.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Write replace results new_path to file
+  shell:
+    cmd: "echo 'new_path: {{ dev_partition_label.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Write replace results new_mount to file
+  shell:
+    cmd: "echo 'new_mount: /var/lib/ceph/osd/ceph-{{ new_osd_id.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost
+
+- name: Write replace results journal_mnt-dedicated to file - bluestore
+  shell:
+    cmd: "echo 'journal_mnt: {{ journal_mnt_dev_dedicated.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  when: journal_mnt_dev_dedicated is defined and journal_mnt_dev_dedicated.stdout != "" and "{{ CEPH_BACKEND }}" == "bluestore"
+  delegate_to: localhost
+
+- name: Write replace results journal_mnt-dedicated to file - filestore
+  shell:
+    cmd: "echo 'journal_mnt: /dev/{{ journal_mnt_dev_dedicated.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  when: journal_mnt_dev_dedicated is defined and journal_mnt_dev_dedicated.stdout != "" and "{{ CEPH_BACKEND }}" == "filestore"
+  delegate_to: localhost
+
+- name: Write replace results journal_mnt-collocated to file
+  shell:
+    cmd: "echo 'journal_mnt: /dev/{{ journal_mnt_dev_colocated.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  when: journal_mnt_dev_colocated is defined and journal_mnt_dev_colocated.stdout != ""
+  delegate_to: localhost
+
+- name: Write replace results new_dev_uuid to file
+  shell:
+    cmd: "echo 'new_dev_uuid: {{ new_dev_uuid.stdout }}' >> {{ OSD_REPLACE_STATUS_FILE }}_{{ HOST_name.stdout }}"
+  delegate_to: localhost

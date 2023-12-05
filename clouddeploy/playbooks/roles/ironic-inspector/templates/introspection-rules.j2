@@ -1,0 +1,44 @@
+[
+{% if IRONIC_INSPECTOR_SELF_DISCOVERY and IRONIC is defined and IRONIC.INSPECTOR_SELF_DISCOVERY | default(False) and IRONIC_INVENTORY is defined %}
+{
+    "description": "Set IPMI driver_info if no credentials",
+    "actions": [
+        {"action": "set-attribute", "path": "driver", "value": "{{ DISCOVERY_ENROLL_NODE_DRIVER }}"},
+        {"action": "set-attribute", "path": "driver_info/ipmi_username", "value": "{{ IRONIC_INVENTORY['IPMI-COMMON']['ipmi_username'] }}"},
+        {"action": "set-attribute", "path": "driver_info/ipmi_password", "value": "{{ IRONIC_INVENTORY['IPMI-COMMON']['ipmi_password'] }}"}
+    ],
+    "conditions": [
+        {"op": "is-empty", "field": "node://driver_info.ipmi_password"},
+        {"op": "is-empty", "field": "node://driver_info.ipmi_username"}
+    ]
+},
+{% endif %}
+{
+    "description": "Set deploy info if not already set on node",
+    "actions": [
+        {"action": "set-attribute", "path": "driver_info/deploy_kernel", "value": "{{ IRONIC_DEPLOY_IMAGE_KERNEL_ID.stdout }}"},
+        {"action": "set-attribute", "path": "driver_info/deploy_ramdisk", "value": "{{ IRONIC_DEPLOY_IMAGE_INITRAMFS_ID.stdout }}"}
+    ],
+    "conditions": [
+        {"op": "is-empty", "field": "node://driver_info.deploy_ramdisk"},
+        {"op": "is-empty", "field": "node://driver_info.deploy_kernel"}
+    ]
+},
+{
+    "description": "Set capability disk_label",
+    "actions": [
+        {"action": "set-capability", "name": "disk_label", "value": "gpt"}
+    ]
+},
+{
+    "description": "Set capability boot_option",
+    "actions": [
+        {"action": "set-capability", "name": "boot_option", "value": "local"}
+    ]
+},
+{
+    "description": "Set capability hypervisor_type to ironic",
+    "actions": [
+        {"action": "set-capability", "name": "hypervisor_type", "value": "ironic"}
+    ]
+}]

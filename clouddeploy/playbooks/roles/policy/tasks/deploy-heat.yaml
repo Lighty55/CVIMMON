@@ -1,0 +1,22 @@
+- name: Copy Heat Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/heat-api/templates/{{ item }}"
+    dest: "{{docker.heat_api.host_data_dir }}/{{ item }}"
+  with_items:
+    - "heat_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.heat_api.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart Heat api service
+  service:
+    name: "docker-heatapi"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Heat API to be alive
+  wait_for: host={{ control_bond }} port={{ HEAT_API_PORT }}
+  when: policy.changed

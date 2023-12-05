@@ -1,0 +1,24 @@
+---
+# gather VTF logs  when MECHANISM_DRIVERS == 'vts'
+#
+- name: Check connectivity of compute nodes to VTC
+  hosts: neutron_vtf_power_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  tasks:
+    - name: Gather VTF CLI logs from compute nodes
+      ignore_errors: true
+      failed_when: false
+      shell: docker exec neutron_vtf_{{ docker.neutron_vtf.image_tag }} script /dev/null  -c "export PATH=$PATH:/opt/cisco/vpe/bin; vppctl show version verbose; vppctl show hardware; vppctl show bridge; vppctl show hardware; vppctl show l2fib verbose; vppctl show vhost; vppctl show ip arp; vppctl show ip fib; vppctl show interface ; vppctl show error;  vppctl api trace save vpptrace; " > /var/log/neutron-vtf/vpp-cli-$(date -d "today" +"%Y%m%d%H%M%S").log
+      when: MECHANISM_DRIVERS == 'vts' and (execute is undefined or (execute is defined and (execute == "all" or execute == "compute_check")))
+      tags:
+        - vtf-logs
+
+    - name: Move the trace file to logs directory
+      ignore_errors: true
+      failed_when: false
+      shell: cp /tmp/vpptrace /var/log/neutron-vtf/.
+      when: MECHANISM_DRIVERS == 'vts' and (execute is undefined or (execute is defined and (execute == "all" or execute == "compute_check")))
+      tags:
+        - vtf-logs

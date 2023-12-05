@@ -1,0 +1,45 @@
+#####################################################
+# Shut down the old neutron vpp containers
+####################################################
+# Neutron VPP Agent.
+- name: Shut off neutron vpp docker service
+  service:
+    name: docker-neutron_vpp
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+# Make sure to kill VPP is it does not shut off
+- name: Kill VPP if it does not shut off
+  shell:  ps -ef | grep vpp | grep -v grep | awk '{print $2}' | xargs kill -KILL
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron vpp service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_vpp.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron vpp docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_vpp_{{ VPP_PREVIOUS_TAG }}" }
+
+- name: Remove neutron vpp docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ VPP_PREVIOUS_NAME }}"
+    tag: "{{ VPP_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Neutron vpp Directory
+  file:
+    path: "{{ docker.neutron_vpp.host_data_dir  }}"
+    state: absent

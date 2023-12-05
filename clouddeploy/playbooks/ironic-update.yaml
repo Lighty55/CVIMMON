@@ -1,0 +1,64 @@
+- name: Update Ironic API Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-api", tags: [ "ironic", "ironic-api" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic PXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-pxe", tags: [ "ironic", "ironic-pxe"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic iPXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-ipxe", tags: [ "ironic", "ironic-ipxe" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic-Conductor Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-conductor", tags: [ "ironic", "ironic-conductor"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic Nova Compute Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-nova-compute", tags: [ "ironic", "ironic-nova-compute"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic-Inspector Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-inspector", tags: [ "ironic", "ironic-inspector" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Update Ironic DNSMASQ Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  vars:
+    ironic_host_index: "{{ groups['ironic_all'].index(inventory_hostname) }}"
+  roles:
+    - { role: "ironic-dnsmasq", tags: [ "ironic", "ironic-dnsmasq" ], when: "optional_service_ironic is defined" }
+  serial: "30%"

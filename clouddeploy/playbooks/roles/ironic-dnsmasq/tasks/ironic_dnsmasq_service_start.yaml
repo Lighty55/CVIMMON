@@ -1,0 +1,50 @@
+- name: Check if Ironic DNSMASQ Docker container is already running
+  shell: docker ps -a | grep Up | grep ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicdnsmasq='in_container ironic_dnsmasq_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicdnsmasq='in_container ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }}'
+
+- name: Create log directories
+  file: path=/var/log/ironic state=directory owner=root group=500 mode=0770 recurse=yes
+
+- name: Start the Ironic DNSMASQ Docker Service
+  docker_container:
+    name: "ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ironic_dnsmasq.name }}:{{ docker.ironic_dnsmasq.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      -  "{{ docker.ironic_dnsmasq.host_data_dir }}:{{ docker.ironic_dnsmasq.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ironic:/var/log/ironic:z
+      - /run:/run:shared
+    volumes_from:
+      - "ironic_inspector_{{ docker.ironic_inspector.image_tag }}"
+    ports: "67:67"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic DNSMASQ Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicdnsmasq
+  tags:
+    - reboot-on-failure

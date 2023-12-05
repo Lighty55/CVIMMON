@@ -1,0 +1,181 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+
+# Rabbitmq seems to be in bad state in some cases after upgrade
+# Force a server restart first
+- name: Restart rabbitmq servers
+  hosts: rabbitmq_all{{server|default('')}}
+  tasks:
+    - name: Stop all rabbitmq services
+      service:
+        name: docker-rabbitmq
+        enabled: no
+        state: stopped
+      when: ACTION is defined and ACTION == "upgrade" and '"control" in server_role'
+
+    - pause:
+        seconds: 30
+        prompt: "Waiting for 30 seconds to stabilize"
+      when: ACTION is defined and ACTION == "upgrade"
+
+    - name: Restart the rabbitmq service
+      service:
+        name: docker-rabbitmq
+        enabled: yes
+        state: restarted
+      when: ACTION is defined and ACTION == "upgrade" and '"control" in server_role'
+
+    - pause:
+        seconds: 30
+        prompt: "Waiting for 30 seconds to stabilize"
+      when: ACTION is defined and ACTION == "upgrade"
+
+- name: Verify neutron dhcp agents are up
+  hosts: neutron_dhcp_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['neutron_dhcp_agent_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutrondhcp.service"
+    service_name: "neutron-dhcp-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+- name: Verify neutron l3 agents are up
+  hosts: neutron_l3_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['neutron_l3_agent_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutronl3.service"
+    service_name: "neutron-l3-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check"] }
+
+- name: Verify neutron metadata agents are up
+  hosts: neutron_metadata_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['neutron_metadata_agent_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutronmeta.service"
+    service_name: "neutron-metadata-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+- name: Verify neutron linuxbridge agents are up
+  hosts: neutron_linuxbridge_agent_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['neutron_linuxbridge_agent_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutronlb.service"
+    service_name: "neutron-linuxbridge-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+- name: Verify neutron ovs agents are up
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['ovs_power_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutron_ovsagent.service"
+    service_name: "neutron-openvswitch-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+- name: Verify neutron sriov agents are up
+  hosts: neutron_sriov_agent_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['neutron_sriov_agent_power_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutron_sriov.service"
+    service_name: "neutron-sriov-nic-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+- name: Verify ACI opflex agents are up
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['ovs_power_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    systemctl_name: "docker-neutronopflexagent"
+    service_name: "neutron-opflex-agent"
+  roles:
+    - { role: "neutron-check", tags: ["base", "cloud-check", "neutron-check"] }
+
+# TODO: Verify LinuxBridge agent and add restart VPP agent
+
+- name: Verify nova conductor services are up
+  hosts: nova_conductor_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['nova_conductor_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "nova-conductor"
+    systemctl_name: "docker-novacond.service"
+  roles:
+    - { role: "nova-check", tags: [ "base", "cloud-check" ] }
+
+- name: Verify nova scheduler services are up
+  hosts: nova_scheduler_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['nova_scheduler_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "nova-scheduler"
+    systemctl_name: "docker-novasch.service"
+  roles:
+    - { role: "nova-check", tags: [ "base", "cloud-check" ] }
+
+- name: Verify nova consoleauth services are up
+  hosts: nova_consoleauth_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['nova_consoleauth_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "nova-consoleauth"
+    systemctl_name: "docker-novaconsoleauth.service"
+  roles:
+    - { role: "nova-check", tags: [ "base", "cloud-check" ] }
+
+- name: Verify nova compute services are up
+  hosts: nova_compute_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['nova_compute_power_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "nova-compute"
+    systemctl_name: "docker-novacpu.service"
+  roles:
+    - { role: "nova-check", tags: [ "base", "cloud-check" ] }
+
+# After an upgrade floating ip cannot be added to router interface
+# After restarting the L3 agent this works fine
+- name: Workaround for restarting neutron-l3 on upgrade
+  hosts: nova_api_all{{server|default('')}}
+  tasks:
+    - name: Restart the neutron l3 agent service
+      service:
+        name: docker-neutronl3
+        enabled: yes
+        state: restarted
+      when: MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "upgrade"
+
+    - pause:
+        seconds: 30
+        prompt: "Waiting for l3 to stabilize"
+      when: MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "upgrade"
+
+- name: Verify cinder scheduler service are up
+  hosts: cinder_scheduler_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% for host in groups['cinder_scheduler_all'] %}'{{ hostvars[host].ansible_nodename }}',{% endfor %}]"
+    service_name: "cinder-scheduler"
+    systemctl_name: "docker-cindersch.service"
+  roles:
+    - { role: "cinder-check", tags: [ "base", "cloud-check" ] }
+
+- name: Verify cinder volume service are up
+  hosts: cinder_volume_all{{server|default('')}}
+  max_fail_percentage: 0
+  vars:
+    expected_service_list: "[{% if VOLUME_DRIVER == 'zadara' %}{% for host in groups['controllers'] %}'{{ host }}@vpsa',{% endfor %}{% else %}{% for host in groups['cinder_volume_all'] %}'ceph@ceph',{% endfor %}{% endif %}]"
+    service_name: "cinder-volume"
+    systemctl_name: "docker-cindervolume.service"
+  roles:
+    - { role: "cinder-check", tags: [ "base", "cloud-check" ] }

@@ -1,0 +1,2 @@
+- include: kube-renew-certs.yaml
+  when: ACTION is undefined

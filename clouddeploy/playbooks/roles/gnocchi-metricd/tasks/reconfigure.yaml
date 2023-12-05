@@ -1,0 +1,103 @@
+- name: Reconf | Check if gnocchi metricd is already running
+  shell: docker ps -a | grep Up | grep gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} | cut -f1 -d " "
+  register: command_result_metricd
+  failed_when: not command_result_metricd.stdout
+
+- name: Reconf | Copy the new gnocchi metricd configuration file
+  template:
+    src: "gnocchi_metricd_config.j2"
+    dest: "{{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_reconfigure.j2"
+    mode: "0644"
+
+- name: Reconf | Compare old and new rendered template
+  command: diff {{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_config.j2 {{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_reconfigure.j2
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new render config
+  #command: mv /docker/gnocchi_metricd/gnocchi_metricd_reconfigure /docker/gnocchi_metricd/gnocchi_metricd_config
+  command: mv {{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_reconfigure.j2 {{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_config.j2
+  when: command_result.stdout
+
+# Remove the reconfigure file when there is no diff
+- name: Reconf | Remove reconfigure file
+  file: path={{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_reconfigure.j2 state=absent
+  when: not command_result.stdout
+
+# Now delete the template file inside the container
+- name: Reconf | Delete the gnocchi metricd config file inside container to force a reconfigure
+  command: docker cp {{ docker.gnocchi_metricd.host_data_dir }}/gnocchi_metricd_config.j2 gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }}:/opt/kolla/gnocchi_metricd_config.j2
+  when: command_result.stdout
+
+- name: Reconf | Copy Gnocchi ceph.conf file
+  template:
+    src: "{{ playbook_dir }}/roles/gnocchi-common/files/ceph.conf"
+    dest: "{{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf_reconfigure"
+
+- name: Reconf | Compare old and new rendered policy
+  command: diff {{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf {{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: ceph_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new render config
+  command: mv {{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf_reconfigure {{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf
+  when: ceph_diff.stdout
+
+- name: Reconf | Modify owner and group of ceph.conf
+  file: path={{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf owner=gnocchi group=mercury
+  when: ceph_diff.stdout
+
+# Remove the reconfigure ceph.conf when there is no diff
+- name: Reconf | Remove reconfigure file
+  file: path={{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf_reconfigure state=absent
+  when: not ceph_diff.stdout
+
+# Now delete the template file inside the container
+- name: Reconf | Delete the gnocchi metricd config file inside container to force a reconfigure
+  command: docker cp {{ docker.gnocchi_metricd.host_data_dir }}/ceph.conf gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }}:/etc/gnocchi/ceph.conf
+  when: ceph_diff.stdout
+
+- name: Generate the reconfig credentials
+  command: docker exec gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Reconf | Restart gnocchi metricd service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-gnocchi-metricd
+  when: (command_result.stdout or ceph_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: (command_result.stdout or ceph_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Reconf | Check if gnocchi metricd Docker container has started running
+  shell: docker ps -a | grep Up | grep gnocchimetricd_{{ docker.gnocchi_metricd.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: (command_result.stdout or ceph_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Reconf | Fail if container is not UP
+  fail: msg="Gnocchi metricd container does not seem to be running"
+  when: (container_status is defined and not container_status.stdout)

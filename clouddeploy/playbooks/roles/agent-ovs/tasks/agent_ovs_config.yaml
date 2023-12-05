@@ -1,0 +1,62 @@
+- name: Create agent ovs Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/agent_ovs
+
+- name: Copy opflex agent config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "agentovs_config.j2",
+        dest: "{{ docker.agent_ovs.host_data_dir }}/agentovs_config" }
+
+- name: Copy opflex agent config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "opflex-agent-ovs.conf.j2",
+        dest: "{{ docker.agent_ovs.host_data_dir }}/opflex-agent-ovs.conf" }
+
+- name: Copy opflex connection config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "10-opflex-connection.conf.j2",
+        dest: "{{ docker.agent_ovs.host_data_dir }}/10-opflex-connection.conf" }
+
+- name: Copy opflex vlan renderer config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "20-vlan-aci-renderer.conf.j2",
+        dest: "{{ docker.agent_ovs.host_data_dir }}/20-vlan-aci-renderer.conf" }
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-agentovs.service",
+        dest: "/usr/lib/systemd/system/docker-agentovs.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

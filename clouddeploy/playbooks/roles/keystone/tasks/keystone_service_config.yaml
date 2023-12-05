@@ -1,0 +1,21 @@
+- name: Config | Copy Keystone config file to Docker staging folder.
+  template:
+    src: "keystone_config.j2"
+    dest: "{{ docker.keystone.host_data_dir }}/keystone_config"
+    mode: "0644"
+
+- name: Copy Keystone Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/keystone/templates/{{ item }}"
+    dest: "{{docker.keystone.host_data_dir }}/{{ item }}"
+  with_items:
+    - "keystone_policy.json"
+
+- name: Config | Copy Keystone systemd template.
+  template:
+    src: "docker-keystone.service"
+    dest: "{{ docker.keystone.host_data_dir }}/docker-keystone.service"
+    mode: "0644"
+
+- name: Pull keystone image
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"

@@ -1,0 +1,163 @@
+---
+- name: Register workspace path
+  shell:  ls -dl /root/openstack-configs | awk '{ print $NF }' | sed s'?/openstack-configs??'g
+  register: workspace
+
+- name: "{{ metro_name }}->Render default alerting_rules.yml.j2"
+  vars:
+    CVIM_MON:
+      central: true
+  template:
+    src: "{{ workspace.stdout }}/bootstrap/playbooks/roles/prometheus/templates/alerting_rules.yml.j2"
+    dest: "/opt/cisco/alerting_rules_default.yaml"
+
+- name: "{{ metro_name }}->Check if custom alerting rules exist"
+  stat:
+    path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alerting_custom_rules.yaml"
+  register: custom_alerts
+
+- name: "{{ metro_name }}->Copy default alert rules to playbook dir if custom rules are absent"
+  copy:
+    src: "{{ workspace.stdout }}/bootstrap/playbooks/roles/prometheus/templates/alerting_rules.yml.j2"
+    dest: "{{ playbook_dir }}/roles/prometheus/templates/alerting_rules.yaml"
+  when: not custom_alerts.stat.exists
+
+- name: "{{ metro_name }}->Update podname in alerting_rules_default.yaml"
+  replace:
+    dest: "{{ item }}"
+    regexp: "@@PODNAME@@"
+    replace: "{{ \"'{{ $labels.region }}.{{ $labels.metro }}.{{ $labels.job }}'\" }}"
+  with_fileglob:
+    - "{{ playbook_dir }}/roles/prometheus/templates/alerting_rules.yaml"
+
+- name: "{{ metro_name }}->Update podname in alerting_rules_default.yaml"
+  replace:
+    dest: "{{ item }}"
+    regexp: "@@PODNAME@@"
+    replace: "{{ \"'{{ $labels.region }}.{{ $labels.metro }}.{{ $labels.job }}'\" }}"
+  with_fileglob:
+    - "/opt/cisco/alerting_rules_default.yaml"
+
+- name: "{{ metro_name }}->Merge custom and default alerting rules"
+  command:  "/opt/cisco/merge_alerting_rules.py /opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alerting_custom_rules.yaml /opt/cisco/alerting_rules_default.yaml /opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alerting_rules.yaml"
+  when: custom_alerts.stat.exists
+
+- name: "{{ metro_name }}->Copy merged alert rules to playbook dir"
+  copy:
+    src: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alerting_rules.yaml"
+    dest: "{{ playbook_dir }}/roles/prometheus/templates/alerting_rules.yaml"
+  when: custom_alerts.stat.exists
+
+- name: "{{ metro_name }}->Render default alertmanager_config.yaml"
+  template:
+    src: "{{ playbook_dir }}/roles/prometheus/templates/alertmanager_default_config.yaml"
+    dest: "/opt/cisco/alertmanager_default_config.yaml"
+
+- name: "{{ metro_name }}->Check if custom alertmanager config exists"
+  stat:
+    path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alertmanager_custom_config.yaml"
+  register: custom_am_config
+
+- name: "{{ metro_name }}->Copy default alertmanager config to playbook dir if custom config is absent"
+  copy:
+    src: "/opt/cisco/alertmanager_default_config.yaml"
+    dest: "{{ playbook_dir }}/roles/prometheus/templates/alertmanager_config.yaml"
+  when: not custom_am_config.stat.exists
+
+- name: "{{ metro_name }}->Merge custom and default alertmanager configs"
+  command: "/opt/cisco/merge_configs.py /opt/cisco/alertmanager_default_config.yaml /opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alertmanager_custom_config.yaml /opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alertmanager_config.yaml"
+  when: custom_am_config.stat.exists
+
+- name: "{{ metro_name }}->Update SNMP URL in merged alertmanager configs"
+  replace:
+    dest: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alertmanager_config.yaml"
+    regexp: "http.*localhost.*alarms"
+    replace: "{{ \" http://{{ metro_name }}-snmp-svc.{{ metro_name }}.svc.cluster.local:1161/alarms\" }}"
+  when: custom_am_config.stat.exists
+
+- name: "{{ metro_name }}->Copy merged alertmanager configs to playbook dir"
+  copy:
+    src: "/opt/cisco/cvimmon-metros/{{ metro_name }}/prometheus/alertmanager_config.yaml"
+    dest: "{{ playbook_dir }}/roles/prometheus/templates/alertmanager_config.yaml"
+  when: custom_am_config.stat.exists
+
+- name: "{{ metro_name }}->Render Prometheus-{{ metro_name }} Helm Values File | Helm Values File"
+  become: true
+  vars:
+    CVIM_MON:
+      central: true
+  template: { src: "prometheus-values.yaml", dest: "{{ directory_matched.stdout }}/{{ prometheus_app_directory }}/values.yaml" }
+
+- name: "{{ metro_name }}->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list | grep {{ prometheus_deployment_name }}-{{ metro_name }}
+
+- name: "{{ metro_name }}->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list {{ prometheus_deployment_name }}-{{ metro_name }} | tail -n +2 | awk '{print $2}'
+  register: prometheus_old_version
+
+- name: "{{ metro_name }}->Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ prometheus_helm_upgrade_path }}/prometheus-values.yaml", dest: "{{ prometheus_helm_upgrade_path }}/prometheus-values-{{ prometheus_old_version.stdout }}.yaml" }
+
+- name: "{{ metro_name }}->Render Prometheus-{{ metro_name }} Specific Prometheus Helm Values File | Helm Values File for Metro"
+  become: true
+  vars:
+    CVIM_MON:
+      central: true
+  template: { src: "prometheus-values.yaml", dest: "{{ prometheus_helm_upgrade_path }}" }
+
+- name: "{{ metro_name }}->Save the old version of the helm stack"
+  lineinfile: { dest: "{{ prometheus_helm_upgrade_path }}/prometheus-old-version", regexp: '^PROMETHEUS-OLD-REVISION=', line: 'PROMETHEUS-OLD-REVISION={{ prometheus_old_version.stdout }}', create: yes }
+
+- name: "{{ metro_name }}->Upgrade Prometheus-{{ metro_name }} with Helm."
+  command: >
+    /usr/bin/helm upgrade -f "{{ prometheus_metro_values_path }}" "{{ prometheus_deployment_name }}-{{ metro_name }}" "{{ directory_matched.stdout }}"/"{{ prometheus_app_directory }}"
+
+- name: "{{ metro_name }}->Check Rollout Status of Prometheus-{{ metro_name }}-server Deployment"
+  command: kubectl -n "{{ metro_name }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-{{ metro_name }}-server"
+  register: prometheus_server_status
+  ignore_errors: yes
+
+- fail:
+  ignore_errors: yes
+  register: prometheus_update_status
+  when: prometheus_server_status is failed
+
+- name: "{{ metro_name }}->Check the status of Prometheus-{{ metro_name }} Deployment once rolled-out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ metro_name }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ prometheus_deployment_name }}-{{ metro_name }}-server"
+  when: prometheus_update_status is not failed
+
+- name: "{{ metro_name }}->Check the status of Prometheus-{{ metro_name }}-alertmanager Statefuleset"
+  shell: |
+    until kubectl -n "{{ metro_name }}" get statefulset {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ prometheus_deployment_name }}-{{ metro_name }}-alertmanager"
+  when: prometheus_update_status is not failed
+
+- name: "{{ metro_name }}->Ensure Prometheus-{{ metro_name }} Deployment and pods are up and running."
+  changed_when: false
+  register: "prometheus_state"
+  vars:
+    prometheus_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.containerStatuses[].ready"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=prometheus --output=json --namespace={{ metro_name }}"
+  until:
+      - "prometheus_state.stdout|from_json|json_query(pods_query)|unique == [true]"
+      - "prometheus_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+  when: prometheus_update_status is not failed
+
+- include: prometheus-rollback.yaml
+  when: prometheus_update_status is failed

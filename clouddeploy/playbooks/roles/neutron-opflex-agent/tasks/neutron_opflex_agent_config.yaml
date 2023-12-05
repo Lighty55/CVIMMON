@@ -1,0 +1,35 @@
+- name: Create Neutron opflex agent Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_opflex_agent
+
+- name: Copy neutron config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+        dest: "{{ docker.neutron_opflex_agent.host_data_dir }}/neutron_config" }
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutronopflexagent.service",
+        dest: "/usr/lib/systemd/system/docker-neutronopflexagent.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

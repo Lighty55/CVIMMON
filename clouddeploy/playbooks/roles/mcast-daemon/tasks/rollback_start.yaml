@@ -1,0 +1,76 @@
+# First remove the new container and artifacts
+- name: Shut off mcast daemon docker service
+  service:
+    name: docker-mcast-daemon
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove mcast daemon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mcast-daemon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove mcast daemon docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "mcast_daemon_{{ docker.mcast_daemon.image_tag }}" }
+
+- name: Remove mcast daemon docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.mcast_daemon.name }}"
+    tag: "{{ docker.mcast_daemon.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }}/docker-mcast-daemon.service /usr/lib/systemd/system/docker-mcast-daemon.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now remove the backup volume
+- name: Remove back up mcast daemon Directory
+  file:
+    path: "/docker/mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias mcastdaemon='in_container mcast_daemon_"
+    line: "{{ item }}"
+  with_items:
+    - alias mcastdaemon='in_container mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }}'
+
+- name: Start mcast daemon container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-mcast-daemon
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if mcast daemon Docker container has started running
+  shell: docker ps -a | grep Up | grep mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="mcast daemon Container does not seem to be running"
+  when: command_result.stdout == ""

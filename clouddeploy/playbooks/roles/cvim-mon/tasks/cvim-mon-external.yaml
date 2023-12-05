@@ -1,0 +1,60 @@
+---
+- name: Check if external monitoring directory exists
+  find:
+     paths: /var/cisco/artifacts
+     patterns: "external-monitoring-*.tar.gz"
+  register: external_file
+
+- name: Get full name of external file in /var/cisco/artifacts
+  set_fact:
+    ext_dir_name: "{{ lookup('fileglob', '/var/cisco/artifacts/external-monitoring-*.tar.gz') }}"
+  when: external_file.matched != 0
+
+- name: Create external telegraf directory
+  file:
+    path: "/tmp/external-backup"
+    state: directory
+    owner: root
+    group: 0
+    mode: "0755"
+  when: external_file.matched != 0
+
+- name: Copy external monitoring tar file to tmp if it exists
+  shell: cd /tmp/external-backup && tar -xvf {{ ext_dir_name }} --strip-components 1
+  when: external_file.matched != 0
+
+- name: Clean yum cache
+  shell: yum clean all
+
+- name: yum update all the packages
+  yum: name=* state=latest
+
+- name: Check system telegraf rpm
+  command: rpm -q telegraf
+  register: system_telegraf_rpm
+
+- name: Check client telegraf rpm version
+  shell: rpm -q -p /tmp/external-backup/telegraf-*.rpm
+  register: client_telegraf_rpm
+  when: external_file.matched != 0
+
+- name: Check if client and system telegraf rpm versions are the same
+  set_fact:
+    rpm_match: "{{ False if client_telegraf_rpm.stdout != system_telegraf_rpm.stdout else True }}"
+  when: external_file.matched != 0
+
+- name: Check if external telegraf configs differ between curr and backup file
+  raw: diff /tmp/external-backup/extern.conf /var/lib/cvim_mon/extern.conf
+  register: config_match
+  when: external_file.matched != 0
+  ignore_errors: True
+  failed_when: False
+
+- name: Remove temporary external monitoring directory once all operations pass
+  file:
+    path: /tmp/external-backup
+    state: absent
+
+- name: Run an installation to create external monitoring tar file if fresh install or config change
+  include: cvim-mon-external-install.yaml
+  when: rpm_match is not defined or not rpm_match or config_match is not defined or config_match.rc != 0

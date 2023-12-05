@@ -1,0 +1,33 @@
+#############################################################################
+# Check node status
+#
+# To show whether nodes receive and process update from cluster write-set by
+# making sure all the members:
+# - can accept SQL queries (wsrep_ready)
+# - have network connectivity with other members (wsrep_connected)
+# - is part of primary component in one of the allowed states
+#   (wsrep_local_state_comment)
+#############################################################################
+- name: node status | check for wsrep_ready == ON
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_ready"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: wsrep_ready
+  until: wsrep_ready.stdout == "ON" and not  wsrep_ready.stderr | search("ERROR")
+  retries: 60
+  delay: 5
+
+- name: node status | check for wsrep_connected == ON
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_connected"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: wsrep_connected
+  until: wsrep_connected.stdout == "ON" and not wsrep_connected.stderr | search("ERROR")
+  retries: 60
+  delay: 5
+
+- name: node status | check for wsrep_local_state_comment is in one of the valid states
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_local_state_comment"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: wsrep_local_state_comment
+  until: wsrep_local_state_comment.stdout in [ 'Joining', ' Waiting on SST', 'Joined', 'Synced', 'Donor' ] and not wsrep_local_state_comment.stderr | search("ERROR")
+  retries: 60
+  delay: 5

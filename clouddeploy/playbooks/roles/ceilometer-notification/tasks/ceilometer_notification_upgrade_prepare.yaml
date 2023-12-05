@@ -1,0 +1,38 @@
+#######################################################
+# Shut down the old ceilometer notification containers
+#######################################################
+# Ceilometer Notification.
+- name: Shut off ceilometer notification docker service
+  service:
+    name: docker-ceilometernotification
+    enabled: no
+    state: stopped
+
+- name: Remove ceilometer notification service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometernotification.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ceilometer notification docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometernotification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}" }
+
+- name: Remove ceilometer notification docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ CEILOMETER_NOTIFICATION_PREVIOUS_NAME }}"
+    tag: "{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ceilometer notification Directory
+  file:
+    path: "{{ docker.ceilometer_notification.host_data_dir }}"
+    state: absent

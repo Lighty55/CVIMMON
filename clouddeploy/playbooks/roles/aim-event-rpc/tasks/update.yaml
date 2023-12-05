@@ -1,0 +1,9 @@
+- include: aim_event_rpc_update_prepare.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: aim_event_rpc_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: aim_event_rpc_start.yaml
+  when: MECHANISM_DRIVERS == "aci"
+

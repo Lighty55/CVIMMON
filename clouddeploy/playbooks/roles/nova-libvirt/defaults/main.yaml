@@ -1,0 +1,22 @@
+# VOLUMES TO BE MOUNTED FOR LIBVIRT
+NOVA_VOLUME : "/var/lib/nova"
+LIBVIRT_VOLUME:  "/var/lib/libvirt"
+QEMU_VOLUME: "/etc/libvirt/qemu"
+RUN_VOLUME: "/run"
+CGROUP_VOLUME: "/sys/fs/cgroup"
+
+# CEPH Secret UUID setup
+SECRET_UUID: "{{ cinder_ceph_secret }}"
+
+# LIBVIRTD Configuration Defaults
+LIBVIRTD_KEEPALIVE_INTERVAL: 5
+LIBVIRTD_KEEPALIVE_COUNT: 100
+
+NOVA_HOST: "{{ control_bond }}"
+NOVA_LIBVIRT_PREVIOUS_TAG:
+NOVA_LIBVIRT_PREVIOUS_NAME:
+
+MAX_WORKERS: 40
+
+# Use seccomp syscall sandbox in QEMU
+seccomp_sandbox: 1

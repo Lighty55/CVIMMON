@@ -1,0 +1,68 @@
+---
+- name: "{{ metro_name }}->Get portworx volume information for prometheus-{{ metro_name }}-server"
+  shell: >
+    kubectl get pv | grep {{ metro_name }}/prometheus-{{ metro_name }}-server | head -n1 | awk '{print $1;}' | cat
+  register: prometheus_server
+
+- name: "{{ metro_name }}->Get portworx volume information for prometheus-{{ metro_name }}-alertmanager"
+  shell: >
+    kubectl get pv | grep prometheus-{{ metro_name }}-alertmanager | head -n1 | awk '{print $1;}' | cat
+  register: prometheus_alertmanager
+
+- name: "{{ metro_name }}->Delete Prometheus-{{ metro_name }} with Helm."
+  command: >
+    /usr/bin/helm delete --purge "{{ prometheus_deployment_name }}-{{ metro_name }}"
+  when: "'{{ prometheus_deployment_name }}-{{ metro_name }}' in helm_list_results.stdout_lines"
+
+- name: "{{ metro_name }}->Check the status of Prometheus-{{ metro_name }} Deletion"
+  command: >
+    /usr/bin/helm list
+  register: "prometheus_state"
+  until: "'{{ prometheus_deployment_name }}-{{ metro_name }}' not in prometheus_state.stdout_lines"
+  retries: 50
+  delay: 5
+
+- name: "{{ metro_name}}->Check if prometheus-{{ metro_name }}-server has been removed from portworx volume list"
+  shell: >
+    pxctl volume list
+  register: pxctl_delete
+  until: prometheus_server.stdout not in pxctl_delete.stdout
+  retries: 50
+  delay: 5
+  delegate_to: "{{ groups['all-masters'][0] }}"
+  when: prometheus_server.stdout != ""
+
+- name: "{{ metro_name }}->Remove {{ metro_name }} directory from /opt/cisco/cvimmon-metros/"
+  file:
+    path: "{{ prometheus_values_path }}"
+    state: absent
+
+- name: "{{ metro_name }}->Remove Prometheus Password for stack {{ metro_name }} in secrets"
+  lineinfile:
+    dest: "{{ password_file_path }}"
+    state: absent
+    regexp: '^(.*)Prometheus-Password-{{ metro_name }}\((.*)$'
+
+- name: "{{ metro_name }}->Delete {{ metro_name }} namespace from kubernetes"
+  shell: >
+    kubectl delete ns {{ metro_name }}
+  ignore_errors: True
+  failed_when: False
+
+- name: "{{ metro_name }}->Check if {{ metro_name }} stack has been deleted from namespace"
+  shell: >
+   kubectl get ns
+  register: kube_namespace
+  until: "'{{ metro_name }}' not in kube_namespace.stdout_lines"
+  retries: 50
+  delay: 5
+
+- name: "{{ metro_name}}->Check if prometheus-{{ metro_name }}-alertmanager has been removed from portworx volume list"
+  shell: >
+    pxctl volume list
+  register: pxctl_delete
+  until: prometheus_alertmanager.stdout not in pxctl_delete.stdout
+  retries: 50
+  delay: 5
+  delegate_to: "{{ groups['all-masters'][0] }}"
+  when: prometheus_alertmanager.stdout != ""

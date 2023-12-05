@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old ironic inspector containers
+####################################################
+# Ironic inspector.
+- name: Shut off ironic inspector docker service
+  service:
+    name: docker-ironicinspector
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ironic inspector service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicinspector.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ironic inspector docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_inspector_{{ IRONIC_INSPECTOR_PREVIOUS_TAG }}" }
+
+- name: Remove ironic inspector docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ IRONIC_INSPECTOR_PREVIOUS_NAME }}"
+    tag: "{{ IRONIC_INSPECTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ironic inspector Directory
+  file:
+    path: "{{ docker.ironic_inspector.host_data_dir }}"
+    state: absent

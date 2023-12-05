@@ -1,0 +1,49 @@
+# This is currently used for host setup for both VPP and VTS
+# as the host requirements are initially the same
+- name: Create vfio-pci module start script for VTS/VPP
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "vfio-pci.conf",
+        dest: "/etc/modules-load.d/vfio-pci.conf" }
+  tags:
+    - reboot-on-failure
+  when: (inventory_hostname in "{{ groups['neutron_vtf_all'] }}") or
+        (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")
+
+- name: Create uio_pci_generic module start script for VTS
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "uio_pci_generic.conf",
+        dest: "/etc/modules-load.d/uio_pci_generic.conf" }
+  tags:
+    - reboot-on-failure
+  when: (inventory_hostname in "{{ groups['neutron_vtf_all'] }}")
+
+- name: Load required kernel module
+  service:
+    name: systemd-modules-load
+    enabled: yes
+    state: restarted
+  when: (inventory_hostname in "{{ groups['neutron_vtf_all'] }}") or
+        (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")
+
+- name: Configure max map areas and shared memory
+  script: set_max_memory_limits
+  register: command_result
+  failed_when: command_result.rc != 0
+  when: (inventory_hostname in "{{ groups['neutron_vtf_all'] }}") or
+        (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")
+
+- name: Do not delete vhostuser_socket files in /tmp
+  copy:
+    src: vhostuser_socket.conf
+    dest: /etc/tmpfiles.d/vhostuser_socket.conf
+    mode: 0644
+  when: (inventory_hostname in "{{ groups['neutron_vtf_all'] }}") or
+        (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")

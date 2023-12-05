@@ -1,0 +1,78 @@
+# Tasks used for install and reconfigure
+- name: Manage certs | Create cert directory for calipso
+  file: path={{ CALIPSO_CERT_CFG_DIR }} state=directory mode=0755 recurse=yes
+  delegate_to: localhost
+
+- name: Manage certs | Check if user has provided private certificate
+  stat: path={{ CALIPSO_CERT_STAGED_DIR }}/{{ CALIPSO_CERT_FILES.CRT }}
+  register: check_staged_crt
+  delegate_to: localhost
+
+- name: Manage certs | Check if user has provided private keys
+  stat: path={{ CALIPSO_CERT_STAGED_DIR }}/{{ CALIPSO_CERT_FILES.KEY }}
+  register: check_staged_key
+  delegate_to: localhost
+
+- name: Manage certs | Check if rest_api certificate exists
+  stat: path={{ RESTAPI_CERT_DIR }}/{{ CALIPSO_CERT_FILES.CRT }}
+  register: check_restapi_crt
+  delegate_to: localhost
+  failed_when: not check_restapi_crt.stat.exists
+  when: not check_staged_crt.stat.exists or not check_staged_key.stat.exists
+
+- name: Manage certs | Check if rest_api key exits
+  stat: path={{ RESTAPI_CERT_DIR }}/{{ CALIPSO_CERT_FILES.KEY }}
+  register: check_restapi_key
+  delegate_to: localhost
+  failed_when: not check_restapi_key.stat.exists
+  when: check_restapi_crt is defined and check_restapi_crt.stat.exists
+
+- name: Manage certs | If no user cert exists, get the rest_api certificate
+  set_fact:
+      CALIPSO_CERT_STAGED_DIR: "{{ RESTAPI_CERT_DIR }}"
+  delegate_to: localhost
+  when: check_restapi_crt is defined and check_restapi_crt.stat.exists
+
+
+# Reconfigure
+- name: Manage certs | Compare the preexisting and provided certs
+  command: diff {{ CALIPSO_CERT_STAGED_DIR }}/{{ CALIPSO_CERT_FILES.CRT }} {{ CALIPSO_CERT_CFG_DIR }}/{{ CALIPSO_CERT_FILES.CRT }}
+  register: diff_crt
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  when: ACTION is defined and ACTION == "reconfigure"
+
+- name: Manage certs | Compare the preexisting and provided keys
+  command: diff {{ RESTAPI_CERT_DIR }}/{{ CALIPSO_CERT_FILES.KEY }} {{ CALIPSO_CERT_CFG_DIR }}/{{ CALIPSO_CERT_FILES.KEY }}
+  register: diff_key
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  when: ACTION is defined and ACTION == "reconfigure"
+
+- name: Manage certs | Remove previous ssl files if they exist
+  file: path={{ CALIPSO_CERT_CFG_DIR }}/* state=absent
+  delegate_to: localhost
+  when: (ACTION is not defined) or (diff_crt is defined and diff_crt.rc) or (diff_key is defined and diff_crt.rc)
+
+
+# Install/Update/Reconfigure
+- name: Manage certs | Copy the new ssl key and cert files
+  copy:
+    src: "{{ CALIPSO_CERT_STAGED_DIR }}/{{ item.value }}"
+    dest: "{{ CALIPSO_CERT_CFG_DIR }}/{{ item.value }}"
+  with_dict: "{{ CALIPSO_CERT_FILES }}"
+  register: cp_ssl_files
+  delegate_to: localhost
+  when: (ACTION is not defined) or (diff_crt is defined and diff_crt.rc) or (diff_key is defined and diff_crt.rc)
+
+- name: Manage certs | Set file permission for the cert and key files
+  file: path={{ item.file }} owner=2033 group=2033 mode={{ item.mode }}
+  with_items:
+    - { file: '{{ CALIPSO_CERT_CFG_DIR }}/{{ CALIPSO_CERT_FILES.KEY }}', mode: '0600' }
+    - { file: '{{ CALIPSO_CERT_CFG_DIR }}/{{ CALIPSO_CERT_FILES.CRT }}', mode: '0644' }
+  delegate_to: localhost
+  when: cp_ssl_files is defined

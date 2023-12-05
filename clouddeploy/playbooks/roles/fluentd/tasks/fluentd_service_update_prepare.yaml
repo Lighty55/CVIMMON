@@ -1,0 +1,54 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create fluentd docker staging folder
+  file:
+    path: "/docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: directory
+    mode: "0755"
+
+# Backup the fluentd forwarder volume
+- name: Backup the fluentd volume
+  shell: cp /docker/fluentd/* /docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}/.
+
+# Backup the logrotate config files
+- name: Create the logrotate staging folder
+  file: path=/docker/logrotate_{{ FLUENTD_PREVIOUS_TAG }} state=directory mode=0755
+
+- name: Backup the logrotate config files
+  shell: cp -p /docker/logrotate/* /docker/logrotate_{{ FLUENTD_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: Back up the fluentd systemd file
+  command: cp /usr/lib/systemd/system/docker-fluentd.service /docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}/docker-fluentd.service
+
+#####################################################
+# Shut down the old fluentd container
+####################################################
+- name: Shut off fluentd docker service
+  service:
+    name: docker-fluentd
+    enabled: no
+    state: stopped
+
+- name: Remove fluentd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-fluentd.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: List the fluentd volumes
+  shell: ls -A1 /docker/fluentd/
+  register: files
+
+- name: Clean the fluentd volume
+  file:
+    path: /docker/fluentd/{{ item }}
+    state: absent
+  with_items: "{{ files.stdout_lines }}"
+
+# Workaround for logrotation
+- name: Remove the logrotate directory
+  file: path=/docker/logrotate state=absent

@@ -1,0 +1,15 @@
+- name: Install Glance Containerized service.
+  hosts: glance_registry_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "glance-registry", tags: [ "base", "glance-registry" ] }
+
+- name: Install Glance API Service.
+  hosts: glance_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "glance-api", tags: [ "base", "glance-api" ] }

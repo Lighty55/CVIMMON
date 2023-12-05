@@ -1,0 +1,93 @@
+# First remove the new container and artifacts and magnum api
+- name: Shut off magnum api docker service
+  service:
+    name: docker-magnumapi
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove magnumapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove magnum-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumapi_{{ docker.magnum_api.image_tag }}" }
+
+- name: Remove magnum docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_api.name }}"
+    tag: "{{ docker.magnum_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# List and Remove magnum API files
+- name: List the magnum API files
+  shell: ls -A1 /docker/magnum_api/
+  register: contents
+
+- name: Remove magnum API files
+  file:
+    path: /docker/magnum_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+#  Recover the magnum api volume contents
+- name: recover magnum api volume contents
+  shell: cp /docker/magnum_api_{{ MAGNUM_API_PREVIOUS_TAG }}/* /docker/magnum_api/.
+
+# Now remove the backup volume
+- name: Remove back up magnum API Directory
+  file:
+    path: "/docker/magnum_api_{{ MAGNUM_API_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/magnum_api/docker-magnumapi.service /usr/lib/systemd/system/docker-magnumapi.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias magnumapi='in_container magnumapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias magnumapi='in_container magnumapi_{{ MAGNUM_API_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start magnumapi service
+  service:
+    name: docker-magnumapi
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Magnum API Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumapi_{{ MAGNUM_API_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum API Container does not seem to be running"
+  when: command_result.stdout == ""
+

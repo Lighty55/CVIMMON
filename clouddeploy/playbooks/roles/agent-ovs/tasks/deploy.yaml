@@ -1,0 +1,4 @@
+- include: agent_ovs_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+- include: agent_ovs_start.yaml
+  when: MECHANISM_DRIVERS == "aci"

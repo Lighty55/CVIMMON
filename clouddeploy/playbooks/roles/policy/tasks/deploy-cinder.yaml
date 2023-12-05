@@ -1,0 +1,22 @@
+- name: Copy Cinder Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/cinder-api/templates/{{ item }}"
+    dest: "{{docker.cinder_api.host_data_dir }}/{{ item }}"
+  with_items:
+    - "cinder_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.cinder_api.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart cinder api service
+  service:
+    name: "docker-cinderapi"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Cinder API to be alive
+  wait_for: host={{ control_bond }} port={{ CINDER_API_PORT }}
+  when: policy.changed

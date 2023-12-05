@@ -1,0 +1,6 @@
+#!/bin/sh
+{% if 'bgp_mgmt_addresses' in SERVERS[ansible_nodename] %}
+sudo ip netns exec gobgp_{{ item }} /gobgp-agent --config-file /opt/kolla/gobgp-agent-{{ item }}.cfg
+{% else %}
+/gobgp-agent --config-file /opt/kolla/gobgp-agent-{{ item }}.cfg
+{% endif %}

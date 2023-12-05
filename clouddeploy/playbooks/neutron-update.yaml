@@ -1,0 +1,241 @@
+- name: Update Neutron Common Containerized service.
+  hosts: host_common
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-common", tags: [ "neutron-update", "neutron-common", "neutron-common-apic" ] }
+  serial: "30%"
+
+- name: Install etcd peer Containerized service.
+  hosts: etcd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "etcd", tags: [ "etcd", "neutron-update" ] }
+  serial: "30%"
+
+- name: Update Neutron Server Containerized service.
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-server", tags: [ "neutron-update", "neutron-server", "neutron-server-apic" ] }
+  serial: "30%"
+
+- name: Update AIM Event RPC Containerized service.
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-event-rpc", tags: [ "neutron-update", "aim-event-rpc" ] }
+  serial: "30%"
+
+- name: Update AIM Event Polling Containerized service.
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-event-polling", tags: [ "neutron-update", "aim-event-polling" ] }
+  serial: "30%"
+
+- name: Update AIM AID Containerized service.
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-aid", tags: [ "neutron-update", "aim-aid" ] }
+  serial: "30%"
+
+- name: Update Neutron VTF Containerized service.
+  hosts: neutron_vtf_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vtf", tags: [ "neutron-update", "neutron-vtf" ] }
+  serial: "30%"
+
+- name: Update Neutron VPP Containerized service.
+  hosts: neutron_vpp_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vpp", tags: [ "neutron-update", "neutron-vpp" ] }
+  serial: "30%"
+
+- name: Ensure VPP starts in all controllers before L3 agent and DHCP are up.
+  hosts: etcd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+     - name: Get etcd container name
+       shell: docker ps -a | grep etcd | grep Up |awk '{print $NF}'
+       register: etcd_name
+       when: MECHANISM_DRIVERS == "vpp"
+
+     - name: Check if the VPP agent is alive in etcd
+       shell: docker exec {{ etcd_name.stdout }} etcdctl get /networking-vpp/state/{{ ansible_nodename }}/alive
+       register: etcd_status
+       until: etcd_status.rc == 0 and etcd_status.stdout == "1"
+       retries: 10
+       delay: 6
+       when: MECHANISM_DRIVERS == "vpp"
+  tags:
+      - neutron-update
+      - neutron-vpp
+
+- name: Upgrade ovs dbserver.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_dbserver", tags: [  "neutron-update", "ovs-db-server" ] }
+  serial: "30%"
+
+- name: Upgrade openvswitch Agent Containerized service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_vswitch", tags: [  "neutron-update", "ovs-vswitchd" ] }
+  serial: "30%"
+
+- name: Update Neutron Linuxbridge Containerized service.
+  hosts: neutron_linuxbridge_agent_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-linuxbridge", tags: [ "neutron-update", "neutron-linuxbridge" ] }
+  serial: "30%"
+
+- name: Update Neutron OVS Containerized service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-ovs", tags: [ "neutron-update", "neutron-ovs" ] }
+  serial: "30%"
+
+- name: Update Neutron SRIOV containers.
+  hosts: nova_compute_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-sriov", tags: [ "neutron-update", "neutron-sriov" ] }
+  serial: "30%"
+
+- name: Update mcast daemon service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "mcast-daemon", tags: [ "neutron-update", "mcast-daemon" ] }
+  serial: "30%"
+
+- name: Update agent ovs service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "agent-ovs", tags: [ "neutron-update", "agent-ovs"  ] }
+  serial: "30%"
+
+- name: Update neutron opflex agent service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-opflex-agent", tags: [ "neutron-update", "neutron-opflex-agent" ] }
+
+- name: Update neutron opflex agent service.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-opflex-agent", tags: [ "neutron-update", "neutron-opflex-agent" ] }
+
+- hosts: nova_compute_all
+  tasks:
+  - name: Start all nova compute services
+    service:
+      name: docker-novacpu
+      enabled: yes
+      state: started
+    tags:
+      - neutron-update
+      - neutron-linuxbridge
+      - neutron-ovs
+      - neutron-vtf
+      - neutron-vpp
+      - neutron-opflex-agent
+      - neutron-sriov
+
+- hosts: nova_compute_all
+  tasks:
+  - name: Start all nova ssh services
+    service:
+      name: docker-novassh
+      enabled: yes
+      state: started
+    tags:
+      - neutron-update
+      - neutron-linuxbridge
+      - neutron-ovs
+      - neutron-vtf
+      - neutron-vpp
+      - neutron-opflex-agent
+      - neutron-sriov
+    when: NETAPP is not defined
+
+- name: Update Neutron DHCP Containerized service.
+  hosts: neutron_dhcp_agent_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-dhcp", tags: [ "neutron-update", "neutron-dhcp", "neutron-dhcp-ovs", "neutron-dhcp-vts", "neutron-dhcp-apic" ] }
+  serial: "30%"
+
+- name: Update Neutron L3 Containerized service.
+  hosts: neutron_l3_agent_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-l3", tags: [ "neutron-update", "neutron-l3", "neutron-l3-ovs" ] }
+  serial: "30%"
+
+- name: Update Neutron Lbaas Containerized service.
+  hosts: neutron_lbaas_agent_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-lbaas", tags: [ "neutron-update", "neutron-lbaas" ] }
+  serial: "30%"
+
+- name: Update Neutron Metadata Containerized service.
+  hosts: neutron_metadata_agent_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-metadata", tags: [ "neutron-update", "neutron-metadata" ] }
+  serial: "30%"

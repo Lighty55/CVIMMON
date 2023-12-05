@@ -1,0 +1,89 @@
+---
+- name: install docker dependencies
+  become: yes
+  yum:
+    name: "{{item}}"
+  with_items:
+    - yum-utils
+    - device-mapper-persistent-data
+    - lvm2
+    - policycoreutils-python
+    - ntp
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 15
+
+- name: "Install Container-Selinux Package"
+  yum:
+    name: container-selinux
+    state: installed
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 15
+
+- name: "Install Docker Package"
+  yum:
+    name: docker-ce
+    state: installed
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 15
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+
+# These tasks can be removed if python-docker is installed with ISO
+
+- name: Installs Python SetupTools
+  yum:
+    name: python-setuptools
+    state: installed
+
+- set_fact:
+    docker_bip: "169.254.99.99/24"
+
+- name: "delete docker0 and recreate with link local ip"
+  shell: ip link del docker0
+  ignore_errors: True
+  failed_when: false
+
+# Make sure to remove oci register machine before any docker upgrade
+- name: Remove oci-register-machine hook
+  file:
+    path: "/usr/libexec/oci/hooks.d/oci-register-machine"
+    state: absent
+
+- name: Render daemon.json
+  template:
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    mode: 0644
+
+- name: Reload systemd service
+  command: systemctl daemon-reload
+
+- name: Restart docker when there is a change
+  shell: systemctl restart docker
+
+- action: shell docker ps
+  register: result
+  until: result.stderr.find("Is your docker daemon up and running?") == -1
+  ignore_errors: True
+  retries: 10
+  delay: 15
+
+- name: Make sure docker service is started
+  service: name=docker state=started
+
+- name: Remove any IPTABLES which obstruct registry
+  shell: "iptables -F && iptables -X \
+        && iptables -F -t nat && iptables -X -t nat \
+        && iptables -F -t raw && iptables -X -t raw \
+        && iptables -F -t mangle && iptables -X -t mangle"

@@ -1,0 +1,9 @@
+apiVersion: v1
+appVersion: "1.7"
+description: A Helm chart for Kubernetes that runs the calipso.io discovery and monitoring system
+home: calipso.io
+maintainers:
+- email: korlev@cisco.com
+  name: Koren Lev
+name: calipso
+version: 0.1.7

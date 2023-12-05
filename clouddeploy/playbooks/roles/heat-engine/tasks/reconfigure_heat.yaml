@@ -1,0 +1,240 @@
+- name: Copy the new Heat engine configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "heat_engine_config.j2", dest: "{{docker.heat_engine.host_data_dir }}/heat_engine_reconfigure.j2" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/heat_engine/heat_engine_config.j2 /docker/heat_engine/heat_engine_reconfigure.j2
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/heat_engine/heat_engine_reconfigure.j2 /docker/heat_engine/heat_engine_config.j2
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/heat_engine/heat_engine_reconfigure.j2 state=absent
+  when: command_result.stdout == ""
+
+- name: Generate the reconfig credentials
+  command: docker exec heatengine_{{ docker.heat_engine.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec heatengine_{{ docker.heat_engine.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec heatengine_{{ docker.heat_engine.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HEAT_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HEAT_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    HEAT_STACK_DOMAIN_ADMIN_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/HEAT_STACK_DOMAIN_ADMIN_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+# Now update the SQL password if the HEAT_DB_PASSWORD is part of update
+- name: Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ HEAT_DB_USER }}'@'%' = PASSWORD('{{ HEAT_DB_PASSWORD }}');flush privileges"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'HEAT_DB_PASSWORD' in secrets_result.stdout ) or  'HEAT_DB_PASSWORD' in command_result.stdout "
+
+# Now update the HEAT keystone password if it is part of update
+- name: Update the heat keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ HEAT_KEYSTONE_USER }}
+           password={{ HEAT_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "(secrets_result|changed and  'HEAT_KEYSTONE_PASSWORD' in secrets_result.stdout ) or  'HEAT_KEYSTONE_PASSWORD' in command_result.stdout "
+
+- name: Updating the heat endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=heat
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ HEAT_API_SERVICE_HOST }}:8004/v1/%(tenant_id)s
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:8004/v1/%(tenant_id)s
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:8004/v1/%(tenant_id)s"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+- name: Updating the heatcfn endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=heat-cfn
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ HEAT_API_CFN_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+# Now delete the template file inside the container
+- name: Delete the heat engine config file inside container to force a reconfigure
+  command: docker cp /docker/heat_engine/heat_engine_config.j2 heatengine_{{ docker.heat_engine.image_tag }}:/opt/kolla/heat_engine_config.j2
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart heat engine service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-heatengine
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Check if Heat engine Docker container has started running
+  shell: docker ps -a | grep Up | grep heatengine_{{ docker.heat_engine.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Fail if container is not UP.
+  fail: msg="Heat engine Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")
+
+# Now update the HEAT stack domain admin password if it is part of update
+- name: Update the heat stack domain admin password
+  command: docker exec heatengine_{{ docker.heat_engine.image_tag }} /bin/bash -c "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}; export OS_USERNAME={{ ADMIN_USER }}; export OS_PASSWORD={{ ADMIN_USER_PASSWORD }}; export OS_TENANT_NAME={{ ADMIN_TENANT_NAME }}; export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }}; export OS_PROJECT_DOMAIN_NAME=default; export OS_PROJECT_DOMAIN_NAME=default; /opt/kolla/heat-keystone-update-domain-user-password --stack-user-domain-name {{ HEAT_STACK_USER_DOMAIN_NAME }} --stack-domain-admin {{ HEAT_STACK_DOMAIN_ADMIN }} --stack-domain-admin-password {{ HEAT_STACK_DOMAIN_ADMIN_PASSWORD }}"
+  when: "(secrets_result|changed and  'HEAT_STACK_DOMAIN_ADMIN_PASSWORD' in secrets_result.stdout ) or  'HEAT_STACK_DOMAIN_ADMIN_PASSWORD' in command_result.stdout "
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_DB_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_DB_PASSWORD
+  register: heat_db_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_DB_PASSWORD" line="HEAT_DB_PASSWORD{{ ":" }} {{ HEAT_DB_PASSWORD }}"
+  when: staging_exists.stat.exists == True and heat_db_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_KEYSTONE_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_KEYSTONE_PASSWORD
+  register: heat_keystone_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_KEYSTONE_PASSWORD" line="HEAT_KEYSTONE_PASSWORD{{ ":" }} {{ HEAT_KEYSTONE_PASSWORD }}"
+  when: staging_exists.stat.exists == True and heat_keystone_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the HEAT_STACK_DOMAIN_ADMIN_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep HEAT_STACK_DOMAIN_ADMIN_PASSWORD
+  register: heat_stack_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^HEAT_STACK_DOMAIN_ADMIN_PASSWORD" line="HEAT_STACK_DOMAIN_ADMIN_PASSWORD{{ ":" }} {{ HEAT_STACK_DOMAIN_ADMIN_PASSWORD }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: staging_exists.stat.exists == True and heat_stack_password.stdout != ""
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_DB_PASSWORD value={{ HEAT_DB_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - secrets_result|changed and 'HEAT_DB_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_KEYSTONE_PASSWORD value={{ HEAT_KEYSTONE_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - secrets_result|changed and 'HEAT_KEYSTONE_PASSWORD' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/HEAT_STACK_DOMAIN_ADMIN_PASSWORD value={{ HEAT_STACK_DOMAIN_ADMIN_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['heat_engine_all'][0] }}"
+    - secrets_result|changed and 'HEAT_STACK_DOMAIN_ADMIN_PASSWORD' in secrets_result.stdout

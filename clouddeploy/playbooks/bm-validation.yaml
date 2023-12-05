@@ -1,0 +1,110 @@
+- name: L2 check from control server
+  gather_facts: false
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: "validate_control_l2" , tags: [ "l2", "bm_validation" ] }
+
+- name: L3 check from control server
+  gather_facts: false
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: "validate_control_l3" , tags: [ "l3", "bm_validation" ] }
+
+- name: L2 check from compute server
+  gather_facts: false
+  hosts: nova_libvirt_power_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: "validate_compute_l2" , tags: [ "l2", "bm_validation" ] }
+
+- name: L3 check from compute server
+  gather_facts: false
+  hosts: nova_libvirt_power_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: "validate_compute_l3" , tags: [ "l3", "bm_validation" ] }
+
+# Perform ping check serially to ensure each controller has a chance
+# to ping each of the APIC management ips in a single play to evaludate
+# that at least one of the APIC management ips are reachable
+# Need to check host list of 'apic_hosts'
+- name: Perform APIC controller ping test if mechansim driver is ACI
+  gather_facts: false
+  hosts: host_control
+  max_fail_percentage: 0
+  serial: True
+  tasks:
+    - name: Ping APIC IP
+      shell: ping -c1 {{ item }}
+      register: ping_output
+      with_items: "{{ groups['apic_hosts'] }}"
+      failed_when: false
+      when: MECHANISM_DRIVERS == 'aci'
+    - set_fact:
+        all_pings: "{{ all_pings|default('')}}-{{ item.stdout }}"
+      with_items: "{{ping_output.results}}"
+      when: MECHANISM_DRIVERS == 'aci'
+    - fail:
+        msg: "Failure reaching all APIC controllers"
+      when: "MECHANISM_DRIVERS == 'aci' and ' 0% packet loss' not in all_pings"
+  tags:
+    - bm_validation
+
+- name: Check UCSM reachability from the Controllers (B series)
+  gather_facts: false
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  tasks:
+    - name: Ping the UCSM IP
+      shell: ping -c5 {{ UCSMCOMMON.ucsm_ip }}
+      register: ping_result
+      failed_when: "' 0% packet loss' not in ping_result.stdout"
+      when: UCSMCOMMON is defined and {{ UCSMCOMMON.ENABLE_UCSM_PLUGIN }} is defined and {{ UCSMCOMMON.ENABLE_UCSM_PLUGIN }} == true
+  tags:
+    - l3
+    - bm_validation
+
+- name: Perform MTU test across all storage interfaces
+  gather_facts: false
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: 'validate_storage_l3',
+     src_ip: 'storage_ip', target_ip_list: 'storage_ip_power_all', role_ip: 'storage_ip',
+     tags: [ "l3", "bm_validation" ] }
+
+- name: Perform MTU test across management interface for central CEPH POD
+  gather_facts: false
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: 'validate_storage_l3',
+     src_ip: 'control_bond', target_ip_list: 'host_power_all', role_ip: 'cluster_ip',
+     when: PODTYPE is defined and PODTYPE == 'ceph',
+     tags: [ "l3", "bm_validation" ] }
+
+- name: Perform MTU test across cluster interface for central CEPH POD
+  gather_facts: false
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+  - {role: 'validate_storage_l3',
+     src_ip: 'cluster_ip', target_ip_list: 'cluster_ip_all', role_ip: 'cluster_ip',
+     when: PODTYPE is defined and PODTYPE == 'ceph',
+     tags: [ "l3", "bm_validation" ] }

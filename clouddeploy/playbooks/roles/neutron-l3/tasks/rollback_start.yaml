@@ -1,0 +1,97 @@
+# First remove the new container and artifacts
+- name: Shut off neutron l3 docker service
+  service:
+    name: docker-neutronl3
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron l3 service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronl3.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron l3 docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_l3_agent_{{ docker.neutron_l3_agent.image_tag  }}" }
+
+- name: Remove neutron l3 docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_l3_agent.name  }}"
+    tag: "{{ docker.neutron_l3_agent.image_tag  }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove the neutron l3 volume contents
+- name: List the neutron l3 volume contents
+  shell: ls -A1 /docker/neutron_l3_agent/
+  register: contents
+
+- name: Remove the neutron l3 volume contents
+  file:
+    path: /docker/neutron_l3_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron l3 volume contents
+- name: recover neutron l3 volume contents
+  shell: cp /docker/neutron_l3_agent_{{ L3_AGENT_PREVIOUS_TAG }}/* /docker/neutron_l3_agent/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron l3 Directory
+  file:
+    path: "/docker/neutron_l3_agent_{{ L3_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_l3_agent/docker-neutronl3.service /usr/lib/systemd/system/docker-neutronl3.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias l3agent='in_container neutron_l3_agent_"
+    line: "{{ item }}"
+  with_items:
+    - alias l3agent='in_container neutron_l3_agent_{{ L3_AGENT_PREVIOUS_TAG }}'
+
+# start the container via systemd
+- name: Start neutron l3 docker service
+  service:
+    name: docker-neutronl3
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if neutron l3  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_l3_agent_{{ L3_AGENT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron l3 Container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+

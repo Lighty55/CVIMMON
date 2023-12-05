@@ -1,0 +1,219 @@
+# Cinder Api.
+- name: Shut off cinder api docker service
+  service:
+    name: docker-cinderapi
+    enabled: no
+    state: stopped
+  register: unused_disable
+  failed_when: "unused_disable|failed and ('find' not in unused_disable.msg and 'found' not in unused_disable.msg)"
+  tags:
+    - cinderapi_shutdown
+
+- name: Remove cinderapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cinderapi.service"
+    state: absent
+  tags:
+    - cinderapi_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - cinderapi_shutdown
+
+- name: Remove cinder-bootstrap docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinder_bootstrap" }
+  tags:
+    - cinderbootstrap_shutdown
+
+- name: Stop and remove cinder-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderapi_{{ docker.cinder_api.image_tag }}" }
+  tags:
+    - cinderapi_shutdown
+
+- name: Remove cinder docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_api.name }}"
+    tag: "{{ docker.cinder_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - cinderapi_shutdown
+
+- name: Remove Cinder API Directory
+  file:
+    path: "{{ docker.cinder_api.host_data_dir }}"
+    state: absent
+  tags:
+    - cinderapi_shutdown
+
+# Cinder Scheduler.
+- name: Shut off cinder scheduler docker service
+  service:
+    name: docker-cindersch
+    enabled: no
+    state: stopped
+  register: unused_disable
+  failed_when: "unused_disable|failed and ('find' not in unused_disable.msg and 'found' not in unused_disable.msg)"
+  tags:
+    - cinderscheduler_shutdown
+
+- name: Remove cindersch service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindersch.service"
+    state: absent
+  tags:
+    - cinderscheduler_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - cinderscheduler_shutdown
+
+- name: Stop and remove cinder-scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderscheduler_{{ docker.cinder_scheduler.image_tag }}" }
+  tags:
+    - cinderscheduler_shutdown
+
+- name: Remove cinder scheduler docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_scheduler.name }}"
+    tag: "{{ docker.cinder_scheduler.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - cinderscheduler_shutdown
+
+- name: Remove Cinder Scheduler Directory
+  file:
+    path: "{{ docker.cinder_scheduler.host_data_dir }}"
+    state: absent
+  tags:
+    - cinderscheduler_shutdown
+
+# Cinder Volume
+- name: Shut off cinder volume docker service
+  service:
+    name: docker-cindervolume
+    enabled: no
+    state: stopped
+  register: unused_disable
+  failed_when: "unused_disable|failed and ('find' not in unused_disable.msg and 'found' not in unused_disable.msg)"
+  tags:
+    - cindervolume_shutdown
+
+- name: Remove cindervolume service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindervolume.service"
+    state: absent
+  tags:
+    - cindervolume_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - cindervolume_shutdown
+
+- name: Stop and remove cinder-volume docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cindervolume_{{ docker.cinder_volume.image_tag }}" }
+  tags:
+    - cindervolume_shutdown
+
+- name: Remove cinder volume docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_volume.name }}"
+    tag: "{{ docker.cinder_volume.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - cindervolume_shutdown
+
+- name: Remove Cinder Volume Directory
+  file:
+    path: "{{ docker.cinder_volume.host_data_dir }}"
+    state: absent
+  tags:
+    - cindervolume_shutdown
+
+# Cinder Backup Service
+- name: Shut off cinder backup docker service
+  service:
+    name: docker-cinderbackup
+    enabled: no
+    state: stopped
+  register: unused_disable
+  failed_when: "unused_disable|failed and ('find' not in unused_disable.msg and 'found' not in unused_disable.msg)"
+  tags:
+    - cinderbackup_shutdown
+
+- name: Remove cinderbackup service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cinderbackup.service"
+    state: absent
+  tags:
+    - cinderbackup_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - cinderbackup_shutdown
+
+- name: Stop and remove cinder-backup docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderbackup_{{ docker.cinder_backup.image_tag }}" }
+  when: docker.cinder_backup is defined
+  tags:
+    - cinderbackup_shutdown
+
+- name: Remove cinder backup docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_backup.name }}"
+    tag: "{{ docker.cinder_backup.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  when: docker.cinder_backup is defined
+  tags:
+    - cinderbackup_shutdown
+
+- name: Remove Cinder Backup Directory
+  file:
+    path: "{{ docker.cinder_backup.host_data_dir }}"
+    state: absent
+  when: docker.cinder_backup is defined
+  tags:
+    - cinderbackup_shutdown
+
+# Remove the cinder volume
+- name: Remove the cinder volume
+  shell: docker volume rm cinder
+  ignore_errors: true
+  failed_when: false

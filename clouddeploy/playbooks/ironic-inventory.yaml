@@ -1,0 +1,20 @@
+- name: Populate Ironic Inventory
+  hosts: localhost
+  max_fail_percentage: 0
+  connection: local
+  gather_facts: False
+  pre_tasks:
+    - block:
+        - name: "Looking for {{ IRONIC_INVENTORY_PATH }}"
+          stat:
+            path: "{{ IRONIC_INVENTORY_PATH }}"
+          register: ironic_inventory_stat
+
+        - name: "Read {{ IRONIC_INVENTORY_PATH }}"
+          set_fact:
+            IRONIC_INVENTORY: "{{ lookup('file', IRONIC_INVENTORY_PATH) | from_yaml }}"
+          when: 'ironic_inventory_stat.stat.exists'
+      tags: ["ironic", "ironic-inventory"]
+      when: "optional_service_ironic is defined"
+  roles:
+    - { role: "ironic-inventory", tags: ["ironic", "ironic-inventory"], when: "optional_service_ironic is defined" }

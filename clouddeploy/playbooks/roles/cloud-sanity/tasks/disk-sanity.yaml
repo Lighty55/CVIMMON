@@ -1,0 +1,62 @@
+- name: Copy disk.check.py to /tmp
+  copy: src="disk-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+- name: Run Disk maintenance for results data
+  shell: python /tmp/disk-check.py create management raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: dm_status
+  when: "{{ RUN_DISK_CHECK }} == True"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Management - Disk maintenance RAID Health
+  shell: python /tmp/disk-check.py reuse management raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: raid_health
+  when: "(dm_status is defined and 'SKIP' not in dm_status.stdout)"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Management - Disk maintenance VD Health
+  shell: python /tmp/disk-check.py reuse management vd-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: vd_health
+  when: "(dm_status is defined and 'SKIP' not in dm_status.stdout)"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove disk.check.py from /tmp
+  file: path=/tmp/disk-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove diskmgmt check disks results json file
+  file: path=/tmp/disk-maintenance/.disk-maintenance.check-disks.json state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Retrieve used disk percent on /var
+  shell: df -h /var | tail -n +2 | awk '$NF == "/var" {print $5}' | sed 's/%//'
+  register: var_percent_utilized
+  delegate_to: localhost
+  run_once: True
+
+- name: Determine disk space on /var within threshold
+  shell: echo True
+  register: mgmt_disk_space_warning
+  when: (var_percent_utilized.stdout | int) > (DISK_SPACE_USED_THRESHOLD | int)
+  delegate_to: localhost
+  run_once: True
+
+- name: Management - Percent used on /var check
+  delegate_to: localhost
+  run_once: True
+  fail: msg="WARNING Disk space used on /var above warning threshold"
+  failed_when: item == True
+  ignore_errors: True
+  with_items: "{{ mgmt_disk_space_warning.changed }}"
+  when: mgmt_disk_space_warning is defined

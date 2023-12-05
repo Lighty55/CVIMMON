@@ -1,0 +1,4 @@
+IRONIC_INSPECTOR_HOST: "{{ control_bond }}"
+
+DHCP_LEASE_TIME: 15m
+DNSMASQ_PXE_FILTER_DHCP_HOSTSDIR: /var/lib/ironic-inspector/dhcp-hostsdir

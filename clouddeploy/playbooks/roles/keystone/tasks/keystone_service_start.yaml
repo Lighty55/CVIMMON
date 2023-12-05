@@ -1,0 +1,63 @@
+- name: Start | Check if docker service is already running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias keystone='in_container keystone_"
+    line: "{{ item }}"
+  with_items:
+    - alias keystone='in_container keystone_{{ docker.keystone.image_tag }}'
+
+- name: Start | Start the Keystone Docker Service
+  docker_container:
+    name: "keystone_{{ docker.keystone.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.keystone.host_data_dir }}:{{ docker.keystone.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/keystone:/var/log/keystone:z
+      - /var/log/httpd:/var/log/httpd:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "5000:5000, 35357:35357"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Start | Wait for keystone to be alive
+  wait_for: host={{ KEYSTONE_HOST }} port={{ KEYSTONE_ADMIN_SERVICE_PORT }}
+
+- name: Check if cacert exists on management node
+  local_action: stat path={{ HAPROXY_CACERT }}
+  register: cacert
+
+- name: Copy cacert from management node
+  copy:
+    src: "{{ HAPROXY_CACERT }}"
+    dest: "{{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }}"
+    mode: "0644"
+  when: cacert.stat.exists
+
+- name: Update cacert within the container
+  command: docker cp {{ docker.keystone.host_data_dir }}/{{ CACERT_FILE }} keystone_{{ docker.keystone.image_tag }}:{{ CACERT_LOCATION }}/{{ CACERT_FILE }}
+  when: cacert.stat.exists
+
+- name: Start | Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-keystone
+  tags:
+    - reboot-on-failure
+
+- name: Start | Remove the fernet keys from the controller nodes
+  file:
+    path: "{{ docker.keystone.host_data_dir }}/fernet-key_*"
+    state: absent
+
+- pause: seconds=10 prompt="Pause for haproxy to forward traffic"

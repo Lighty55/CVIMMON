@@ -1,0 +1,71 @@
+- name: "Get the cluster status"
+  command: "/opt/pwx/bin/pxctl status"
+
+- name: "Set the portworx node in maintence mode"
+  command: "/opt/pwx/bin/pxctl service maintenance --enter -y"
+
+- name: Wait for node to go into maintence mode
+  pause:
+    seconds: 20
+
+- name: "Stop & disable portworx"
+  systemd:
+    state: stopped
+    enabled: no
+    name: portworx
+  ignore_errors: true
+
+- name: "Clean all disks used by portworx"
+  shell: "/opt/pwx/bin/pxctl sv nw --all"
+  ignore_errors: true
+
+- name: "Clean systemd disrectory"
+  file:
+    state: absent
+    path: "/etc/systemd/system/{{item}}"
+  with_items:
+    - portworx-output.service
+    - portworx-reboot.service
+    - portworx.service
+  ignore_errors: true
+
+- name: "unmount portworx mounts"
+  shell: "grep -q '/opt/pwx/oci /opt/pwx/oci' /proc/self/mountinfo && umount /opt/pwx/oci"
+  ignore_errors: true
+
+- name: "Remove portworx directories"
+  ignore_errors: true
+  file:
+    state: absent
+    path: "{{item}}/"
+  with_items:
+    - "/opt/pwx"
+    - "/etc/pwx"
+
+- name: "Install kubeadm packages"
+  become: yes
+  ignore_errors: true
+  yum:
+    name: "{{item}}"
+    state: absent
+  with_items:
+    - kubernetes-cni-{{kubernetes_cni_version}}
+    - kubelet-{{kubelet_version}}
+    - kubeadm-{{kubeadm_version}}
+    - kubectl-{{kubectl_version}}
+    - docker-ce
+
+- name: Change the default grub to boot into single user mode
+  become: yes
+  shell: "sed -i '/^GRUB_CMDLINE_LINUX=\"/ {/single/! s/ *\"$/ single\"/}' /etc/default/grub; sync; sleep 2; sync"
+  ignore_errors: true
+
+- name: Update grub config
+  become: yes
+  shell: "grub2-mkconfig -o /boot/grub2/grub.cfg; sync; sleep 2; sync"
+  ignore_errors: true
+
+- name: Update EFI GRUB if exist
+  become: yes
+  shell: "ls /boot/efi/EFI/redhat/grub.cfg 2>&1 >/dev/null && rm -f /boot/efi/EFI/redhat/grub.cfg && cp -f /boot/grub2/grub.cfg /boot/efi/EFI/redhat/grub.cfg; sync; sleep 2; sync"
+  ignore_errors: true

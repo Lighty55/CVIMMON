@@ -1,0 +1,15 @@
+- name: Copy Magnum api configuration files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "magnum_api_config.j2", dest: "{{docker.magnum_api.host_data_dir }}/magnum_api_config" }
+
+- name: Copy Magnum API systemd template.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "docker-magnumapi.service", dest: "{{docker.magnum_api.host_data_dir }}/docker-magnumapi.service" }

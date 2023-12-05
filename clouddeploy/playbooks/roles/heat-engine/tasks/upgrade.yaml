@@ -1,0 +1,6 @@
+- include: heat_engine_upgrade_prepare.yaml
+- include: heat_engine_install.yaml
+- include: heat_engine_config.yaml
+- include: heat_engine_bootstrap.yaml
+  when: SKIP_UPGRADE is defined and inventory_hostname == groups['heat_engine_all'][0]
+- include: heat_engine_start.yaml

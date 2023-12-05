@@ -1,0 +1,38 @@
+#####################################################
+# Shut down the old ovs dbserver containers
+####################################################
+- name: Shut off ovsdbserver docker service
+  service:
+    name: docker-ovs_dbserver
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ovsdbserver service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_dbserver.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ovsdbserver docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}" }
+
+- name: Remove ovsdbserver docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ OVS_DBSERVER_PREVIOUS_NAME }}"
+    tag: "{{ OVS_DBSERVER_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ovsdbserver Directory
+  file:
+    path: "{{ docker.ovs_dbserver.host_data_dir }}"
+    state: absent

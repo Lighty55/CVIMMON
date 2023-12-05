@@ -1,0 +1,35 @@
+- name: Create Neutron DHCP Agent Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_dhcp_agent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutrondhcp.service",
+        dest: "/usr/lib/systemd/system/docker-neutrondhcp.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Copy Neutron DHCP Agent (lb) Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+     dest: "/docker/neutron_dhcp_agent/neutron_config" }

@@ -1,0 +1,52 @@
+- name: Create Aim event polling staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/aim_event_polling
+
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-aimeventpolling.service",
+        dest: "/usr/lib/systemd/system/docker-aimeventpolling.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Render template for aim config.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "aim_config.j2", dest: "{{docker.aim_event_polling.host_data_dir }}/aim_config" }
+
+- name: Render template for aimctl config.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "aimctl_config.j2", dest: "{{docker.aim_event_polling.host_data_dir }}/aimctl_config" }
+
+- name: Render template for aim-event-polling template.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "docker-aimeventpolling.service", dest: "{{docker.aim_event_polling.host_data_dir }}/docker-aimeventpolling.service" }
+

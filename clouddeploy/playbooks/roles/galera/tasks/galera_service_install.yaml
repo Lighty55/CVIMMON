@@ -1,0 +1,125 @@
+- name: Create Galera Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/mariadb
+
+- name: Copy galera config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "galera_config.j2",
+        dest: "{{ docker.mariadb.host_data_dir }}/galera_config" }
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-mariadb.service",
+        dest: "/usr/lib/systemd/system/docker-mariadb.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep mariadb_{{ docker.mariadb.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias mariadb='in_container mariadb_"
+    line: "{{ item }}"
+  with_items:
+    - alias mariadb='in_container mariadb_{{ docker.mariadb.image_tag }}'
+
+# Create a docker volume for mariabd data base
+- name: Check if the mariadbdata volume exists
+  shell: docker volume list | grep mariadbdata
+  ignore_errors: true
+  failed_when: false
+  register: volume_exists
+
+# Create the volume if it does not exist
+- name: Create the mariadbdata volume if it does not exist
+  shell: docker volume create mariadbdata
+  when: volume_exists.stdout == ""
+
+- set_fact:
+    STANDALONE_MODE: True
+  when: PODTYPE is defined and PODTYPE == "nano"
+
+- name: Create temporary .bootstrap_args file with --wsrep-new-cluster option
+  copy:
+    content: "--wsrep-new-cluster"
+    dest: "/var/lib/docker/volumes/mariadbdata/_data/.bootstrap_args"
+    owner: mysql
+    group: mysql
+  when: (ACTION is undefined and server is undefined and WSREP_NODE_ADDRESS == WSREP_PRIMARY_NODE) or (ACTION is defined and (ACTION == "update" or ACTION == "upgrade") and (WSREP_NODE_ADDRESS == WSREP_PRIMARY_NODE))
+
+- name: Start the Galera Docker Service
+  docker_container:
+    name: "mariadb_{{ docker.mariadb.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.mariadb.name }}:{{ docker.mariadb.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.mariadb.host_data_dir }}:{{ docker.mariadb.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/mariadb:/var/log/mariadb:z
+      - mariadbdata:/var/lib/mysql
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "3306:3306, 4567:4567"
+    network_mode: "host"
+    env:
+      TERM: xterm
+      STANDALONE_MODE: "{{ STANDALONE_MODE }}"
+  when: command_result.stdout == ""
+
+- name: Wait for galera to be alive
+  wait_for: host={{ WSREP_NODE_ADDRESS }} port={{ MARIADB_PORT }}
+  register: galera_status
+  ignore_errors: true
+  failed_when: false
+
+- debug:
+    var: galera_status
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-mariadb
+  when: galera_status.msg is defined
+
+- name: Wait for galera to be alive
+  wait_for: host={{ WSREP_NODE_ADDRESS }} port={{ MARIADB_PORT }}
+
+- include: ../../galera_recovery/tasks/node-status.yaml
+  when: (ACTION is defined and ACTION == "upgrade") or (ACTION is defined and ACTION == "update")
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-mariadb
+  tags:
+    - reboot-on-failure

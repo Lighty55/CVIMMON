@@ -1,0 +1,23 @@
+- include: keystone_rotate_fernet_keys.yaml
+  when: (FERNET_ROTATION is defined) and (FERNET_ROTATION == "now") and
+        (num_controllers | int > 2)
+- include: keystone_autorotate_cronjob.yaml
+  when: (FERNET_ROTATION is defined) and (FERNET_ROTATION != "now") and
+        (num_controllers | int > 2)
+# For now (2.4.6) we uninstall autorotate cronjob for Fernet keys
+- include: keystone_autorotate_uninstall.yaml
+  when: (ACTION is undefined and FERNET_ROTATION is undefined) or
+        (ACTION is defined and ACTION == "update") or
+        (ACTION is defined and ACTION == "upgrade")
+- include: deploy.yaml
+  when: ACTION is undefined and FERNET_ROTATION is undefined
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: commit.yaml
+  when: ACTION is defined and ACTION == "commit"
+- include: rollback.yaml
+  when: ACTION is defined and ACTION == "rollback"
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure"
+- include: upgrade.yaml
+  when: ACTION is defined and ACTION == "upgrade"

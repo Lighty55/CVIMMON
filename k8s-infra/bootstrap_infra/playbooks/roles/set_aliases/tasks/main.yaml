@@ -1,0 +1,52 @@
+- include_vars: "{{ playbook_dir }}/../../../../openstack-configs/cvim_mon_ha.yaml"
+
+- name: Remove old bashrc
+  file:
+    path: "{{ lookup('env', 'HOME') }}/.bashrc"
+    state: absent
+  when: ACTION is undefined or ACTION == "update" or ACTION == "rollback" or ACTION == "upgrade"
+
+- name: Create new bashrc file
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "bashrcfile",
+        dest: "{{ lookup('env', 'HOME') }}/.bashrc" }
+  when: ACTION is undefined or ACTION == "update" or ACTION == "rollback" or ACTION == "upgrade"
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    line: "{{ item }}"
+  with_items:
+    - alias registry='in_container container_registry'
+    - alias repomirror='in_container repo_mirror_{{ docker.repo_mirror.image_tag }}'
+  when: ACTION is undefined or ACTION == "update" or ACTION == "upgrade"
+
+- include_vars: "{{ playbook_dir }}/../../../../openstack-configs/update.yaml"
+  when: ACTION is defined and ACTION == "rollback"
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    line: "{{ item }}"
+  with_items:
+    - alias registry='in_container container_registry'
+    - alias repomirror='in_container repo_mirror_{{ docker.repo_mirror.image_tag }}'
+  when: ACTION is defined and ACTION == "rollback"
+
+- name: Add docker alias to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    line: "{% raw %}alias dp='docker ps -a --format \"table {{.Names}}\t{{.Status}}\"'{% endraw %}"
+
+- name: Add docker alias to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    line: "{% raw %}alias kcd='kubectl config set-context $(kubectl config current-context) --namespace '{% endraw %}"

@@ -1,0 +1,49 @@
+- name: Check if Nova Scheduler Docker container is already running
+  shell: docker ps -a | grep Up | grep novascheduler_{{ docker.nova_scheduler.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novascheduler='in_container novascheduler_"
+    line: "{{ item }}"
+  with_items:
+    - alias novascheduler='in_container novascheduler_{{ docker.nova_scheduler.image_tag }}'
+
+- name: Start the Nova Scheduler Docker Service
+  docker_container:
+    name: "novascheduler_{{ docker.nova_scheduler.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_scheduler.name }}:{{ docker.nova_scheduler.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      -  "{{ docker.nova_scheduler.host_data_dir }}:{{ docker.nova_scheduler.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/nova:/var/log/nova:z
+    volumes_from:
+      - novacommon_{{ docker.nova_common.image_tag }}
+    ports: "9292:9292, 5000:5000"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if Nova Scheduler  Docker container has started running
+  shell: docker ps -a | grep Up | grep novascheduler_{{ docker.nova_scheduler.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Scheduler Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novasch
+  tags:
+    - reboot-on-failure

@@ -1,0 +1,7 @@
+- name: Register Neutron VTF Containerized service.
+  hosts: compute
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vtf", tags: [ "vts", "neutron-vtf", "neutron-install" ] }

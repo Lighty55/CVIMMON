@@ -1,0 +1,82 @@
+# First remove the new container and artifacts and nova placement api
+- name: Shut off nova placement api docker service
+  service:
+    name: docker-novaplacementapi
+    enabled: no
+    state: stopped
+
+- name: Remove novaplacementapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaplacementapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-placement-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaplacementapi_{{ docker.nova_placement_api.image_tag }}" }
+
+- name: Remove nova placement API docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_placement_api.name }}"
+    tag: "{{ docker.nova_placement_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova placement API volume contents
+- name: List the nova placement API volume contents
+  shell: ls -A1 /docker/nova_placement_api/
+  register: contents
+
+- name: Remove the nova placement API volume contents
+  file:
+    path: /docker/nova_placement_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the nova placement api volume contents
+- name: recover nova placement api volume contents
+  shell: cp /docker/nova_placement_api_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}/* /docker/nova_placement_api/.
+
+# Now remove the backup volume
+- name: Remove back up nova placement API Directory
+  file:
+    path: "/docker/nova_placement_api_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_placement_api/docker-novaplacementapi.service /usr/lib/systemd/system/docker-novaplacementapi.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novaplacementapi='in_container novaplacementapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias novaplacementapi='in_container novaplacementapi_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova placement api service
+  service:
+    name: docker-novaplacementapi
+    enabled: yes
+    state: started
+
+- name: Wait for Nova placement api to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_PLACEMENT_API_PORT }}

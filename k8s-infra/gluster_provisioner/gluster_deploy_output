@@ -1,0 +1,27 @@
+Flag --show-all has been deprecated, will be removed in an upcoming release
+
+heketi is now running and accessible via http://192.168.2.63:8080 . To run
+administrative commands you can install 'heketi-cli' and use it as follows:
+
+  # heketi-cli -s http://192.168.2.63:8080 --user admin --secret '<ADMIN_KEY>' cluster list
+
+You can find it at https://github.com/heketi/heketi/releases . Alternatively,
+use it from within the heketi pod:
+
+  # /usr/bin/kubectl -n default exec -i heketi-86f98754c-tlksz -- heketi-cli -s http://localhost:8080 --user admin --secret '<ADMIN_KEY>' cluster list
+
+For dynamic provisioning, create a StorageClass similar to this:
+
+---
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: glusterfs-storage
+provisioner: kubernetes.io/glusterfs
+parameters:
+  resturl: "http://192.168.2.63:8080"
+
+The "resturl" parameter in the above manifest refers to the service_ip of the heketi service
+
+
+Deployment complete!

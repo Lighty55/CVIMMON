@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron sriov Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_sriov_{{ SRIOV_PREVIOUS_TAG }}
+
+# Back up the neutron sriov volume
+- name: back up the neutron sriov volume
+  shell: cp /docker/neutron_sriov/* /docker/neutron_sriov_{{ SRIOV_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the neutron sriov systemd file
+  command: cp /usr/lib/systemd/system/docker-neutron_sriov.service /docker/neutron_sriov_{{ SRIOV_PREVIOUS_TAG }}/docker-neutron_sriov.service
+
+#####################################################
+# Shut down the old neutron sriov containers
+####################################################
+- name: Shut off neutron sriov docker service
+  service:
+    name: docker-neutron_sriov
+    enabled: no
+    state: stopped
+
+- name: Remove neutron sriov service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_sriov.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of neutron sriov agent volume
+- name: List contents of neutron sriov agent volume
+  shell: ls -A1 /docker/neutron_sriov/
+  register: contents
+
+- name: Remove contents of neutron sriov agent volume
+  file:
+    path: /docker/neutron_sriov/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

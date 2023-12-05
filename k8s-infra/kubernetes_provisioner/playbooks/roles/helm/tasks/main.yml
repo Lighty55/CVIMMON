@@ -1,0 +1,67 @@
+---
+- name: "Install Helm RPM"
+  yum:
+    name: helm-{{helm_version}}
+    state: present
+
+- name: "Render RBAC Manifest for Helm"
+  become: true
+  template: { src: "rbac-sa.yml", dest: "/tmp/kubeadm-ha/helm-rbac-sa.yml" }
+  register: "rendering"
+
+- name: check if a cluster role binding exists
+  shell: export KUBECONFIG=/etc/kubernetes/admin.conf && kubectl get clusterrolebinding -n kube-system | grep tiller
+  register: result
+  changed_when: false
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Create Helm RBAC"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/kubeadm-ha/helm-rbac-sa.yml"
+    namespace: "kube-system"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+  when: result == ""
+
+- name: "Helm Initialize"
+  shell: export KUBECONFIG=/etc/kubernetes/admin.conf && helm init --service-account tiller --upgrade --tiller-image {{ management_node_ip }}:5000/kubernetes-helm/tiller:v2.8.0 --history-max 0 --skip-refresh
+  delay: 30
+
+- name: "Scale Helm to 3 Replicas"
+  shell: kubectl scale deployment tiller-deploy -n kube-system --replicas=3
+
+- name: "Wait for Helm Replication"
+  pause:
+    seconds: 15
+
+- name: "Ensure a Service Account is Created for Helm"
+  shell: kubectl create serviceaccount --namespace kube-system tiller
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Ensure a Cluster Role Binding is Created for Helm"
+  shell: |
+    kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
+  ignore_errors: yes
+  failed_when: false
+
+#- name:"Patch Tiller Deployment if Necessary"
+#  shell: |
+#    'kubectl patch deploy --namespace kube-system tiller-deploy -p '{"spec":{"template":{"spec":{"serviceAccount":"tiller"}}}}''
+#  ignore_errors: yes
+#  failed_when: false
+
+- name: "Ensure Tiller deployment and pods are up and running."
+  changed_when: false
+  register: "tiller_state"
+  vars:
+    tiller_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=helm --output=json --namespace=kube-system"
+  until:
+      - "tiller_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "tiller_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 20
+  delay: 5

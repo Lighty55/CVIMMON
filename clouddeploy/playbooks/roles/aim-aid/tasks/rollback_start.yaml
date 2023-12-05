@@ -1,0 +1,92 @@
+# First remove the new container and artifacts
+- name: Shut off aim aid docker service
+  service:
+    name: docker-aimaid
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove aim aid service file
+  file:
+    path: "/usr/lib/systemd/system/docker-aimaid.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove aim aid docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimaid_{{ docker.aim_aid.image_tag }}" }
+
+- name: Remove aim aid docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_aid.name }}"
+    tag: "{{ docker.aim_aid.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove aim aid volume contents
+- name: List aim aid volume contents
+  shell: ls -A1 /docker/aim_aid/
+  register: contents
+
+- name: Remove aim aid volume contents
+  file:
+    path: /docker/aim_aid/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the aim aid volume contents
+- name: recover aim aid volume contents
+  shell: cp /docker/aim_aid_{{ AIM_AID_PREVIOUS_TAG }}/* /docker/aim_aid/.
+
+
+# Now remove the backup volume
+- name: Remove back up aim aid Directory
+  file:
+    path: "/docker/aim_aid_{{ AIM_AID_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/aim_aid/docker-aimaid.service /usr/lib/systemd/system/docker-aimaid.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias aimaid='in_container aimaid_"
+    line: "{{ item }}"
+  with_items:
+    - alias aimaid='in_container aimaid_{{ AIM_AID_PREVIOUS_TAG }}'
+
+- name: Start aim aid container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-aimaid
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if aim aid Docker container has started running
+  shell: docker ps -a | grep Up | grep aimaid_{{ AIM_AID_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="aim aid Container does not seem to be running"
+  when: command_result.stdout == ""

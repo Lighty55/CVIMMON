@@ -1,0 +1,14 @@
+{
+    "renderers": {
+        "stitched-mode": {
+            "int-bridge-name": "br-fabric",
+            "access-bridge-name": "br-int",
+            "encap": {
+                "vlan" : {
+                    "encap-iface": "{{ tenant_if }}"
+                }
+            },
+            "flowid-cache-dir": "/var/lib/opflex-agent-ovs/ids"
+        }
+    }
+}

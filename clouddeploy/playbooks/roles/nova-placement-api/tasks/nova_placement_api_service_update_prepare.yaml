@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova Placement API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_placement_api_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}
+
+# Back up the nova placement api volume contents
+- name: back up the nova placement api volume contents
+  shell: cp /docker/nova_placement_api/* /docker/nova_placement_api_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova placement api systemd file
+  command: cp /usr/lib/systemd/system/docker-novaplacementapi.service /docker/nova_placement_api_{{ NOVA_PLACEMENT_API_PREVIOUS_TAG }}/docker-novaplacementapi.service
+
+#####################################################
+# Shut down the old nova placement api containers
+####################################################
+# Nova Placement API.
+- name: Shut off nova placement api docker service
+  service:
+    name: docker-novaplacementapi
+    enabled: no
+    state: stopped
+
+- name: Remove novaplacementapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaplacementapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of nova placement api volume
+- name: List contents of nova placement api volume
+  shell: ls -A1 /docker/nova_placement_api/
+  register: contents
+
+- name: Remove contents of nova placement api volume
+  file:
+    path: /docker/nova_placement_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

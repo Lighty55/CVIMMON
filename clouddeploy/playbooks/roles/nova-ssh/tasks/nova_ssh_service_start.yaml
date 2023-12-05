@@ -1,0 +1,49 @@
+- name: Check if Nova ssh Docker container is already running
+  shell: docker ps -a | grep Up | grep novassh_{{ docker.nova_ssh.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novassh='in_container novassh_"
+    line: "{{ item }}"
+  with_items:
+    - alias novassh='in_container novassh_{{ docker.nova_ssh.image_tag }}'
+
+- name: Start the Nova ssh Docker Service
+  docker_container:
+    name: "novassh_{{ docker.nova_ssh.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_ssh.name }}:{{ docker.nova_ssh.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+        - "{{ docker.nova_ssh.host_data_dir }}:{{ docker.nova_ssh.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/nova:/var/log/nova:z
+    interactive: yes
+    privileged: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Wait for Nova ssh server to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_SSH_PORT }}
+
+- name: Check if Nova ssh Docker container has started running
+  shell: docker ps -a | grep Up | grep novassh_{{ docker.nova_ssh.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova SSH Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novassh
+  tags:
+    - reboot-on-failure

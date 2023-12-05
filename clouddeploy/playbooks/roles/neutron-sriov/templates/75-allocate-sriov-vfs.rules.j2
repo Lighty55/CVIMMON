@@ -1,0 +1,8 @@
+{% if sriov_intfs.stdout_lines | length > 0 and intel_sriov_vfs | int > 0 %}
+ACTION=="move", SUBSYSTEM=="net", KERNEL=="{{ SRIOV_INTERFACE_NAME }}[0-9]*", RUN+="/bin/sh -c '/usr/bin/echo {{ intel_sriov_vfs }} > /sys/class/net/%k/device/sriov_numvfs'"
+ACTION=="change", SUBSYSTEM=="net", KERNEL=="{{ SRIOV_INTERFACE_NAME }}[0-9]*", RUN+="/bin/sh -c '/usr/bin/echo {{ intel_sriov_vfs }} > /sys/class/net/%k/device/sriov_numvfs'"
+{% endif %}
+{% if fpga_intfs.stdout_lines | length > 0 and intel_vc_sriov_vfs | int > 0 %}
+ACTION=="move", SUBSYSTEM=="net", KERNEL=="{{ FPGA_INTERFACE_NAME }}[0-9]*", RUN+="/bin/sh -c '/usr/bin/echo {{ intel_vc_sriov_vfs }} > /sys/class/net/%k/device/sriov_numvfs'"
+ACTION=="change", SUBSYSTEM=="net", KERNEL=="{{ FPGA_INTERFACE_NAME }}[0-9]*", RUN+="/bin/sh -c '/usr/bin/echo {{ intel_vc_sriov_vfs }} > /sys/class/net/%k/device/sriov_numvfs'"
+{% endif %}

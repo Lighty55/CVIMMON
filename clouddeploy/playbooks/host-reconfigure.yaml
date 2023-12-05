@@ -1,0 +1,27 @@
+- name: Reconfigure host level parameters
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  roles:
+    - { role: "host-config", mgmt: false, host_all: true }
+  tags: [ "base", "central-ceph" ]
+
+- name: Reconfigure host level parameters on mgmt node
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  roles:
+    - { role: "host-config", mgmt: true, host_all: false}
+  tags: [ "base", "central-ceph" ]
+
+- name: IPA Client Configuration for all hosts
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ipa-config", tags: [ "base", "ipa-config" ] }

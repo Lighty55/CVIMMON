@@ -1,0 +1,4 @@
+- include: log-rotate.yaml
+- include: snmp.yaml
+- include: grafana.yaml
+- include: prometheus.yaml

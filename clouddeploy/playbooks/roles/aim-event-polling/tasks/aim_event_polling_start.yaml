@@ -1,0 +1,47 @@
+- name: Check if Aim event polling container is already running
+  shell: docker ps -a | grep Up | grep aimeventpolling_{{ docker.aim_event_polling.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias aimeventpolling='in_container aimeventpolling_"
+    line: "{{ item }}"
+  with_items:
+    - alias aimeventpolling='in_container aimeventpolling_{{ docker.aim_event_polling.image_tag }}'
+
+- name: Start the aim event polling Docker
+  docker_container:
+    name: "aimeventpolling_{{ docker.aim_event_polling.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}:{{ docker.aim_event_polling.image_tag }}"
+    volumes:
+      - "{{ docker.aim_event_polling.host_data_dir }}:{{ docker.aim_event_polling.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/aim:/var/log/aim:z
+      - aid:/var/lib/aid:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if aim event polling container has started running
+  shell: docker ps -a | grep Up | grep aimeventpolling_{{ docker.aim_event_polling.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="aim event polling Container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-aimeventpolling
+  tags:
+    - reboot-on-failure

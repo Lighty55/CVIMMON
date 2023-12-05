@@ -1,0 +1,25 @@
+- hosts: localhost
+  become: yes
+  tasks:
+    - name: Check if the node to be replaced is reachable
+      command: "ssh -q -o 'StrictHostKeyChecking=no' {{ node_operation_host }} exit"
+      register: node_reachable
+      tags: ["delete_controller", "delete_worker"]
+      ignore_errors: yes
+      failed_when: False
+    - set_fact:
+        node_status: "{{ node_reachable }}"
+      tags: ["delete_controller", "delete_worker"]
+
+- hosts: all-servers{{server|default('')}}
+  become: yes
+  gather_facts: no
+  roles:
+    - role: "portworx"
+      tags: ["delete_controller", "delete_worker"]
+      when: hostvars['localhost']['node_status'].rc == 0
+
+- hosts: all-servers,!{{ node_operation_host }}
+  become: yes
+  roles:
+    - { role: "portworx", tags: ["delete_controller", "delete_worker"], run_once: true}

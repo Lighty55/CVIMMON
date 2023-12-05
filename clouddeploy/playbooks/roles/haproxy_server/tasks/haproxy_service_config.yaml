@@ -1,0 +1,82 @@
+- set_fact:
+    HAPROXY_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/HAPROXY_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- set_fact:
+    ipv4_external: "{{ external_lb_vip_address }}/{{ api_cidr }}"
+
+- set_fact:
+    ipv4_internal: "{{ internal_lb_vip_address }}/{{ control_cidr }}"
+
+- set_fact:
+    ipv6_external: "{{ external_lb_vip_ipv6_address }}/{{ api_ipv6_subnet_len }}"
+  when: external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != ""
+
+- set_fact:
+    ipv6_internal: "{{ internal_lb_vip_ipv6_address }}/{{ mgmt_ipv6_subnet_len }}"
+  when: internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != ""
+
+- name: Copy HAProxy configuration Templates.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  with_items:
+    - { src: "keepalived.conf.j2", dest: "{{ docker.haproxy.host_data_dir }}/keepalived.conf" }
+
+- name: Copy keepalived clean up script.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  with_items:
+    - { src: "ka_clean.sh", dest: "{{ docker.haproxy.host_data_dir }}/ka_clean.sh" }
+
+- name: Copy supervisord configuration Templates.
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  with_items:
+    - { src: "supervisord.conf", dest: "{{ docker.haproxy.host_data_dir }}/supervisord.conf" }
+
+- name: Copy Haproxy Start script
+  template:
+    src: "haproxy_start.sh"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy_start.sh"
+    mode: "0111"
+
+- name: Render haproxy_template
+  template:
+    src: "{{ item.src }}"
+    dest: "{{item.dest }}"
+    mode: "{{item.mode|default('0755') }}"
+  with_items:
+    - { src: haproxy.cfg.j2, dest: "{{ docker.haproxy.host_data_dir }}/haproxy.cfg" }
+
+- name: Copy Haproxy routes
+  template:
+    src: "haproxy_route.sh"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy_route.sh"
+    mode: "0111"
+
+- name: Copy Haproxy restart script
+  template:
+    src: "haproxy_restart.sh"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy_restart.sh"
+    mode: "0111"
+
+- name: Copy Haproxy sanity script
+  template:
+    src: "haproxy_sanity.sh"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy_sanity.sh"
+    mode: "0111"
+
+- name: Copy TLS Certificate
+  when: HAPROXY_TLS|bool and HAPROXY_CERT
+  template:
+    src: "{{ HAPROXY_CERT }}"
+    dest: "{{ docker.haproxy.host_data_dir }}/haproxy.pem"
+    mode: "0400"

@@ -1,0 +1,28 @@
+- name: Deploy | Set variables for regular deployments
+  set_fact:
+    ntp_ctrl_role: "control"
+    ntp_ctrl_ips: "{{ groups['host_control_mgmt_ip'] }}"
+    ntp_all_mgmt_ipv4s: "{{ groups['host_all_mgmt_ip'] }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != "ceph")
+
+- name: Deploy | Set variables for central ceph deployments
+  set_fact:
+    ntp_ctrl_role: "cephcontrol"
+    ntp_ctrl_ips: "{{ groups['ceph_mon_all'] }}"
+    ntp_all_mgmt_ipv4s: "{{ groups['host_all_mgmt_ip'] }}"
+  when: PODTYPE is defined and PODTYPE == "ceph"
+
+- name: Deploy | Copy the ntp config file
+  template:
+    src: "ntp.conf.j2"
+    dest: "/etc/ntp.conf"
+
+- name: Deploy | Remove the chrony package if present
+  yum:
+    name: chrony
+    state: absent
+  ignore_errors: True
+  failed_when: False
+
+- include: ntp_date.yaml
+- include: set_mgmt.yaml

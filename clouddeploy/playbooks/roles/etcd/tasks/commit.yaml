@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove etcd directory
+  file:
+    path: "/docker/etcd_{{ ETCD_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old etcd docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "etcd_{{ ETCD_PREVIOUS_TAG }}" }
+
+- name: Remove etcd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.etcd.name }}"
+    tag: "{{ ETCD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

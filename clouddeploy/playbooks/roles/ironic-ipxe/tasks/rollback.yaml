@@ -1,0 +1,6 @@
+# Execute the rollback play only if the preinstall of update began
+- stat: path={{ docker.ironic_ipxe.host_data_dir }}_{{ IRONIC_IPXE_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: ironic_ipxe_service_rollback.yaml
+  when: (dir_check.stat.exists) and (dir_check.stat.isdir is defined) and (dir_check.stat.isdir)

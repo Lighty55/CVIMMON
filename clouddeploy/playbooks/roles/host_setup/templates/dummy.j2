@@ -1,0 +1,22 @@
+#clouddeploy/playbooks/roles/glance_registry/templates/dummy.j2
+HOSTVARS:
+============================
+
+{{ hostvars | to_nice_json }}
+
+GROUPS:
+============================
+
+{{ groups | to_nice_json }}
+
+Rabbitmq group:
+===========================
+
+{{ groups['rabbitmq_all'] | to_nice_json }}
+
+
+MariaDB group:
+===========================
+
+{{ groups['mariadb_all'] | to_nice_json }}
+

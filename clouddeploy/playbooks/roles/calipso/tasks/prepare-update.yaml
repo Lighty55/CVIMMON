@@ -1,0 +1,49 @@
+#####################################################
+# Create the backup staging folder for old volume   #
+#####################################################
+- name: Update | Create calipso Docker staging folders.
+  file:
+    path: /opt/cisco/update/{{ item.name }}_{{ item.tag }}
+    state: directory
+    mode: "0755"
+  with_items:
+    - { name: "calipso_mongo", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+    - { name: "calipso_scan", tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "calipso_api", tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+
+- name: Update | Backup calipso systemd files
+  command: cp /usr/lib/systemd/system/{{ item.service }}.service /opt/cisco/update/{{ item.name }}_{{ item.tag }}/{{ item.service }}.service
+  with_items:
+    - { name: "calipso_mongo", service: "docker-calipso-mongo", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+    - { name: "calipso_scan", service: "docker-calipso-scan",  tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "calipso_api", service: "docker-calipso-api",  tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+
+#####################################################
+# Shut down the old calipso containers              #
+#####################################################
+
+- name: Update | Shut down calipso docker services
+  service:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  with_items:
+    - docker-calipso-scan
+    - docker-calipso-api
+    - docker-calipso-mongo
+
+#####################################################
+# Remove service files for current version          #
+#####################################################
+
+- name: Update | Remove calipso service files
+  file:
+    path: /usr/lib/systemd/system/{{ item }}.service
+    state: absent
+  with_items:
+    - docker-calipso-mongo
+    - docker-calipso-scan
+    - docker-calipso-api
+
+- name: Update | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload

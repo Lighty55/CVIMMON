@@ -1,0 +1,34 @@
+---
+sources:
+    - name: some_pollsters
+      interval: 300
+      meters:
+        - cpu
+        - cpu_l3_cache
+        - memory.usage
+        - network.incoming.bytes
+        - network.incoming.packets
+        - network.outgoing.bytes
+        - network.outgoing.packets
+        - disk.device.read.bytes
+        - disk.device.read.requests
+        - disk.device.write.bytes
+        - disk.device.write.requests
+        - disk.device.capacity
+        - disk.device.allocation
+        - disk.device.usage
+        - image.size
+        - network.incoming.packets.error
+        - network.incoming.packets.drop
+        - network.outgoing.packets.error
+        - network.outgoing.packets.drop
+        - perf.cpu.cycles
+        - perf.instructions
+        - perf.cache.references
+        - perf.cache.misses
+        - disk.device.read.latency
+        - disk.device.write.latency
+        - memory.swap.in
+        - memory.swap.out
+        - memory.bandwidth.total
+        - memory.bandwidth.local

@@ -1,0 +1,56 @@
+- name: Ntp date | Stop ntpd service if running
+  service:
+    name: ntpd
+    state: stopped
+
+- name: Ntp date | Set date and time via NTP
+  command: ntpdate "{{ ntp_servers[0] }}"
+  ignore_errors: true
+  failed_when: false
+  register: ntp_result
+  until: ntp_result.rc == 0
+  retries: 5
+  delay: 2
+
+- name: Ntp date | Set date and time via NTP
+  command: ntpdate "{{ ntp_servers[1] }}"
+  ignore_errors: true
+  failed_when: false
+  when: ntp_result|failed and ntp_servers|length > 1
+  register: ntp_result_two
+  until: ntp_result_two.rc == 0
+  retries: 5
+  delay: 2
+
+- name: Ntp date | Set date and time via NTP
+  command: ntpdate "{{ ntp_servers[2] }}"
+  ignore_errors: true
+  failed_when: false
+  when: ntp_result|failed and ntp_servers|length > 1
+  register: ntp_result_three
+  until: ntp_result_three.rc == 0
+  retries: 5
+  delay: 2
+
+- name: Ntp date | Set date and time via NTP
+  command: ntpdate "{{ ntp_servers[3] }}"
+  ignore_errors: true
+  failed_when: false
+  when: ntp_result|failed and ntp_servers|length > 1
+  register: ntp_result_four
+  until: ntp_result_four.rc == 0
+  retries: 5
+  delay: 2
+
+- name: Ntp date | Check if NTP configuration passed
+  fail: msg="All calls to ntpdate failed"
+  when: (ntp_result|failed) and (ntp_result_two|failed or ntp_result_two|skipped) and (ntp_result_three|failed or ntp_result_three|skipped) and (ntp_result_four|failed or ntp_result_four|skipped)
+
+- name: Ntp date | Restore old selinux label
+  command: restorecon /etc/ntp.conf
+
+- name: Ntp date | Enable ntpd service
+  service:
+    name: ntpd
+    enabled: yes
+    state: started

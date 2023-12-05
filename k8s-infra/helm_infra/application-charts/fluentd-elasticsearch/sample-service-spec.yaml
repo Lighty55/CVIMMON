@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: fluentd-fluentd-elasticsearch
+    chart: fluentd-elasticsearch-1.0.1
+    heritage: Tiller
+    release: fluentd
+  name: fluentd-fluentd-elasticsearch
+  selfLink: /api/v1/namespaces/kube-system/services/fluentd-fluentd-elasticsearch
+spec:
+  externalTrafficPolicy: Cluster
+  ports:
+  - name: monitor-tcp
+    port: 7081
+    protocol: TCP
+    targetPort: 7081
+  - name: monitor-udp
+    port: 7081
+    protocol: UDP
+    targetPort: 7081
+  selector:
+    app: fluentd-fluentd-elasticsearch
+    release: fluentd
+  sessionAffinity: None
+  type: NodePort
+status:
+  loadBalancer: {}

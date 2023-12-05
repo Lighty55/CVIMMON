@@ -1,0 +1,8 @@
+- name: Configure calipso on management node
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "root"
+  roles:
+    - { role: "calipso", mgmt: true, host_control: false }
+  tags: [ "base", "rollback", "commit" ]
+

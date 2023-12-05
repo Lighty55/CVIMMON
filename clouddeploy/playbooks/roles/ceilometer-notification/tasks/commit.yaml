@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove ceilometer notification Directory
+  file:
+    path: "/docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old ceilometer-notification docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometernotification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}" }
+
+- name: Remove ceilometer notification docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_notification.name }}"
+    tag: "{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

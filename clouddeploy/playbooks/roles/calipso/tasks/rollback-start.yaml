@@ -1,0 +1,174 @@
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CALIPSO_MONGO_SERVICE_PWD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/CALIPSO_MONGO_SERVICE_PWD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is not defined or VAULT.enabled == False
+
+#####################################################
+# Clean up what is already deployed                 #
+#####################################################
+
+- name: Rollback | Shut off calipso docker services
+  service:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  with_items:
+    - docker-calipso-api
+    - docker-calipso-scan
+    - docker-calipso-mongo
+
+- name: Rollback | Remove calipso service files
+  file:
+    path: /usr/lib/systemd/system/{{ item }}.service
+    state: absent
+  with_items:
+    - docker-calipso-mongo
+    - docker-calipso-scan
+    - docker-calipso-api
+
+- name: Rollback | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Stop and remove calipso docker containers
+  docker_container:
+    image: "{{ docker.common.registry }}/{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "{{ docker.calipso_scan.name }}:{{ docker.calipso_scan.image_tag }}", name: "calipso_scan_{{ docker.calipso_scan.image_tag }}" }
+    - { image: "{{ docker.calipso_api.name }}:{{ docker.calipso_api.image_tag }}", name: "calipso_api_{{ docker.calipso_api.image_tag }}" }
+    - { image: "{{ docker.calipso_mongo.name }}:{{ docker.calipso_mongo.image_tag }}", name: "calipso_mongo_{{ docker.calipso_mongo.image_tag }}" }
+
+- name: Rollback | Remove calipso docker images
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ item.name }}"
+    tag: "{{ item.tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { tag: "{{ docker.calipso_mongo.image_tag }}", name: "{{ docker.calipso_mongo.name }}" }
+    - { tag: "{{ docker.calipso_api.image_tag }}", name: "{{ docker.calipso_api.name }}" }
+    - { tag: "{{ docker.calipso_scan.image_tag }}", name: "{{ docker.calipso_scan.name }}" }
+  delegate_to: localhost
+  run_once: true
+
+#####################################################
+# Copy and enable calipso services                  #
+#####################################################
+- name: Rollback | Restore aliases for calipso containers
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias calipso_{{ item.name }}='in_container calipso_{{ item.name }}_"
+    line: "{{ item.line }}"
+  with_items:
+    - { name: "mongo", line: "alias calipso_mongo='in_container calipso_mongo_{{ CALIPSO_MONGO_PREVIOUS_TAG }}'"}
+    - { name: "api", line: "alias calipso_api='in_container calipso_api_{{ CALIPSO_SCAN_PREVIOUS_TAG }}'"}
+    - { name: "scan", line: "alias calipso_scan='in_container calipso_scan_{{ CALIPSO_API_PREVIOUS_TAG }}'"}
+
+- name: Rollback | Copy calipso service files
+  command: cp /opt/cisco/update/{{ item.name }}_{{ item.tag }}/{{ item.service }}.service /usr/lib/systemd/system/{{ item.service }}.service
+  with_items:
+    - { name: "calipso_mongo", service: "docker-calipso-mongo", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+    - { name: "calipso_scan", service: "docker-calipso-scan",  tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "calipso_api", service: "docker-calipso-api",  tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+
+- name: Rollback | Remove backup calipso directories
+  file:
+    path: /opt/cisco/update/{{ item.name }}_{{ item.tag }}
+    state: absent
+  with_items:
+    - { name: "calipso_mongo", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+    - { name: "calipso_scan", tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "calipso_api", tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+
+- name: Rollback | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+####### Render mercury_environment_config.json ######
+
+- name: Rollback | Render and copy pod environment configuration
+  template:
+    src: "mercury_environment_config_rollback.j2"
+    dest: /var/lib/calipso/mercury_environment_config.json
+    mode: 0600
+    owner: 2033
+    group: 2033
+
+#####################################################
+
+#####################################################
+# Restart calipso containers via service            #
+#####################################################
+- name: Rollback | Restart calipso-mongo service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-calipso-mongo
+
+- name: Rollback | Waiting for calipso-mongo container to go up
+  pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Rollback | Check if calipso-mongo container has started running
+  shell: docker ps -a | grep Up | grep calipso_mongo_{{ CALIPSO_MONGO_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Rollback | Fail if calipso-mongo container is not UP.
+  fail: msg="calipso-mongo container does not seem to be running"
+  when: command_result.stdout == ""
+
+####### Upload mercury_environment_config.json #######
+
+- name: Rollback | Update pod environment configuration in db
+  shell: docker exec -e CALIPSO_MONGO_SERVICE_PWD={{ CALIPSO_MONGO_SERVICE_PWD }} calipso_mongo_{{ CALIPSO_MONGO_PREVIOUS_TAG }} bash -c "source /data/calipso_config && python /update_mercury_environment.py > /var/log/calipso/update_mercury_environment.log 2>&1"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Rollback | Clean up pod environment file
+  file:
+    path: /var/lib/calipso/mercury_environment_config.json
+    state: absent
+  run_once: true
+
+########################################################
+
+- name: Rollback | Start calipso-api and calipso-scan services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-calipso-scan
+    - docker-calipso-api
+
+- name: Rollback | Waiting for calipso-api and calipso-scan containers to go up
+  pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Rollback | Check if calipso-scan container has started running
+  shell: docker ps -a | grep Up | grep calipso_scan_{{ CALIPSO_SCAN_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Rollback | Fail if calipso-scan container is not UP.
+  fail: msg="calipso-scan container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Rollback | Check if calipso-api container has started running
+  shell: docker ps -a | grep Up | grep calipso_api_{{ CALIPSO_API_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Rollback | Fail if calipso-api container is not UP.
+  fail: msg="calipso-api container does not seem to be running"
+  when: command_result.stdout == ""

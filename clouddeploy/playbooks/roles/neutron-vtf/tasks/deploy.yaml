@@ -1,0 +1,6 @@
+- include: neutron_vtf_service_install.yaml
+  when: MECHANISM_DRIVERS == "vts"
+
+- include: neutron_vtf_service_start.yaml
+  when: MECHANISM_DRIVERS == "vts"
+

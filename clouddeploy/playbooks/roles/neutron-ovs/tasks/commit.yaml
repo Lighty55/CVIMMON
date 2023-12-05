@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron ovs directory
+  file:
+    path: "/docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron ovsagent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron ovsagent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_ovsagent.name }}"
+    tag: "{{ OVS_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

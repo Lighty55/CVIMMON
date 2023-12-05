@@ -1,0 +1,93 @@
+# First remove the new container and artifacts
+- name: Shut off aim event polling docker service
+  service:
+    name: docker-aimeventpolling
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove aim event polling service file
+  file:
+    path: "/usr/lib/systemd/system/docker-aimeventpolling.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove aim event polling docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimeventpolling_{{ docker.aim_event_polling.image_tag }}" }
+
+- name: Remove aim event polling docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}"
+    tag: "{{ docker.aim_event_polling.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove aim event polling volume contents
+- name: List aim event polling volume contents
+  shell: ls -A1 /docker/aim_event_polling/
+  register: contents
+
+- name: Remove aim event polling volume contents
+  file:
+    path: /docker/aim_event_polling/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the aim event polling volume contents
+- name: recover aim event polling volume contents
+  shell: cp /docker/aim_event_polling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}/* /docker/aim_event_polling/.
+
+
+# Now remove the backup volume
+- name: Remove back up aim event polling Directory
+  file:
+    path: "/docker/aim_event_polling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/aim_event_polling/docker-aimeventpolling.service /usr/lib/systemd/system/docker-aimeventpolling.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias aimeventpolling='in_container aimeventpolling_"
+    line: "{{ item }}"
+  with_items:
+    - alias aimeventpolling='in_container aimeventpolling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}'
+
+
+- name: Start aim event polling container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-aimeventpolling
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if aim event polling Docker container has started running
+  shell: docker ps -a | grep Up | grep aimeventpolling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="aim event polling Container does not seem to be running"
+  when: command_result.stdout == ""

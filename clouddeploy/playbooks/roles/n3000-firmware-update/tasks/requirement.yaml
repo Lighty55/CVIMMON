@@ -1,0 +1,63 @@
+- name: Check if necessary config exists in setup_data.yaml or input config file
+  delegate_to: localhost
+  run_once: true
+  fail:
+    msg: Missing INTEL_N3000_FIRMWARE section in setup_data.yaml or input config file
+  when: INTEL_N3000_FIRMWARE is undefined
+
+- name: Check if N3000 secure update config exists under INTEL_N3000_FIRMWARE section
+  delegate_to: localhost
+  run_once: true
+  fail:
+    msg: Incomplete N3000 secure update config under INTEL_N3000_FIRMWARE section
+  when: (INTEL_N3000_FIRMWARE['user_image_bitstream_id'] is defined and INTEL_N3000_FIRMWARE['user_image_file'] is undefined) or
+        (INTEL_N3000_FIRMWARE['user_image_bitstream_id'] is undefined and INTEL_N3000_FIRMWARE['user_image_file'] is defined)
+
+- name: Check if N3000 XL710 update config exists under INTEL_N3000_FIRMWARE section
+  delegate_to: localhost
+  run_once: true
+  fail:
+    msg: Incomplete N3000 XL710 update config under INTEL_N3000_FIRMWARE section
+  when: (INTEL_N3000_FIRMWARE['xl710_config_file'] is defined and INTEL_N3000_FIRMWARE['xl710_image_file'] is undefined) or
+        (INTEL_N3000_FIRMWARE['xl710_config_file'] is undefined and INTEL_N3000_FIRMWARE['xl710_image_file'] is defined)
+
+- set_fact:
+    file_src_dir: "{{ install_dir }}/openstack-configs"
+    opt_cisco_n3000_dir: /opt/cisco/n3000_firmware_update
+
+- name: Check if necessary firmware files exist
+  delegate_to: localhost
+  run_once: true
+  stat:
+    path: "{{ file_src_dir }}/{{ item }}"
+  register: firmware_file
+  with_items:
+    - "{{ INTEL_N3000_FIRMWARE['user_image_file'] | default('') }}"
+    - "{{ INTEL_N3000_FIRMWARE['xl710_config_file']  | default('') }}"
+    - "{{ INTEL_N3000_FIRMWARE['xl710_image_file']  | default('') }}"
+  failed_when: firmware_file.stat.exists == False
+  when: "{{ item != '' }}"
+
+- name: Creates N3000 firmware update directory
+  file:
+    path: "{{ opt_cisco_n3000_dir }}"
+    state: directory
+
+- name: Copy scripts to N3000 firmware update directory
+  copy:
+    src: "{{ item }}"
+    dest: "{{ opt_cisco_n3000_dir }}/{{ item }}"
+    mode: 0544
+  with_items:
+    - n3000-secure-update.sh
+    - n3000-xl710-update.sh
+
+- name: Copy firmware files to N3000 firmware update directory
+  copy:
+    src: "{{ file_src_dir }}/{{ item }}"
+    dest: "{{ opt_cisco_n3000_dir }}/{{ item }}"
+  with_items:
+    - "{{ INTEL_N3000_FIRMWARE['user_image_file'] | default('') }}"
+    - "{{ INTEL_N3000_FIRMWARE['xl710_config_file'] | default('') }}"
+    - "{{ INTEL_N3000_FIRMWARE['xl710_image_file'] | default('') }}"
+  when: "{{ item != '' }}"

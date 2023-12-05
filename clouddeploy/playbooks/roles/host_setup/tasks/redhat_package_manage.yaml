@@ -1,0 +1,86 @@
+#################################
+# Ensure base packages are installed.
+#################################
+- name: Install base packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ redhat_packages }}"
+
+- name: Install control packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ control_redhat_packages }}"
+  when: '"control" in server_role'
+
+- name: Install compute packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ compute_redhat_packages }}"
+  when: '"compute" in server_role'
+
+- name: Install storage packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ storage_redhat_packages }}"
+  when: '"block_storage" in server_role'
+
+- name: Create destination directory for docker timeout configuration
+  file: path=/etc/systemd/system/docker.service.d state=directory
+
+- name: Configure docker extended timeout
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "timeout.conf",
+        dest: "/etc/systemd/system/docker.service.d/timeout.conf" }
+
+- name: Systemctl daemon-reload to pick up new timeouts
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Modify docker0 ip
+  replace: dest=/etc/sysconfig/docker-network regexp="^DOCKER_NETWORK_OPTIONS=$" replace="DOCKER_NETWORK_OPTIONS='--bip={{ docker_bip }}'"
+
+- name: Start Docker Service
+  service:
+    name: docker
+    state: started
+
+# Install python-docker-py older version
+- name: install python docker py from hotfix
+  shell: yum --setopt=obsoletes=0 -y install python-docker-py
+
+
+# Make sure to exclude python-docker from update
+- name: Update the insecure registry
+  lineinfile:
+    dest: /etc/yum.conf
+    line: "exclude=python-docker* docker-python* python-websocket-client"
+    state: present

@@ -1,0 +1,37 @@
+- name: "Check helm | Check whether helm binary exists"
+  stat:
+    path: /usr/bin/helm
+  register: helm_binary_stat
+  failed_when: not helm_binary_stat.stat.exists
+
+- name: "Check helm | List installed Helm charts."
+  command: /usr/bin/helm list
+  register: helm_list_results
+  changed_when: False
+
+- name: "Check helm | Get Helm Parent Directory"
+  shell: |
+    bash -lc "cd ../application-charts && pwd"
+  register: directory_matched
+
+- name: "Check helm | Check whether Helm App directory exists"
+  stat:
+    path: "{{ directory_matched.stdout }}/{{ calipso_app_directory }}/"
+
+- name: "Check helm | Checking for Required Files and Folders"
+  stat:
+    path: "{{item}}"
+  register: folder_stats
+  with_items:
+    - ["{{ conf_bin_path }}","{{ calipso_values_path }}","{{ calipso_helm_upgrade_path }}","{{ CALIPSO_CONFIG_DIR }}"]
+
+- name: "Check helm | Creating Required Folders if not Exists"
+  file:
+    path: "{{ item.item }}"
+    state: directory
+    mode: 0755
+    group: root
+    owner: root
+  when: item.stat.exists == false
+  with_items:
+  - "{{folder_stats.results}}"

@@ -1,0 +1,25 @@
+###############################################################################
+# Ceph OSD maintenance playbook
+#
+# This playbook will perform the follownig OSD(s) actions -
+# 1. Obtain the status of existing OSD(s) on any/all Ceph servers
+# 2. Look for OSD(s) that have been added to the server as replacements and
+#    will add them to the cephmon tree.
+###############################################################################
+- name: check CEPH MON for current status OSD
+  hosts: host_control_mgmt_ip:ceph_mon_all:{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "osd-maintenance", tags: [ "osd-maintenance-cephmon" ] }
+
+- name: OSD maintenance options on block storage nodes
+  hosts: ceph_osd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  any_errors_fatal: True
+  roles:
+    - { role: "osd-maintenance", tags: [ "osd-maintenance-storage" ] }

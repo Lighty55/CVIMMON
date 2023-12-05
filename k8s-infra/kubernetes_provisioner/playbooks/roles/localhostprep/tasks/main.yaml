@@ -1,0 +1,41 @@
+---
+- name: "Install kubeadm packages"
+  become: yes
+  yum:
+    name: "{{item}}"
+    state: present
+  with_items:
+    - helm-{{helm_version}}
+    - kubectl-{{kubectl_version}}
+
+- name: "Check any Existing Configs"
+  stat:
+    path: ~/.kube/config
+  register: files_to_delete
+
+- name: "Delete File, If it exists"
+  file:
+    path: ~/.kube/config
+    state: absent
+  when: files_to_delete.stat.exists
+
+- name: "Create .kube folder on the Local Machine"
+  file:
+    path: "~{{ ansible_ssh_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+
+- name: "Create kubernetes-certs folder on the Local Machine"
+  file:
+    path: /opt/cvimmon-kubernetes/pki
+    state: directory
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+
+- name: "Create etcd-pki folder on the Local Machine"
+  file:
+    path: /opt/cvimmon-kubernetes/pki/etcd/
+    state: directory
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"

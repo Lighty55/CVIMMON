@@ -1,0 +1,97 @@
+- name: Ensure all containers are up
+  hosts: host_power_all
+  tasks:
+    - name: Get container status on all nodes
+      shell: docker ps -a | grep Exited
+      ignore_errors: True
+      failed_when: False
+      register: container_status
+
+    - name: Check container status
+      fail: msg="Following containers not up on host {{ container_status.stdout }}"
+      when: container_status is defined and container_status.stdout_lines|length > 0
+
+- name: Update /etc/hosts on hosts and containers
+  hosts: host_power_all
+  tasks:
+    - name: Update /etc/hosts on the hosts for v6 addresses
+      shell: sed -i 's/^{{ old_br_mgmt_v6 }}/{{ br_mgmt_v6 }}/g' /etc/hosts
+      when: old_br_mgmt_v6 is defined and br_mgmt_v6 is defined
+
+    - name: Update /etc/hosts on the hosts for v4 addresses
+      shell: sed -i 's/^{{ old_br_mgmt_v4 }}/{{ br_mgmt_v4 }}/g' /etc/hosts
+      when: old_br_mgmt_v4 is defined and br_mgmt_v4 is defined
+
+    - name: Get all the deployed containers on the host
+      shell: docker ps -a | grep -v NAMES | awk '{print $NF}'
+      register: container_list
+
+    # Note: Cannot copy /etc/hosts from host to container directly
+    # https://github.com/moby/moby/issues/22281
+    - name: Copy /etc/hosts from the hosts to /etc/hosts.new in container
+      shell: "docker cp /etc/hosts {{ item }}:/etc/hosts.new"
+      with_items:
+        - "{{ container_list.stdout_lines }}"
+
+    - name: Update /etc/hosts in container
+      shell: docker exec -u root {{ item }} /bin/bash -c "cp /etc/hosts.new /etc/hosts; rm /etc/hosts.new"
+      with_items:
+        - "{{ container_list.stdout_lines }}"
+
+- name: Update yum repo URLs
+  hosts: host_power_all
+  tasks:
+    - name: Update yum repo URLs
+      shell: ls /etc/yum.repos.d | sort
+      register: repo_list
+
+    - name: Update yum repos with v4 addresses
+      shell: sed -i 's/\[{{ old_br_mgmt_v4 }}\]/\[{{ br_mgmt_v4 }}\]/g' /etc/yum.repos.d/{{ item }}
+      when: old_br_mgmt_v4 is defined and br_mgmt_v4 is defined
+      with_items:
+        - "{{ repo_list.stdout_lines }}"
+
+    - name: Update yum repos with v6 addresses
+      shell: sed -i 's/\[{{ old_br_mgmt_v6 }}\]/\[{{ br_mgmt_v6 }}\]/g' /etc/yum.repos.d/{{ item }}
+      when: old_br_mgmt_v6 is defined and br_mgmt_v6 is defined
+      with_items:
+        - "{{ repo_list.stdout_lines }}"
+
+# Cannot run reconfigure because /etc/fluentd/config.d/fluentd.conf
+# will not substitute and LOGSERVER NODE IP Addresses, hence the
+# following approach to force host ip changes
+- name: Update fluentd forwarders
+  hosts: fluentd_all
+  tasks:
+    - name: Update fluentd forwarders with v6 addresses
+      shell:  docker exec -u fluentd fluentd_{{ docker.fluentd.image_tag }} /bin/bash -c "sed -i 's/\b{{ old_br_mgmt_v6 }}/{{ br_mgmt_v6 }}/g' /etc/fluentd/config.d/fluentd.conf"
+      when: old_br_mgmt_v6 is defined and br_mgmt_v6 is defined
+
+    - name: Update fluentd forwarders with v4 addresses
+      shell:  docker exec -u fluentd fluentd_{{ docker.fluentd.image_tag }} /bin/bash -c "sed -i 's/\b{{ old_br_mgmt_v4 }}/{{ br_mgmt_v4 }}/g' /etc/fluentd/config.d/fluentd.conf"
+      when: old_br_mgmt_v4 is defined and br_mgmt_v4 is defined
+
+    - name: Update staging files for consistency with v6 addresses
+      shell: sed -i 's/\b{{ old_br_mgmt_v6 }}/{{ br_mgmt_v6 }}/g' /docker/fluentd/fluentd_config
+      when: old_br_mgmt_v6 is defined and br_mgmt_v6 is defined
+
+    - name: Update staging files for consistency with v4 addresses
+      shell: sed -i 's/\b{{ old_br_mgmt_v4 }}/{{ br_mgmt_v4 }}/g' /docker/fluentd/fluentd_config
+      when: old_br_mgmt_v4 is defined and br_mgmt_v4 is defined
+
+    - name: Restart the service if there were any deltas in config
+      service:
+        name: docker-fluentd
+        enabled: yes
+        state: restarted
+
+    - name: Check if fluentd has started running
+      shell: docker ps | awk '/Up/ && /fluentd_{{ docker.fluentd.image_tag }}/'
+      register: fd_up
+      until: (not fd_up.rc or fd_up.stdout)
+      retries: 10
+      delay: 5
+
+    - name: Fail if fluentd container is not up
+      fail: msg="fluentd does not appear to be running"
+      when: (fd_up.rc and not fd_up.stdout)

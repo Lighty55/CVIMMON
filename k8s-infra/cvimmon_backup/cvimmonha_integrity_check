@@ -1,0 +1,25 @@
+#!/usr/bin/env python
+###############################################################################
+#
+# Copyright (C) 2016 Cisco Systems Inc.
+#
+###############################################################################
+from br_validator import RestoreChecksumEngine
+
+def main():
+    restoreChecksumValidator = RestoreChecksumEngine()
+
+    if restoreChecksumValidator.run():
+        print("Restore Checksum Validation Passed")
+    else:
+        print("Restore Checksum Validation Failed:")
+        for vResult in restoreChecksumValidator.results:
+            print(vResult.reason)
+
+
+
+
+
+if __name__ == "__main__":
+    main()
+

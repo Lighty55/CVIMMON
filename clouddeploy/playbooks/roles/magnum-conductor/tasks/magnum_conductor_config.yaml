@@ -1,0 +1,18 @@
+- name: Copy Magnum Conductor configuration files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "magnum_conductor_config.j2", dest: "{{docker.magnum_conductor.host_data_dir }}/magnum_conductor_config" }
+
+- name: Copy Magnum Conductor Systemd template.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "docker-magnumconductor.service", dest: "{{docker.magnum_conductor.host_data_dir }}/docker-magnumconductor.service" }
+
+- name: Pull Magnum Conductor Image.
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}:{{ docker.magnum_conductor.image_tag }}"

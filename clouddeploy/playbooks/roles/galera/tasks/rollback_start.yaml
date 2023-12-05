@@ -1,0 +1,89 @@
+# First remove the new container and artifacts and mariadb
+- name: Shut off mariadb docker service
+  service:
+    name: docker-mariadb
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove mariadb service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mariadb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove mariadb docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "mariadb_{{ docker.mariadb.image_tag }}" }
+
+- name: Remove mariadb docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.mariadb.name }}"
+    tag: "{{ docker.mariadb.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove mariadb volume contents
+- name: List mariadb volume contents
+  shell: ls -A1 /docker/mariadb/
+  register: contents
+
+- name: Remove mariadb volume contents
+  file:
+    path: /docker/mariadb/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the mariadb volume contents
+- name: recover mariadb volume contents
+  shell: cp /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/* /docker/mariadb/.
+
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/mariadb/docker-mariadb.service /usr/lib/systemd/system/docker-mariadb.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias mariadb='in_container mariadb_"
+    line: "{{ item }}"
+  with_items:
+    - alias mariadb='in_container mariadb_{{ MARIADB_PREVIOUS_TAG }}'
+
+- name: Create temporary .bootstrap_args file with --wsrep-new-cluster option
+  copy:
+    content: "--wsrep-new-cluster"
+    dest: "/tmp/.bootstrap_args"
+  when: WSREP_NODE_ADDRESS == WSREP_PRIMARY_NODE
+
+- name: Copy temporary .bootstrap_args into the container
+  shell: docker cp /tmp/.bootstrap_args mariadb_{{ MARIADB_PREVIOUS_TAG }}:/var/lib/mysql/
+  when: WSREP_NODE_ADDRESS == WSREP_PRIMARY_NODE
+
+# Start the mariadb app service
+- name: Start the mariadb app service
+  service:
+    name: docker-mariadb
+    enabled: yes
+    state: started
+
+- name: Wait for galera to be alive
+  wait_for: host={{ WSREP_NODE_ADDRESS }} port={{ MARIADB_PORT }}

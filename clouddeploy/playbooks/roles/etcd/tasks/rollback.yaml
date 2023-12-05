@@ -1,0 +1,6 @@
+- stat: path=/docker/etcd_{{ ETCD_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists
+

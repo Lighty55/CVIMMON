@@ -1,0 +1,45 @@
+- name: Copy Keystone Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/keystone/templates/{{ item }}"
+    dest: "{{docker.keystone.host_data_dir }}/{{ item }}"
+  with_items:
+    - "keystone_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.keystone.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart keystone service
+  service:
+    name: "docker-keystone"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Keystone API to be alive
+  wait_for: host={{ control_bond }} port={{ KEYSTONE_ADMIN_SERVICE_PORT }}
+  when: policy.changed
+
+- name: Wait for Keystone to be ready
+  pause: seconds=5 prompt="Waiting for five seconds"
+  when: policy.changed
+
+
+- name: Create read only role when OPENSTACK_READONLY_ROLE is True
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep readonly || openstack role create readonly"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: policy.changed and OPENSTACK_READONLY_ROLE is defined and OPENSTACK_READONLY_ROLE == true

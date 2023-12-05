@@ -1,0 +1,148 @@
+# Disable mongo auth until users are set up
+- set_fact:
+    CALIPSO_MONGO_SERVICE_AUTH_ENABLED: false
+  when: "ACTION is undefined and '{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+- include: render-values.yaml
+
+- name: "Deploy | Install Calipso with Helm"
+  command: >
+    /usr/bin/helm install --name "{{ calipso_deployment_name }}" --namespace "{{ calipso_namespace }}" "{{ directory_matched.stdout }}"/"{{ calipso_app_directory }}"
+  when: "'{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+- name: "Deploy | Register calipso-mongo pod name"
+  shell: "kubectl get pods -n {{ calipso_namespace }} | grep calipso-mongo | awk '{ print $1 }'"
+  register: calipso_mongo_pod
+
+- name: "Deploy | Ensure calipso-mongo pod is up and running."
+  changed_when: false
+  register: "calipso_mongo_state"
+  vars:
+    mongo_state_query: "status.conditions|[?type=='Ready'].status|[0]"
+    calipso_mongo_state: { stdout: "{}" }
+  command: "kubectl get pod {{ calipso_mongo_pod.stdout }} --output=json --namespace={{ calipso_namespace }}"
+  until:
+      - "calipso_mongo_state.stdout|from_json|json_query(mongo_state_query) == 'True'"
+  retries: 20
+  delay: 5
+
+# Setup users and initial data in mongo db
+- name: "Deploy | Setup initial data in calipso-mongo db"
+  shell: "kubectl exec {{ calipso_mongo_pod.stdout }} -n {{ calipso_namespace }} -- bash -c 'python /setup_initial_data.py'"
+  when: "ACTION is undefined and '{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+# Enable mongo auth
+- set_fact:
+    CALIPSO_MONGO_SERVICE_AUTH_ENABLED: true
+  when: "ACTION is undefined and '{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+- include: render-values.yaml
+  when: "ACTION is undefined and '{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+- name: "Deploy | Upgrade calipso deployment after auth setup"
+  command: >
+    /usr/bin/helm upgrade "{{ calipso_deployment_name }}" --namespace "{{ calipso_namespace }}" "{{ directory_matched.stdout }}"/"{{ calipso_app_directory }}"
+
+- name: "Deploy | Wait some time for calipso-mongo upgrade to start"
+  pause:
+    seconds: 10
+  when: "ACTION is undefined and '{{ calipso_deployment_name }} ' not in helm_list_results.stdout"
+
+- name: "Deploy | Read nginx-ingress-controller daemonset file"
+  shell: "kubectl get ds/nginx-ingress-controller -n kube-system -o yaml"
+  register: ingress_controller_spec
+
+- name: "Deploy | Render the nginx-ingress-controller patch file"
+  template:
+    src: nginx-ds-patch.json.j2
+    dest: "{{ CALIPSO_CONFIG_DIR }}/nginx-ds-patch.json"
+  when: ingress_controller_spec.stdout.find('calipso-mongo') == -1
+
+- name: "Deploy | Patch nginx-ingress-controller daemonset file with calipso-mongo port and arg"
+  shell: kubectl patch daemonset nginx-ingress-controller -n kube-system --type json --patch "$(cat {{ CALIPSO_CONFIG_DIR }}/nginx-ds-patch.json)"
+  when: ingress_controller_spec.stdout.find('calipso-mongo') == -1
+
+- name: "Deploy | Register calipso-api pod name"
+  shell: "kubectl get pods -n {{ calipso_namespace }} | grep calipso-api | awk '{ print $1 }'"
+  register: calipso_api_pod
+
+- name: "Deploy | Ensure calipso-api pod is up and running."
+  changed_when: false
+  register: "calipso_api_state"
+  vars:
+    api_state_query: "status.conditions|[?type=='Ready'].status|[0]"
+    calipso_api_state: { stdout: "{}" }
+  command: "kubectl get pod {{ calipso_api_pod.stdout }} --output=json --namespace={{ calipso_namespace }}"
+  until:
+      - "calipso_api_state.stdout|from_json|json_query(api_state_query) == 'True'"
+  retries: 10
+  delay: 5
+
+- name: "Deploy | Ensure calipso deployments are up and running."
+  changed_when: false
+  register: "calipso_state"
+  vars:
+    calipso_api_state_query: "items[?metadata.name=='calipso-api'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_mongo_state_query: "items[?metadata.name=='calipso-mongo'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_state: { stdout: "{}" }
+  command: "kubectl get deployments --selector=app=calipso --output=json --namespace={{ calipso_namespace }}"
+  until:
+      - "calipso_state.stdout|from_json|json_query(calipso_api_state_query) == 'True'"
+      - "calipso_state.stdout|from_json|json_query(calipso_mongo_state_query) == 'True'"
+  retries: 30
+  delay: 10
+
+- name: "Deploy | Add Calipso endpoints to /etc/hosts if not present"
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '.*{{ item }}$'
+    line: "{{ external_loadbalancer_ip }} {{ item }}"
+    state: present
+  with_items:
+    - "{{ ingress_host_calipso_mongo }}"
+    - "{{ ingress_host_calipso_api }}"
+
+- name: "Deploy | Capture build node IPv4"
+  shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IPV4
+  failed_when: not MGMT_IPV4.stdout
+
+- name: "Deploy | Capture build node IPv6"
+  shell: python /opt/cisco/scripts/get_mgmtip.py ipv6 | head -1
+  register: MGMT_IPV6
+  when: internal_lb_vip_ipv6_address is defined or (PODTYPE is defined and PODTYPE == "ceph")
+
+- name: "Deploy | Selecting preferred Mgmt IP"
+  shell: echo {{ MGMT_IPV6.stdout|default(MGMT_IPV4.stdout) }}
+  register: MGMT_IP
+
+- set_fact:
+    build_node_ip: "{{ MGMT_IP.stdout }}"
+
+
+#########################################################
+# Install calipso clients                               #
+#########################################################
+
+- name: "Deploy | Check if calipso repo file exists"
+  stat:
+    path:  /etc/yum.repos.d/mercury-calipso-rpms.repo
+  register: mercury_calipso_rpms_repo
+
+- name: "Deploy | Download calipso repofile from management node"
+  uri:
+    url: "{{ internal_protocol }}://{{ build_node_ip | ipwrap }}/repofiles/mercury-calipso-rpms.repo"
+    dest: /etc/yum.repos.d/mercury-calipso-rpms.repo
+    return_content: yes
+    status_code: 200,304
+  when: mercury_calipso_rpms_repo.stat.exists == False
+
+- name: "Deploy | Install python-elasticsearch rpm"
+  yum:
+    name: python-elasticsearch-{{ CALIPSO_PYTHON_ELASTICSEARCH_VERSION }}
+    state: present
+
+- name: "Deploy | Install calipso API and replication clients"
+  yum:
+    name: calipso-{{ CALIPSO_RPM_VERSION }}
+    state: present

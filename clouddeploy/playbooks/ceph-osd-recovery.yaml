@@ -1,0 +1,90 @@
+###############################################################################
+# CEPH OSD recovery playbook
+#
+# This playbook will look for any OSD that are down from CEPH MON's output and
+# tries to bring it back up by restarting the individual CEPH OSD service.
+###############################################################################
+- name: Ceph|check CEPH MON for any down OSD
+  hosts: host_control_mgmt_ip{{server|default('')}}
+  tasks:
+    # Discover current active cephmon container through systemd instead of from
+    # docker.yaml file to workaround old image tag issue for system that have
+    # been updated but have not been commit yet.
+    - name: Ceph|get current cephmon container
+      shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+      register: cur_cephmon
+      run_once: True
+      failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+      when: ROLES.block_storage is defined and ROLES.block_storage
+
+    - name: Ceph|get a list of down OSD
+      shell: docker exec {{ cur_cephmon.stdout }} ceph osd dump | awk '/\s+{{ hostvars[item]["storage_ip"] }}:/ && match($1,/osd\.(.*)/,osd) && match($2,/down/) {print osd[1]}'
+      register: down_osd
+      run_once: True
+      with_items: "{{ groups['ceph_osd_all'] }}"
+      when: ROLES.block_storage is defined and ROLES.block_storage
+
+- name: Central Ceph|check CEPH MON for any down OSD
+  hosts: ceph_mon_all{{server|default('')}}
+  tasks:
+    # Discover current active cephmon container through systemd instead of from
+    # docker.yaml file to workaround old image tag issue for system that have
+    # been updated but have not been commit yet.
+    - name: Central Ceph|get current cephmon container
+      shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+      register: cur_cephmon
+      run_once: True
+      failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+      when: ROLES.cephosd is defined and ROLES.cephosd
+
+    - name: Central Ceph|get a list of down OSD
+      shell: docker exec {{ cur_cephmon.stdout }} ceph osd dump | awk '/\s+\[{{ hostvars[item]["management_ipv6"] }}\]:/ && match($1,/osd\.(.*)/,osd) && match($2,/down/) {print osd[1]}'
+      register: down_osd
+      run_once: True
+      with_items: "{{ groups['ceph_osd_all'] }}"
+      when: ROLES.cephosd is defined and ROLES.cephosd
+
+- name: restart down CEPH OSD
+  hosts: ceph_osd_all{{server|default('')}}
+  tasks:
+    - name: Define target type as Full-On
+      set_fact:
+        host_target: 'host_control_mgmt_ip'
+      when: PODTYPE is undefined or (PODTYPE is defined and PODTYPE != 'ceph')
+
+    - name: Define target type as Central Ceph
+      set_fact:
+        host_target: 'ceph_mon_all'
+      when: PODTYPE is defined and PODTYPE == 'ceph'
+
+    - name: reset var-lib-ceph-osd-ceph\x2d<n>.mount
+      shell: systemctl reset-failed 'var-lib-ceph-osd-ceph\x2d{{ item.1 }}.mount'
+      when: item.0.item == inventory_hostname
+      with_subelements:
+        - "{{ hostvars[groups[host_target][0]]['down_osd']['results'] }}"
+        - stdout_lines
+
+    - name: restart var-lib-ceph-osd-ceph\x2d<n>.mount
+      service:
+        name: 'var-lib-ceph-osd-ceph\x2d{{ item.1 }}.mount'
+        state: restarted
+      when: item.0.item == inventory_hostname
+      with_subelements:
+        - "{{ hostvars[groups[host_target][0]]['down_osd']['results'] }}"
+        - stdout_lines
+
+    - name: reset ceph-osd@<n> service
+      shell: systemctl reset-failed ceph-osd@{{ item.1 }}.service
+      when: item.0.item == inventory_hostname
+      with_subelements:
+        - "{{ hostvars[groups[host_target][0]]['down_osd']['results'] }}"
+        - stdout_lines
+
+    - name: restart ceph-osd@<n>.service
+      service:
+        name: "ceph-osd@{{ item.1 }}.service"
+        state: restarted
+      when: item.0.item == inventory_hostname
+      with_subelements:
+        - "{{ hostvars[groups[host_target][0]]['down_osd']['results'] }}"
+        - stdout_lines

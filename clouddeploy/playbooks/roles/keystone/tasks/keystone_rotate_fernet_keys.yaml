@@ -1,0 +1,77 @@
+#################################################################
+# Script that does the actual generation of new fernet keys on
+# one controller and distribution of the keys to the other
+# controller nodes
+#################################################################
+
+# First,  make sure that we rotate only when we have the same fernet keys
+# across all three nodes and that all keystone containers are up
+- name: Rotate | Verify all keystone containers are up
+  shell: docker ps | grep keystone | awk {'print $NF'}
+  register: _container_name
+  failed_when: not _container_name.stdout
+
+- name: Rotate | Get the existing fernet keys from the first container
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list_existing_fernet_keys
+  failed_when: not _list_existing_fernet_keys
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Rotate | Make sure the rest of the container has the same fernet keys
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list
+  failed_when: _list.stdout != _list_existing_fernet_keys.stdout
+  when: inventory_hostname in "{{ groups['keystone_all'][1:] }}"
+
+- name: Rotate | Do the rotation of the fernet keys
+  shell: docker exec {{ _container_name.stdout }} /usr/bin/keystone-manage fernet_rotate
+  register: command_result
+  failed_when: command_result.stderr
+  run_once: true
+  # TEMPORARY: As a temporary fix ignore_errors is set to yes here  until the
+  # following error is being fixed:
+  #     No handlers could be found for logger "oslo_config.cfg"
+  # UPDATE(Feb2017): It seems that Newton has this fix, uncomment if re-appears
+  #ignore_errors: yes
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Rotate | Get the list of the new fernet keys
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list_new_fernet_keys
+  failed_when: not _list_new_fernet_keys
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Rotate | Get the fernet keys from the container to a variable
+  shell: docker exec {{ _container_name.stdout }} cat {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  register: _fernet_files
+  with_items: "{{ _list_new_fernet_keys.stdout_lines | default([]) }}"
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Rotate | Copy the keys in the remote containers
+  shell: docker exec {{ _container_name.stdout }} /opt/kolla/copy_keystone_keys.sh {{ item.item }} {{ item.stdout }}
+  with_items: "{{ _fernet_files.results }}"
+  # Not displaying the keys in the logs for security reasons
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: (inventory_hostname in "{{ groups['keystone_all'][1:] }}") and ({{ item.changed }})
+
+- name: Rotate | Verify keys got copied properly in remote
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  with_items: "{{ _list_new_fernet_keys.stdout_lines | default([]) }}"
+  when: inventory_hostname in "{{ groups['keystone_all'][1:] }}"
+
+# Remove the deprecate keys
+- name: Rotate | Get the list of fernet keys after new ones got copied
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list_all_keys
+  failed_when: not _list_all_keys
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][1] }}"
+
+- name: Rotate | Remove the extra fernet keys from the containers we sync'd keys
+  shell: >
+    docker exec {{ _container_name.stdout }} rm -f {{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }}
+  with_items: "{{ _list_all_keys.stdout_lines | default([]) | difference(_list_new_fernet_keys.stdout_lines | default([])) }}"
+  when: inventory_hostname in "{{ groups['keystone_all'][1:] }}"

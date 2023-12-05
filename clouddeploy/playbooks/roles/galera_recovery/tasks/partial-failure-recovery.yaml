@@ -1,0 +1,107 @@
+#############################################################################
+# Partial failure recovery (cluster is partially functional and responding
+# to SQL query)
+#
+# Restoring any down/problem node to re-join the existing cluster without
+# bring the entire cluster down. In the case of split-brain where every node
+# thinks its the primary component, the node with the highest committed id
+# will be chosen as the bootstrap node.
+#
+# Recovery steps are:
+# - check the cluster size, ready state, and the last committed of all the
+#   mariadb nodes; at the same time discover which node is not responding to
+#   SQL query
+# - stop all questionable nodes: either non-responding/down nodes,
+#   split-brain minority nodes, or non-ready nodes
+#   (in a special split-brain case where every node thinks itself is the
+#    primary component, only keep the node with highest last committed)
+# - set force bootstrap for the special split-brain case if needed
+# - start all the questionable nodes to re-join the cluster
+#############################################################################
+- name: partial failure recovery | get wsrep cluster size
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_cluster_size"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_size
+
+- name: partial failure recovery | get wsrep ready
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_ready"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: ready
+
+- name: partial failure recovery | get wsrep last committed
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "wsrep_last_committed"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: last_committed
+
+# create a list of cluster size and a list of last committed of all working
+# mariadb nodes for comparison later
+- name: partial failure recovery | create wsrep cluster size list and wsrep last committed list
+  set_fact:
+    cluster_size_list: "[{% for host in groups['mariadb_all'] if hostvars[host].cluster_size.stdout %} {{ hostvars[host].cluster_size.stdout | int }}, {% endfor %}]"
+    last_committed_list: "[{% for host in groups['mariadb_all'] if hostvars[host].last_committed.stdout %} {{ hostvars[host].last_committed.stdout | int }}, {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+# find the host with the highest last committed from the generated list above
+# in the case where one or more hosts having the same value, use the galera
+# install order for tie break (since jinja does not support for loop break,
+# workaround by creating a best_host_list and index the first item instead)
+- name: partial failure recovery | create best host list with the largest wsrep last committed
+  set_fact:
+    best_host_list: "[{% for host in groups['mariadb_all'] if hostvars[host].last_committed.stdout and hostvars[host].last_committed.stdout | int == last_committed_list | max | int %} '{{ host }}', {% endfor %}]"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+# stop all questionable nodes if:
+# - any node returned error during cluster size query
+# or
+# - any split-brain minority quorum nodes
+# or
+# - special split-brain case, when all running nodes think its the master,
+#   only keep the first best host with the highest last committed running and
+#   stopped all others
+# or
+# - any node that is not queries ready
+- name: partial failure recovery | stop any questionable docker-mariadb service
+  service:
+    name: docker-mariadb
+    state: stopped
+  register: mariadb_stopped
+  when: cluster_size.stderr | search("ERROR") or
+        cluster_size.stdout | int < cluster_size_list | max | int or
+        (cluster_size_list | max | int == 1 and best_host_list[0] != inventory_hostname) or
+        (ready.stdout != "ON")
+  any_errors_fatal: true
+
+- name: partial failure recovery | check if docker mariadb-app is running
+  shell: docker ps -a | grep Up | grep mariadb-app | awk '{print $1}'
+  register: mariadb_running
+
+# set force bootstrap on the first best host when all running nodes think its
+# the master
+- name: partial failure recovery | set pc.bootstrap=Yes
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SET GLOBAL wsrep_provider_options="pc.bootstrap=YES"'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: cluster_size_list | max | int == 1 and best_host_list[0] == inventory_hostname
+  any_errors_fatal: true
+
+- name: partial failure recovery | create temporary .bootstrap_args file with --tc-heuristic-recover==ROLLBACK option
+  copy:
+    content: "--tc-heuristic-recover=ROLLBACK"
+    dest: "/tmp/.bootstrap_args"
+  when: mariadb_stopped | changed or mariadb_running.stdout == ""
+
+- name: partial failure recovery | copy temporary .bootstrap_args file to stopped mariadb
+  shell: docker cp /tmp/.bootstrap_args {{ cur_mariadb.stdout }}:/var/lib/mysql/
+  register: set_force_bootstrap
+  when: mariadb_stopped | changed or mariadb_running.stdout == ""
+
+- name: partial failure recovery | reset the failure
+  shell: systemctl reset-failed docker-mariadb
+  when: mariadb_stopped | changed or mariadb_running.stdout == ""
+
+- name: partial failure recovery | start any stopped docker-mariadb service
+  service:
+    name: docker-mariadb
+    state: started
+  when: mariadb_stopped | changed or mariadb_running.stdout == ""

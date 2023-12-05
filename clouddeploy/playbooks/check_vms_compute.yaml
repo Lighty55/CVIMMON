@@ -1,0 +1,69 @@
+- name: Check if any VM's are running
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  any_errors_fatal: True
+  tasks:
+    - set_fact:
+        ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    - name: Checking for VM's on compute node on v3
+      shell: |
+        openstack server list --all-projects --host={{ item }} --os-interface internal --status ACTIVE | awk '{print $2}' |  grep -v ^ID
+      environment:
+        OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+        OS_USERNAME: "{{ ADMIN_USER }}"
+        OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+        OS_REGION_NAME: "RegionOne"
+        OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+        OS_PROJECT_DOMAIN_NAME: "default"
+        OS_USER_DOMAIN_NAME: "default"
+        OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+      with_items: "{{ groups['compute'] }}"
+      register: command_result_v3
+      when: PODTYPE is undefined or PODTYPE is defined and PODTYPE != "ceph"
+
+    - file: path="{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms" state=absent
+    - file: path="{{ playbook_dir }}/../../openstack-configs/compute_nodes_no_vms" state=absent
+
+    - file: path="{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms" state=touch mode=0644
+      when: (PODTYPE is undefined or PODTYPE is defined and PODTYPE != "ceph")
+    - file: path="{{ playbook_dir }}/../../openstack-configs/compute_nodes_no_vms" state=touch mode=0644
+      when: (PODTYPE is undefined or PODTYPE is defined and PODTYPE != "ceph")
+
+    - name: Create the file with entries having results
+      lineinfile:
+         dest: "{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms"
+         line: "{{ item.item }}"
+      with_items: "{{ command_result_v3.results }}"
+      when: (PODTYPE is undefined or PODTYPE is defined and PODTYPE != "ceph") and (item.stdout|trim|length > 0)
+
+    - name: Create the file with entries having results
+      lineinfile:
+         dest: "{{ playbook_dir }}/../../openstack-configs/compute_nodes_no_vms"
+         line: "{{ item.item }}"
+      with_items: "{{ command_result_v3.results }}"
+      when: (PODTYPE is undefined or PODTYPE is defined and PODTYPE != "ceph") and (not item.stdout|trim|length > 0)
+  tags:
+    - update
+    - host-packages
+- name: Reboot required nodes
+  hosts: nova_compute_all
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  any_errors_fatal: True
+  tasks:
+    - name: check for reboot not required nodes
+      shell: cat "{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms" | grep {{ ansible_nodename }} || true
+      register: no_reboot_required
+      delegate_to: localhost
+
+    - name: print a debug msg
+      debug: msg="{{ ansible_nodename }} will not be rebooted if Kernel is updated as it has VMs running"
+      when: no_reboot_required.stdout != ""
+  tags:
+    - update
+    - host-packages

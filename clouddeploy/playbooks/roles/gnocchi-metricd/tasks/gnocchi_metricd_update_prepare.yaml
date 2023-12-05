@@ -1,0 +1,42 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Update | Create Gnocchi metricd docker staging folder.
+  file:
+    path: "/docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}"
+    state: directory
+    mode: "0755"
+
+# Back up the gnocchi metricd volume contents
+- name: Update | Back up gnocchi metricd volume contents
+  shell: cp /docker/gnocchi_metricd/* /docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG}}/.
+
+- name: Update | Back up the gnocchi metricd systemd file
+  command: cp /usr/lib/systemd/system/docker-gnocchi-metricd.service /docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}/docker-gnocchi-metricd.service
+
+####################################################
+# Shut down the old gnocchi metricd container
+####################################################
+- name: Update | Shut off gnocchi metricd docker service
+  service:
+    name: docker-gnocchi-metricd
+    enabled: no
+    state: stopped
+
+- name: Update | Remove gnocchi metricd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-metricd.service"
+    state: absent
+
+- name: Update | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Update | List gnocchi metricd volume contents
+  shell: ls -A1 /docker/gnocchi_metricd/
+  register: contents
+
+- name: Update | Remove gnocchi metricd volume contents
+  file:
+    path: /docker/gnocchi_metricd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

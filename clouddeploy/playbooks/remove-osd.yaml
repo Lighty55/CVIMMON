@@ -1,0 +1,104 @@
+- name: Create removed storage group
+  hosts: host_power_all
+  gather_facts: false
+  tasks:
+    - name: Create groups for removed storage
+      add_host:
+        hostname: "{{ item }}"
+        groupname: removed_osd
+      with_items:
+        - "{{ osd_ips }}"
+
+# Attempt to un-register the IPA client host with IPA server
+# This is best effort, so ignore all errors
+- name: Check reachable hosts before IPA Client unenrollment
+  hosts: removed_osd
+  gather_facts: no
+  tasks:
+    - command: ping -c1 {{ inventory_hostname }}
+      delegate_to: localhost
+      register: ping_result
+      ignore_errors: True
+      no_log: True
+      failed_when: False
+    - group_by: key=reachable
+      when: ping_result is defined and ping_result|success
+  tags:
+     - base
+
+- name: Unenroll reachable IPA Client hosts
+  hosts: reachable
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ipa-config", ACTION: 'unenroll' }
+  tags:
+     - base
+     - ipa-config
+
+# To avoid IP address conflict later on if the node was accidentally power
+# on, change the node to boot into single user mode so none of the networking
+# interfaces will be active.
+- name: Disable block storage node from properly booting if host is reachable
+  hosts: localhost
+  tasks:
+    - name: Change the default grub to boot into single user mode
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "sed -i '/^GRUB_CMDLINE_LINUX=\"/ {/single/! s/ *\"\$/ single\"/}' /etc/default/grub; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ osd_ips }}"
+
+    - name: Update grub config
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "grub2-mkconfig -o /boot/grub2/grub.cfg; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ osd_ips }}"
+
+    - name: Update EFI GRUB if exist
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "ls /boot/efi/EFI/redhat/grub.cfg 2>&1 >/dev/null && rm -f /boot/efi/EFI/redhat/grub.cfg && cp -f /boot/grub2/grub.cfg /boot/efi/EFI/redhat/grub.cfg; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ osd_ips }}"
+
+- name: Fix /etc/hosts
+  hosts: host_power_all:!removed_osd
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        state: absent
+        regexp: "{{ OSD_HOST }}"
+
+- name: Fix management node /etc/hosts
+  hosts: localhost
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        state: absent
+        regexp: "{{ OSD_HOST }}"
+
+- name: Cloudpulse populate
+  hosts: cloudpulse_server_all{{server|default('')}}:!removed_osd
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse-populate", tags: [ "base", "cloudpulse" ] }
+
+- name: Fix management node ~/.ssh/known_hosts
+  hosts: localhost
+  tasks:
+    - lineinfile:
+        dest: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        state: absent
+        regexp: "^{{ item }} "
+      ignore_errors: true
+      failed_when: False
+      with_items:
+        - "{{ osd_ips }}"
+        - "{{ OSD_HOST }}"
+
+- include: cvim-mon-configure.yaml

@@ -1,0 +1,42 @@
+# MariaDB
+- name: Shut off mariadb docker service
+  service:
+    name: docker-mariadb
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove mariadb service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mariadb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove mariadb docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "mariadb_{{ docker.mariadb.image_tag }}" }
+
+- name: Remove mariadb docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.mariadb.name }}"
+    tag: "{{ docker.mariadb.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove MariaDB Directory
+  file:
+    path: "{{ docker.mariadb.host_data_dir }}"
+    state: absent
+
+# Remove mariadbdata volume
+- name: remove mariadb data volume
+  shell: docker volume rm mariadbdata
+  ignore_errors: true
+  failed_when: false

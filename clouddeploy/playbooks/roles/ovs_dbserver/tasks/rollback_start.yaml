@@ -1,0 +1,81 @@
+# First remove the new container and artifacts
+- name: Shut off ovs_dbserver docker service
+  service:
+    name: docker-ovs_dbserver
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove ovs_dbserver service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_dbserver.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ovs_dbserver docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ovs_dbserver_{{ docker.ovs_dbserver.image_tag }}" }
+
+- name: Remove ovs_dbserver docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ovs_dbserver.name }}"
+    tag: "{{ docker.ovs_dbserver.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}/docker-ovs_dbserver.service /usr/lib/systemd/system/docker-ovs_dbserver.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now remove the backup volume
+- name: Remove back up ovs_dbserver Directory
+  file:
+    path: "/docker/ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ovsdb='in_container ovs_dbserver_"
+    line: "{{ item }}"
+  with_items:
+    - alias ovsdb='in_container ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }}'
+
+- name: Start ovs_dbserver container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ovs_dbserver
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if ovs_dbserver Docker container has started running
+  shell: docker ps -a | grep Up | grep ovs_dbserver_{{ OVS_DBSERVER_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="ovs_dbserver Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

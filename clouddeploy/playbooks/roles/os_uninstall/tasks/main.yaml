@@ -1,0 +1,106 @@
+- include: heat_uninstall.yaml
+  tags:
+    - heat_uninstall
+  when: OPTIONAL_SERVICE_LIST is defined and 'heat' in OPTIONAL_SERVICE_LIST
+
+- include: cloudpulse_uninstall.yaml
+  tags:
+    - cloudpulse_uninstall
+
+- include: horizon_uninstall.yaml
+  tags:
+    - horizon_uninstall
+
+- include: neutron_{{ MECHANISM_DRIVERS }}_uninstall.yaml
+  tags:
+    - neutron_uninstall
+
+- include: gobgp_uninstall.yaml
+  tags:
+    - gobgp_uninstall
+  when: (NETWORK_OPTIONS is defined and 'vxlan' in NETWORK_OPTIONS)
+
+- include: nova_uninstall.yaml
+  tags:
+    - nova_uninstall
+
+- include: cinder_uninstall.yaml
+  tags:
+    - cinder_uninstall
+
+- include: glance_uninstall.yaml
+  tags:
+    - glance_uninstall
+
+- include: keystone_uninstall.yaml
+  tags:
+    - keystone_uninstall
+
+- include: galera_uninstall.yaml
+  tags:
+    - galera_uninstall
+
+- include: haproxy_uninstall.yaml
+  tags:
+    - haproxy_uninstall
+
+- include: rabbitmq_uninstall.yaml
+  tags:
+    - rabbitmq_uninstall
+
+- include: memcached_uninstall.yaml
+  tags:
+    - memcached_uninstall
+
+- include: fluentd_uninstall.yaml
+  tags:
+    - fluentd_uninstall
+
+- include: ceilometer_uninstall.yaml
+  tags:
+    - ceilometer_uninstall
+  when: |
+    (NFVIMON is defined and nfvimon == 'True' ) or
+    (OPTIONAL_SERVICE_LIST is defined and 'ceilometer' in OPTIONAL_SERVICE_LIST)
+
+- include: gnocchi_uninstall.yaml
+  tags:
+    - gnocchi_uninstall
+  when: |
+    (OPTIONAL_SERVICE_LIST is defined and 'ceilometer' in OPTIONAL_SERVICE_LIST)
+
+- include: nfvimon_uninstall.yaml
+  tags:
+    - nfvimon_uninstall
+  when: |
+     NFVIMON is defined and nfvimon == "True"
+
+- include: magnum_uninstall.yaml
+  tags:
+    - magnum_uninstall
+  when: OPTIONAL_SERVICE_LIST is defined and 'magnum' in OPTIONAL_SERVICE_LIST
+
+- include: ironic_uninstall.yaml
+  tags:
+    - ironic_uninstall
+  when: OPTIONAL_SERVICE_LIST is defined and 'ironic' in OPTIONAL_SERVICE_LIST
+
+- set_fact:
+    CALIPSO_ENABLED: "{{ INVENTORY_DISCOVERY is defined and INVENTORY_DISCOVERY.enabled }}"
+
+- include: calipso_host_control_uninstall.yaml
+  tags:
+    - calipso_uninstall
+  when: 'CALIPSO_ENABLED and "control" in server_role'
+
+- include: calipso_mgmt_uninstall.yaml
+  tags:
+    - calipso_uninstall
+  when: CALIPSO_ENABLED
+
+- name: Remove Dummy.j2 file
+  file:
+    path: /tmp/dummy.j2
+    state: absent
+  tags:
+    - remove_dummy

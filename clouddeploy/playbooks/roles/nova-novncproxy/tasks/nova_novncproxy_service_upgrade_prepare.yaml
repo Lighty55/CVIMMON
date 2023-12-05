@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old nova novncproxy containers
+####################################################
+# Nova novncproxy.
+- name: Shut off nova novncproxy docker service
+  service:
+    name: docker-novanovncproxy
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove nova novncproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novanovncproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova novncproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novanovncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}" }
+
+- name: Remove nova novncproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_NOVNCPROXY_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova novncproxy Directory
+  file:
+    path: "{{ docker.nova_novncproxy.host_data_dir }}"
+    state: absent

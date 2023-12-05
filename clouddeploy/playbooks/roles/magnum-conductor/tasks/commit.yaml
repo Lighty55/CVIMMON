@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Magnum Conductor Directory
+  file:
+    path: "/docker/magnum_conductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old magnum-conductor docker container.
+  docker_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - {  image: "", name: "magnumconductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}" }
+
+- name: Remove magnum docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}"
+    tag: "{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,14 @@
+- name: Creates /etc/kubernetes/pki/etcd directory
+  file:
+    path: /etc/kubernetes/pki
+    state: directory
+
+- name: Wait for Directory Creation
+  pause:
+    seconds: 20
+
+- name: CA cert files from master to newly add node
+  synchronize:
+    src: /etc/kubernetes/pki/etcd
+    dest: /etc/kubernetes/pki
+  delegate_to: "{{ internal_loadbalancer_ip }}"

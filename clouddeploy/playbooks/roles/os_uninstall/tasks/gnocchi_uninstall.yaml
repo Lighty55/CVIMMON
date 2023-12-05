@@ -1,0 +1,146 @@
+# Gnocchi API
+- name: Shut off gnocchi api docker service
+  service:
+    name: docker-gnocchi-api
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-api.service"
+    state: absent
+  tags:
+    - gnocchi_uninstall
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - gnocchi_uninstall
+
+- name: Stop and remove gnocchi api docker container
+  docker_container:
+    image: ""
+    name: "gnocchiapi_{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_api.name }}"
+    tag: "{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi API Directory
+  file:
+    path: "{{ docker.gnocchi_api.host_data_dir }}"
+    state: absent
+  tags:
+    - gnocchi_uninstall
+
+# Gnocchi Metricd
+- name: Shut off gnocchi metricd docker service
+  service:
+    name: docker-gnocchi-metricd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-metricd.service"
+    state: absent
+  tags:
+    - gnocchi_uninstall
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - gnocchi_uninstall
+
+- name: Stop and remove gnocchi metricd docker container
+  docker_container:
+    image: ""
+    name: "gnocchimetricd_{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi metricd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_metricd.name }}"
+    tag: "{{ docker.gnocchi_metricd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi metricd directory
+  file:
+    path: "{{ docker.gnocchi_api.host_data_dir }}"
+    state: absent
+  tags:
+    - gnocchi_uninstall
+
+# Gnocchi Statsd
+- name: Shut off gnocchi statsd docker service
+  service:
+    name: docker-gnocchi-statsd
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi statsd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-statsd.service"
+    state: absent
+  tags:
+    - gnocchi_uninstall
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - gnocchi_uninstall
+
+- name: Stop and remove gnocchi statsd docker container
+  docker_container:
+    image: ""
+    name: "gnocchistatsd_{{ docker.gnocchi_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi statsd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_statsd.name }}"
+    tag: "{{ docker.gnocchi_statsd.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - gnocchi_uninstall
+
+- name: Remove gnocchi API Directory
+  file:
+    path: "{{ docker.gnocchi_api.host_data_dir }}"
+    state: absent
+  tags:
+    - gnocchi_uninstall

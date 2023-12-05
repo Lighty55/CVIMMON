@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove horizon Directory
+  file:
+    path: "/docker/horizon_{{ HORIZON_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old horizon docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "horizon_{{ HORIZON_PREVIOUS_TAG }}" }
+
+- name: Remove horizon docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.horizon.name }}"
+    tag: "{{ HORIZON_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

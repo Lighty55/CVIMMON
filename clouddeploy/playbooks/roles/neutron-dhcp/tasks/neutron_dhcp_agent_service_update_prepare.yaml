@@ -1,0 +1,60 @@
+
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron dhcp Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_dhcp_agent_{{ DHCP_AGENT_PREVIOUS_TAG }}
+
+- stat: path=/docker/neutron_dhcp_agent/
+  register: dir_check
+
+# Back up the neutron dhcp volume contents
+- name: back up the neutron dhcp volume contents
+  shell: cp -r /docker/neutron_dhcp_agent/* /docker/neutron_dhcp_agent_{{ DHCP_AGENT_PREVIOUS_TAG }}/.
+  when: dir_check.stat.exists
+
+# Backup the systemd file
+- name: back up the neutron dhcp systemd file
+  command: cp /usr/lib/systemd/system/docker-neutrondhcp.service /docker/neutron_dhcp_agent_{{ DHCP_AGENT_PREVIOUS_TAG }}/docker-neutrondhcp.service
+  when: dir_check.stat.exists
+
+#####################################################
+# Shut down the old neutron dhcp containers
+####################################################
+# Handle case for DHCP agent not being present for VTS
+- stat: path=/usr/lib/systemd/system/docker-neutrondhcp.service
+  register: systemd_check
+
+- name: Shut off neutron dhcp docker service
+  service:
+    name: docker-neutrondhcp
+    enabled: no
+    state: stopped
+  when: systemd_check.stat.exists
+
+- name: Remove neutron dhcp service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutrondhcp.service"
+    state: absent
+  when: systemd_check.stat.exists
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of neutron dhcp volume
+- name: List the contents of neutron dhcp volume
+  shell: ls -A1 /docker/neutron_dhcp_agent/
+  register: contents
+  when: systemd_check.stat.exists
+
+- name: Remove the contents of neutron dhcp volume
+  file:
+    path: /docker/neutron_dhcp_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+  when: systemd_check.stat.exists

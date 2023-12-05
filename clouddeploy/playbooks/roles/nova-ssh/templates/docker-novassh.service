@@ -1,0 +1,21 @@
+[Unit]
+Description=Nova SSH Service
+Requires=docker-novacpu.service
+After=docker-novacpu.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+{% if MECHANISM_DRIVERS == "vts" or MECHANISM_DRIVERS == "vpp" %}
+RestartSec=20
+StartLimitBurst={{ RESTART_LIMIT_VPP }}
+{% else %}
+RestartSec=5
+StartLimitBurst={{ RESTART_LIMIT }}
+{% endif %}
+StartLimitInterval={{ RESTART_INTERVAL }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a novassh_{{ docker.nova_ssh.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 novassh_{{ docker.nova_ssh.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+- name: Heat Engine install
+  hosts: heat_engine_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-engine", tags: [ "heat", "heat-engine" ] }
+
+- name: Heat API install
+  hosts: heat_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-api", tags: [ "heat", "heat-api" ] }
+
+- name: Heat API CFN install
+  hosts: heat_api_cfn_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "heat-api-cfn", tags: [ "heat", "heat-api", "heat-api-cfn" ] }

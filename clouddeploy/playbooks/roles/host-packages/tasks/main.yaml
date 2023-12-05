@@ -1,0 +1,80 @@
+# NOTE: LVM filter to prevent system lockup during package update or any LVM
+#       related operation.  This is very important for storage that is iSCSI
+#       based due to potential duplicate VG naming from the VMs.
+- include: ../../host_setup/tasks/lvm_filter.yaml
+
+- name: find whether management node repo has to be updated
+  command: python /opt/cisco/scripts/check_repoupdate.py {{ playbook_dir }}/../../openstack-configs/update_scope.yaml
+  register: update_repo
+  delegate_to: localhost
+  when: ACTION is defined and ACTION == "update"
+
+# Adjust sysctl parameters for OVS connection tracking scale
+- name: "Compute node sysctl parameters"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ compute_node_params }}"
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+# Adjust sysctl parameters for ipv4 and ipv6 parameters
+- name: "ipv4 and ipv6 node sysctl parameters"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ network_params }}"
+
+- name: "Cache configurations"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ cache_params }}"
+
+# For ipv6 autoconf turn off by default on all interfaces
+- name: Get the interface list
+  shell: ls /sys/class/net | grep -vw usb0 | grep -vw bonding_masters
+  register: interface_list
+
+# Now set it for reboot setting all and default is already done to make
+# this persistent
+- name: Now set the sysctl parameter for this
+  shell: echo 0 > /proc/sys/net/ipv6/conf/{{ item }}/autoconf
+  ignore_errors: true
+  failed_when: false
+  with_items: "{{ interface_list.stdout_lines }}"
+
+- name: Set existing interfaces to match net.ipv4.conf.default.rp_filter value
+  shell: cat /proc/sys/net/ipv4/conf/default/rp_filter  > /proc/sys/net/ipv4/conf/{{ item }}/rp_filter
+  ignore_errors: true
+  failed_when: false
+  with_items: "{{ interface_list.stdout_lines }}"
+
+- include: vts_vpp_setup.yaml
+  when: MECHANISM_DRIVERS == "vts" or MECHANISM_DRIVERS == "vpp"
+  tags:
+    - vts_host_setup
+    - vpp_host_setup
+
+- include: kvm_options.yaml
+  when: '"compute" in server_role'
+
+- include: packages_update.yaml
+  when: ACTION is defined and (ACTION == "upgrade" or (ACTION == "update" and update_repo is defined and update_repo.stdout != ""))
+
+- include: sriov_rss.yaml
+  when: 'ACTION is defined and ACTION == "update" and "compute" in server_role and vic_nic_combo and intel_sriov is defined and intel_sriov == true and nic_sriov == true'
+
+- name: Adjust the hash size accordingly
+  lineinfile:
+    dest: /etc/modprobe.d/conntrack.conf
+    state: present
+    create: yes
+    regexp: '^'
+    line: 'options nf_conntrack hashsize=512000'
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+- name: Take immediate effect
+  shell: echo 512000 > /sys/module/nf_conntrack/parameters/hashsize
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+- include: baremetal-config.yaml

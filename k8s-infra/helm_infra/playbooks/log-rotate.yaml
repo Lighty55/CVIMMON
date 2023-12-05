@@ -1,0 +1,24 @@
+- hosts: all-servers{{server|default('')}}
+  become: yes
+  # Since hostpath cannot chown apache:apache /var/log/snmp, we need to create it here
+  tasks:
+    - name: "{{ metro_name }} Deploy | Create /var/log directory"
+      file:
+        path: "/var/log"
+        recurse: yes
+        state: directory
+        mode: "0755"
+
+    - name: "{{ metro_name }} Deploy | Create /var/log/snmp"
+      file:
+        path: "/var/log/snmp"
+        state: directory
+        mode: "0755"
+        owner: apache
+        group: apache
+
+- hosts: ::1
+  connection: local
+  become: yes
+  roles:
+    - log-rotate

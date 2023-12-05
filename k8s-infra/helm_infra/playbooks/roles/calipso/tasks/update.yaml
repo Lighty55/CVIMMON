@@ -1,0 +1,68 @@
+# TODO: test
+
+- include: get-secrets.yaml
+- include: render-values.yaml
+
+- name: "Update | Get the last revision number from helm"
+  shell: /usr/bin/helm list {{ calipso_deployment_name }} | tail -n +2 | awk '{print $2}'
+  register: calipso_old_version
+
+- name: "Update | Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ calipso_helm_upgrade_path }}/calipso-values.yaml", dest: "{{ calipso_helm_upgrade_path }}/calipso-values-{{ calipso_old_version.stdout }}.yaml" }
+
+- name: "Update | Render calipso-k8s-cluster-monitor specific helm values file for metro"
+  become: true
+  template: { src: "calipso-values.yaml", dest: "{{ calipso_helm_upgrade_path }}" }
+
+- name: "Update | Save the old version of the helm stack"
+  lineinfile: { dest: "{{ calipso_helm_upgrade_path }}/calipso-old-version", regexp: '^CALIPSO-OLD-REVISION=', line: 'CALIPSO-OLD-REVISION={{ calipso_old_version.stdout }}', create: yes }
+
+- name: "Update | Upgrade calipso-k8s-cluster-monitor with helm"
+  command: >
+    /usr/bin/helm upgrade "{{ calipso_deployment_name }}" --namespace "{{ calipso_namespace }}" "{{ directory_matched.stdout }}"/"{{ calipso_app_directory }}"
+
+- name: "Update | Check rollout status of calipso-k8s-cluster-monitor-mongo deployment"
+  command: kubectl -n "{{ calipso_namespace }}" rollout status deployment "{{ calipso_deployment_name }}-mongo"
+  register: calipso_mongo_status
+  ignore_errors: yes
+
+- name: "Update | Check rollout status of calipso-k8s-cluster-monitor-api deployment"
+  command: kubectl -n "{{ calipso_namespace }}" rollout status deployment "{{ calipso_deployment_name }}-api"
+  register: calipso_api_status
+  ignore_errors: yes
+
+- fail:
+  register: calipso_update_status
+  when: calipso_mongo_status is failed or calipso_api_status is failed
+  ignore_errors: yes
+
+- name: "Update | Check the status of calipso-k8s-cluster-monitor deployment once rolled out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ calipso_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ calipso_deployment_name }}-mongo"
+    - "{{ calipso_deployment_name }}-api"
+  when: calipso_update_status is not failed
+
+- name: "Update | Ensure calipso deployments are up and running."
+  changed_when: false
+  register: "calipso_state"
+  vars:
+    calipso_api_state_query: "items[?metadata.name=='calipso-api'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_mongo_state_query: "items[?metadata.name=='calipso-mongo'].status.conditions|[0][?type=='Available'].status|[0]"
+    calipso_state: { stdout: "{}" }
+  command: "kubectl get deployments --selector=app=calipso --output=json --namespace={{ calipso_namespace }}"
+  until:
+      - "calipso_state.stdout|from_json|json_query(calipso_api_state_query) == 'True'"
+      - "calipso_state.stdout|from_json|json_query(calipso_mongo_state_query) == 'True'"
+  retries: 30
+  delay: 10
+  when: calipso_update_status is not failed
+
+- include: rollback.yaml
+  when: calipso_update_status is failed

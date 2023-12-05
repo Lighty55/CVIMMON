@@ -1,0 +1,12 @@
+controllers_list:
+{% for host in groups['host_control'] %}
+  - {{ hostvars[host]['hostname'] }}
+{% endfor %}
+{% if groups['nova_compute_power_all'] | length == 0 %}
+computes_list: []
+{% else %}
+computes_list:
+{% for host in groups['nova_compute_power_all'] %}
+  - {{ hostvars[host]['hostname'] }}
+{% endfor %}
+{% endif %}

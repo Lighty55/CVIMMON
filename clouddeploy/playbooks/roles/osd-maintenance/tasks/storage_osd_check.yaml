@@ -1,0 +1,58 @@
+# Playbook to determine the disk slot IDs for OSDs
+
+- name: Get hostname
+  shell: hostname
+  register: host_name
+
+- name: Get OSD details file name
+  set_fact:
+    file_name: "{{ OSD_DETAILS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+
+- name: Get OSD details data
+  include_vars:
+    file: "{{ file_name }}"
+    name: data
+  delegate_to: localhost
+
+- name: Determine disk slot for all OSDs
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ item['id_num'] }} | awk -F'Slot:' '{print $2}' | cut -d' ' -f1"
+  register: result
+  with_items: "{{ data.OSD }}"
+
+- name: Save OSD disk slot number
+  set_fact: osd_slot="[{% for i in result.results %}{{ i.stdout | string }},{%endfor%}]"
+
+- name: Write OSD disk slot numbers for all OSDs
+  shell:
+    cmd: "echo 'Slots: {{ osd_slot }}' >> {{ OSD_DETAILS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+
+- name: Determine disk state when raid card is present
+  shell:
+    cmd: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/e{{ data.Enclosure_ID }}/s{{ item.stdout }} show J"
+  register: disk_state_result
+  with_items: "{{ result.results }}"
+  when: data.controller_num is defined and data.Enclosure_ID is defined
+
+- name: Save HDD disk states
+  set_fact: disk_data="[{% for i in disk_state_result.results %}{{ i.stdout | from_json | string }},{%endfor%}]"
+  when: data.controller_num is defined and data.Enclosure_ID is defined
+
+- name: Save HDD disk states
+  set_fact: disk_states="[{% for i in disk_data %}{{ i['Controllers'][0]['Response Data']['Drive Information'][0]['State'] | string }},{%endfor%}]"
+  when: data.controller_num is defined and data.Enclosure_ID is defined
+
+- name: Write all HDD states
+  shell:
+    cmd: "echo 'HDD_States: {{ disk_states }}' >> {{ OSD_DETAILS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+  when: data.controller_num is defined and data.Enclosure_ID is defined
+
+- name: Write OSD name for bad OSDs
+  shell:
+    cmd: "echo '{{ item['name'] }}' >> {{ BAD_DISKS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+  when: item['status'] == 'down'
+  with_items: "{{ data.OSD }}"

@@ -1,0 +1,25 @@
+
+- name: Ceilometer central install
+  hosts: ceilometer_central_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-central", tags: [ "ceilometer", "ceilometer-central" ] }
+
+- name: Ceilometer notification install
+  hosts: ceilometer_notification_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-notification", tags: [ "ceilometer", "ceilometer-notification" ] }
+
+
+- name: Ceilometer compute install
+  hosts: ceilometer_compute_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-compute", tags: [ "ceilometer", "ceilometer-compute" ] }

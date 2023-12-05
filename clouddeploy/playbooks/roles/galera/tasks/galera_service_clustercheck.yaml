@@ -1,0 +1,97 @@
+- stat: path=/docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}
+  register: dir_check
+  when: (ACTION is defined and ACTION == "rollback")
+  tags:
+    - base
+    - clustercheck
+
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+  tags:
+    - base
+    - clustercheck
+
+- name: Copy xinetd mysqlchk script.
+  template:
+    # provide full path as this playbook is called from different locations
+    src: "{{ playbook_dir}}/roles/galera/templates/mysqlchk.j2"
+    dest: /etc/xinetd.d/mysqlchk
+    mode: "0600"
+  tags:
+    - base
+    - clustercheck
+  when: (ACTION is undefined) or (ACTION is defined and ACTION != "rollback")
+
+- name: Revert xinetd mysqlchk script.
+  command: cp /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/mysqlchk /etc/xinetd.d/mysqlchk
+  tags:
+    - clustercheck
+    - base
+  when: (dir_check is defined and dir_check.stat.exists) and (ACTION is defined and ACTION == "rollback")
+
+- name: Add mysqlchk to /etc/services
+  lineinfile:
+    dest: /etc/services
+    state: present
+    line: "mysqlchk        9200/tcp                # MYSQL Check."
+  tags:
+    - base
+    - clustercheck
+
+- name: Copy the clustercheck script to host.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0755"
+  with_items:
+    - { src: "{{ playbook_dir}}/roles/galera/templates/clustercheck",
+        dest: "/usr/bin/clustercheck" }
+  tags:
+    - base
+    - clustercheck
+  when: (ACTION is undefined) or (ACTION is defined and ACTION != "rollback")
+
+- name: Revert the clustercheck script on rollback
+  command: cp /docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}/clustercheck /usr/bin/clustercheck
+  tags:
+    - base
+    - clustercheck
+  when: (dir_check is defined and dir_check.stat.exists) and (ACTION is defined and ACTION == "rollback")
+
+# Now remove the backup volume
+- name: Remove back up mariadb Directory
+  file:
+    path: "/docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}"
+    state: absent
+  tags:
+    - base
+    - clustercheck
+  when: (dir_check is defined and dir_check.stat.exists) and (ACTION is defined and ACTION == "rollback")
+
+- name: Restart xinetd service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - xinetd
+  tags:
+    - base
+    - clustercheck
+
+- name: Check xinetd service and cluster in sync state
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ inventory_hostname }}:9200"
+  register: result
+  until: result.status|default(0) == 200
+  # NOTE: long timeout incase during update/upgrade, cluster with lots of data
+  #       may take longer to reach sync state
+  retries: 120
+  delay: 5
+  tags:
+    - base
+    - clustercheck
+

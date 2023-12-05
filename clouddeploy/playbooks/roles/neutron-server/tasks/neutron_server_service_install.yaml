@@ -1,0 +1,49 @@
+- name: Create Neutron Server Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_server
+
+# Does not fail if there is no ironic network in setup-data.yaml.
+- set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+
+- name: Copy neutron server config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+        dest: "{{ docker.neutron_server.host_data_dir }}/neutron_config" }
+
+- name: Copy Neutron Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/neutron-server/templates/{{ item }}"
+    dest: "{{docker.neutron_server.host_data_dir }}/{{ item }}"
+  with_items:
+    - "neutron_policy.json"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutronsrv.service",
+        dest: "/usr/lib/systemd/system/docker-neutronsrv.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Pull neutron server image
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.neutron_server.name }}:{{ docker.neutron_server.image_tag }}"

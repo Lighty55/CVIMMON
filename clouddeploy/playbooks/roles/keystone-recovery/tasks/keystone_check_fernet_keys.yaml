@@ -1,0 +1,47 @@
+##############################################################################
+# Script that checks the fernet keys across all keystone nodes and sees if
+# all are the same.
+#
+# This script returns:
+#   - _host0_fernet_filenames: List of the filenames of the fernet keys on
+#            the first container (keystone['keystone_all'][0])
+#   - _hosts_need_resync: List of hosts which have differnet fernet keys
+#            (compared with the ones in the first controller)
+##############################################################################
+
+- name: FernetCheck | Verify all keystone containers are up
+  shell: docker ps | grep keystone | awk {'print $NF'}
+  register: _container_name
+  failed_when: not _container_name.stdout
+
+- name: FernetCheck | Get the existing fernet keys from the first container
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _host0_fernet_filenames
+  failed_when: not _host0_fernet_filenames
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- debug: msg="FernetCheck | Host0 fernet filenames are {{ _host0_fernet_filenames.stdout_lines }}"
+  when: (_host0_fernet_filenames is defined)
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: FernetCheck | Make sure the rest of the container has the same fernet keys
+  shell: docker exec {{ _container_name.stdout }} ls {{ KEYSTONE_FERNET_KEYS_REPO }}
+  register: _list
+
+- name: FernetCheck | Get the list of hosts that need to resync its fernet keys
+  set_fact:
+    _hosts_need_resync:
+      "[{% for host in groups['keystone_all'][1:]
+               if hostvars[host]._list.stdout != hostvars[host]._host0_fernet_filenames.stdout -%}
+                   '{{ host }}'
+                   {%- if not loop.last %} , {% endif %}
+        {%- endfor -%}]"
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][1] }}"
+
+- debug: msg="FernetCheck | Hosts that need to re-sync its fernet keys are {{ _hosts_need_resync }}"
+  when: (_hosts_need_resync is defined)
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][1] }}"

@@ -1,0 +1,6 @@
+- stat: path=/docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists
+

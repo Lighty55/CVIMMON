@@ -1,0 +1,16 @@
+[Unit]
+Description=Glance API Docker
+Wants=docker-glancer.service
+After=docker-glancer.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a glanceapi_{{ docker.glance_api.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 glanceapi_{{ docker.glance_api.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

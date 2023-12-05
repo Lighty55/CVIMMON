@@ -1,0 +1,35 @@
+KEYSTONE_ADMIN_SERVICE_HOST: {{ KEYSTONE_ADMIN_SERVICE_HOST }}
+# NOTE: ServerName field in Apache cannot accept non-valid hostname.  In the
+#       case with IPv6 address, replace it with IPv4 address and it should not
+#       impact the Horizon's functionality.
+KEYSTONE_PUBLIC_SERVICE_HOST: {{ KEYSTONE_PUBLIC_SERVICE_HOST|regex_replace('.*:.*', external_lb_vip_address) }}
+GLANCE_API_SERVICE_HOST: {{ GLANCE_API_SERVICE_HOST }}
+HORIZON_HOST: {{ HORIZON_HOST }}
+PUBLIC_PROTOCOL: {{ PUBLIC_PROTOCOL }}
+INTERNAL_PROTOCOL: {{ INTERNAL_PROTOCOL }}
+TIMEZONE: {{ TIMEZONE }}
+HORIZON_BACKEND_LOC: "{{ HORIZON_BACKEND_LOC }}"
+KEYSTONE_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+EXTERNAL_LB_VIP_ADDRESS: "{{ external_lb_vip_address }}"
+{% if external_lb_vip_ipv6_address is defined %}
+EXTERNAL_LB_VIP_IPV6_ADDRESS: "{{ external_lb_vip_ipv6_address | ipv6('address') }}"
+{% endif %}
+{% if external_lb_vip_fqdn is defined %}
+EXTERNAL_LB_VIP_FQDN: "{{ external_lb_vip_fqdn }}"
+{% endif %}
+SWIFTSTACK_PROTOCOL: "{% if swift_service %}{{ SWIFTSTACK_PROTOCOL }}{% endif %}"
+CACERT_LOCATION: {{ CACERT_LOCATION }}
+CACERT_FILE: {{ CACERT_FILE }}
+{% if OPENSTACK_READONLY_ROLE is defined and OPENSTACK_READONLY_ROLE == true %}
+OPENSTACK_READONLY_ROLE: {{ OPENSTACK_READONLY_ROLE }}
+{% endif %}
+{% if VAULT is defined and VAULT.enabled == True %}
+# VAULT
+VAULT_TOKEN: {{ TOKEN }}
+MGMT_IP: {{ build_node_ip | ipwrap }}
+PASSWORD_VARS: {{ PASSWORD_VARS }}
+{% else %}
+HORIZON_SECRET_KEY: {{ HORIZON_SECRET_KEY }}
+{% endif %}
+HORIZON_ALLOWED_HOSTS: "{{ HORIZON_ALLOWED_HOST_LIST }}"
+HORIZON_SESSION_TIMEOUT: "{{ HORIZON_SESSION_TIMEOUT }}"

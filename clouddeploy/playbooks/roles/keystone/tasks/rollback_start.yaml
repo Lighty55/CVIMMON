@@ -1,0 +1,137 @@
+# First remove the new container and artifacts
+- name: Rollback | Shut off keystone docker service
+  service:
+    name: docker-keystone
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Rollback | Remove Fernet keys rotation script
+  file:
+    path: "/usr/lib/systemd/system/docker-keystone.service"
+    state: absent
+
+- name: Rollback | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | Stop and remove keystone docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "keystone_{{ docker.keystone.image_tag }}" }
+
+- name: Rollback | Remove keystone docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.keystone.name }}"
+    tag: "{{ docker.keystone.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Rollback | Remove keystone Directory
+  file:
+    path: "{{ docker.keystone.host_data_dir }}"
+    state: absent
+
+# Now revert to the old version since new version is removed
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Rollback | Create Keystone Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/keystone
+
+# Backup all files in /docker/keystone. These include keystone fernet-keys, config and systemd files
+# NOTE: Have to use the raw rsync command instead of synchronize module due to
+#       inventory host is in IPv4 and if ansible_host is in IPv6, this will
+#       cause the module to perform over network even though the sync is on
+#       same host.
+- name: Rollback | Backup files from /docker/keystone into /docker/keystone_{{ KEYSTONE_PREVOUS_TAG }}
+  command: rsync --archive --copy-links "{{ docker.keystone.host_data_dir }}_{{ KEYSTONE_PREVIOUS_TAG }}/" "{{ docker.keystone.host_data_dir }}"
+
+# Now remove the backup volume
+- name: Rollback | Remove back up keystone directory
+  file:
+    path: "/docker/keystone_{{ KEYSTONE_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Rollback | Copy containers restart-on-boot files.
+  command: cp /docker/keystone/docker-keystone.service /usr/lib/systemd/system/docker-keystone.service
+
+- name: Rollback | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Rollback | systemctl reset failed
+  command: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias keystone='in_container keystone_"
+    line: "{{ item }}"
+  with_items:
+    - alias keystone='in_container keystone_{{ KEYSTONE_PREVIOUS_TAG }}'
+
+- name: Rollback | Start the keystone container
+  service:
+    name: docker-keystone
+    enabled: yes
+    state: started
+
+- name: Start | Wait for keystone to be alive
+  wait_for: host={{ KEYSTONE_HOST }} port={{ KEYSTONE_ADMIN_SERVICE_PORT }}
+
+- name: Rollback | Remove the installed fernet autorotate directory
+  file:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (inventory_hostname == "{{ groups['keystone_all'][0] }}") and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+- name: Rollback | Check if previous fernet autorotate directory is there
+  stat: path="{{ KEYSTONE_FERNET_ROTATION_DIR }}_{{ KEYSTONE_PREVIOUS_TAG }}"
+  register: _prev_dir
+
+- name: Rollback | Recover from the previous fernet autorotation script
+  shell: mv "{{ KEYSTONE_FERNET_ROTATION_DIR }}_{{ KEYSTONE_PREVIOUS_TAG }}" "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (inventory_hostname == "{{ groups['keystone_all'][0] }}") and
+        (_prev_dir.stat.isdir is defined) and (_prev_dir.stat.isdir) and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+# At this point the rotation cron job should be already started but we repeat just in case
+- name: Rollback | Create Fernet Keys rotation cron job
+  cron:
+    name: "Fernet keys rotation job"
+    special_time: "{{ KEYSTONE_FERNET_ROTATION }}"
+    user: root
+    job: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    state: present
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (inventory_hostname == "{{ groups['keystone_all'][0] }}") and (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+# Fine and Rollback | remove the fernet keys from the controller nodes
+- name: Find the fernet keys from the controller nodes
+  shell: ls -A1 {{ docker.keystone.host_data_dir }}/fernet-key_*
+  register: contents
+
+- name: Rollback or remove the fernet keys from the controller nodes
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

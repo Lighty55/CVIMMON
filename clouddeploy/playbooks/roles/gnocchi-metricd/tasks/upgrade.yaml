@@ -1,0 +1,40 @@
+#######################################################
+# Preparing Gnocchi metricd upgrade
+#######################################################
+- name: Shut off gnocchi metricd docker service
+  service:
+    name: docker-gnocchi-metricd
+    enabled: no
+    state: stopped
+
+- name: Remove gnocchi metricd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-metricd.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove gnocchi metricd docker container
+  docker_container:
+    image: ""
+    name: "gnocchimetricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi metricd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ GNOCCHI_METRICD_PREVIOUS_NAME }}"
+    tag: "{{ GNOCCHI_METRICD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi metricd directory
+  file:
+    path: "{{ docker.gnocchi_metricd.host_data_dir }}"
+    state: absent
+
+#######################################################
+# Installing new Gnocchi metricd
+#######################################################
+- include: deploy.yaml

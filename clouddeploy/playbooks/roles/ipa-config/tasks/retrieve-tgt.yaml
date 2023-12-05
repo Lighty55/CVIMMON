@@ -1,0 +1,13 @@
+- name: Request Kerberos TGT to check if server is already enrolled
+  shell: echo '{{ IPA_INFO.enroller_password }}' | kinit {{ IPA_INFO.enroller_user }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: kinit_result
+
+- name: Fail deploy if kerberos credentials are invalid
+  fail: msg="Invalid enroller credentials provided"
+  when: >
+    kinit_result is defined
+    and kinit_result.rc == 1
+    and kinit_result.stderr and kinit_result.stderr | search ('Password incorrect')

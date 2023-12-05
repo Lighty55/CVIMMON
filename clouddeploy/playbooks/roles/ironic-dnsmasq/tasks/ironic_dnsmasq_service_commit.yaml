@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Ironic DNSMASQ directory
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old Ironic DNSMASQ docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_dnsmasq_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}" }
+
+- name: Remove Ironic DNSMASQ docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_dnsmasq.name }}"
+    tag: "{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,45 @@
+- name: Check if telegraf repo file exists
+  stat:
+    path:  /etc/yum.repos.d/mercury-telegraf.repo
+  register: mercury_telegraf_result
+
+- name: Download telegraf repofile from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/mercury-telegraf.repo"
+    dest: /etc/yum.repos.d/mercury-telegraf.repo
+    return_content: yes
+    status_code: 200,304
+  when: mercury_telegraf_result.stat.exists == False
+
+- name: Install telegraf
+  yum:
+    name: telegraf
+    state: present
+
+- name: Copy Ceph Plugin executable
+  template:
+     src: "{{ item }}"
+     dest: /usr/bin/docker_ceph
+     mode: "0755"
+  with_fileglob: /usr/bin/docker_ceph
+
+- name: Create ceph directory
+  file:
+    path: "/var/run/ceph"
+    state: directory
+    owner: root
+    group: 0
+    mode: "0755"
+
+- name: Copy new telegraf configuration file
+  template:
+     src: /var/lib/cvim_mon/{{ ansible_nodename }}.conf
+     dest: /etc/telegraf.conf
+     mode: "0600"
+  register: telegraf_reconfigure
+
+- name: Restart telegraf if config has changed
+  service:
+    name: telegraf
+    enabled: yes
+    state: restarted

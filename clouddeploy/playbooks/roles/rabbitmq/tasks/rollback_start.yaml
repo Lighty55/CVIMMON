@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and rabbitmq
+- name: Shut off rabbitmq docker service
+  service:
+    name: docker-rabbitmq
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove rabbitmq service file
+  file:
+    path: "/usr/lib/systemd/system/docker-rabbitmq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove rabbitmq docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "rabbitmq_{{ docker.rabbitmq.image_tag }}" }
+
+- name: Remove rabbitmq docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.rabbitmq.name }}"
+    tag: "{{ docker.rabbitmq.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove rabbitmq volume contents
+- name: List rabbitmq volume contents
+  shell: ls -A1 /docker/rabbit/
+  register: contents
+
+- name: Remove rabbitmq volume contents
+  file:
+    path: /docker/rabbit/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the rabbitmq volume contents
+- name: recover rabbitmq volume contents
+  shell: cp /docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}/* /docker/rabbit/.
+
+# Now remove the backup volume
+- name: Remove back up rabbitmq Directory
+  file:
+    path: "/docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/rabbit/docker-rabbitmq.service /usr/lib/systemd/system/docker-rabbitmq.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias rabbit='in_container rabbitmq_"
+    line: "{{ item }}"
+  with_items:
+    - alias rabbit='in_container rabbitmq_{{ RABBITMQ_PREVIOUS_TAG }}'
+
+# Start the rabbitmq container service
+- name: Start the rabbitmq service
+  service:
+    name: docker-rabbitmq
+    enabled: yes
+    state: started
+
+- name: Wait for Rabbitmq to be alive
+  wait_for: host={{ RABBITMQ_SERVICE_HOST }} port={{ RABBITMQ_PORT }}

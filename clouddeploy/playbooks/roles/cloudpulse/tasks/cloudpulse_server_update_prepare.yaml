@@ -1,0 +1,49 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create cloudpulse Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/cloudpulse_{{ CLOUDPULSE_PREVIOUS_TAG }}
+
+# Back up the cloudpulse volume
+- name: backup the cloudpulse volume data
+  shell: cp -p /docker/cloudpulse/* /docker/cloudpulse_{{ CLOUDPULSE_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the cloudpulse systemd file
+  command: cp /usr/lib/systemd/system/docker-cloudpulse.service /docker/cloudpulse_{{ CLOUDPULSE_PREVIOUS_TAG }}/docker-cloudpulse.service
+
+
+#####################################################
+# Shut down the old cloudpulse containers
+####################################################
+# Cloudpulse.
+- name: Shut off cloudpulse docker service
+  service:
+    name: docker-cloudpulse
+    enabled: no
+    state: stopped
+
+- name: Remove cloudpulse service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cloudpulse.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove cloudpulse volume contents
+- name: List cloudpulse volume contents
+  shell: ls -A1 /docker/cloudpulse/
+  register: contents
+
+- name: Remove cloudpulse volume contents
+  file:
+    path: /docker/cloudpulse/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

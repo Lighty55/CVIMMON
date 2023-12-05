@@ -1,0 +1,32 @@
+- hosts: all-masters[0]
+  become: yes
+  tasks:
+    - name: Get the join command from the master node
+      command: "kubeadm token create --print-join-command"
+      register: kubeadm_join
+      ignore_errors: yes
+      failed_when: False
+    - set_fact:
+        kubeadm_join_command: "{{ kubeadm_join.stdout }}"
+      when: kubeadm_join.rc == 0
+    - debug:
+        msg: "{{ kubeadm_join_command }}"
+
+- hosts: all-workers{{server|default('')}}
+  vars:
+    kubeadm_join_cmd: "{{ hostvars[groups['all-masters'][0]]['kubeadm_join_command'] }}"
+  become: yes
+  roles:
+    - kubeadm-join-node
+
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - reconfig-proxy
+
+- hosts: all-servers
+  become: yes
+  roles:
+    - reconfig-kubelet
+
+- include: kubernetes-node-labels.yaml

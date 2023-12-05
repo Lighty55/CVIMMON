@@ -1,0 +1,15 @@
+# NOTE: Only perform N3000 firmware update on fresh install or calling the
+#       role directly without any ACTION.
+- name: Check for Intel FPGA N3000 card
+  shell: lspci -d 8086:0b30 | wc -l
+  register: n3000_card_count
+  when: INTEL_N3000_FIRMWARE is defined and INTEL_N3000_FIRMWARE and ACTION is undefined
+
+- include: requirement.yaml
+  when: n3000_card_count is defined and n3000_card_count.stdout | int > 0
+
+- include: firmware_check.yaml
+  when: n3000_card_count is defined and n3000_card_count.stdout | int > 0 and firmware_check and not firmware_update
+
+- include: firmware_update.yaml
+  when: n3000_card_count is defined and n3000_card_count.stdout | int > 0 and not firmware_check and firmware_update

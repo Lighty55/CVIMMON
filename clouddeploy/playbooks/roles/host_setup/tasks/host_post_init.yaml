@@ -1,0 +1,105 @@
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "docker-iptables.service.j2"
+     dest: "/usr/lib/systemd/system/docker-iptables.service"
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+
+- name: "Only use Cisco VIM registries and open port 4243 for Docker remote API"
+  replace: dest=/etc/sysconfig/docker regexp="OPTIONS='--selinux-enabled --log-driver=journald --signature-verification=false'" replace="OPTIONS='--selinux-enabled --log-driver=journald --signature-verification=false --enable-secrets=false'"
+
+# Make sure to remove oci register machine
+- name: Remove oci-register-machine hook
+  file:
+    path: "/usr/libexec/oci/hooks.d/oci-register-machine"
+    state: absent
+
+# Configures registries with cloud-docker.cisco.com
+# block registries with docker.io and insecure
+# registry as the local registry on the management node
+- name: Generate docker registries configuration
+  template:
+    src: "{{ playbook_dir }}/shared/templates/docker-registries.conf.j2"
+    dest: "/etc/containers/registries.conf"
+    mode: "0644"
+  register: status_registries
+
+- name: Systectl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  register: docker_daemon_reload
+  tags:
+    - reboot-on-failure
+
+- name: Restart Docker Service
+  service:
+    name: docker
+    state: restarted
+  when: status_registries.changed
+  tags:
+    - reboot-on-failure
+
+- name: Enable Docker-iptables Service
+  service:
+    name: docker-iptables
+    enabled: yes
+  tags:
+    - reboot-on-failure
+
+- name: Check if container images exist locally
+  stat:
+    path: "{{ ARTIFACT_PATH }}/images"
+  register: images
+  delegate_to: 127.0.0.1
+  tags: registry_auth
+
+- name: Create .docker dir
+  file:
+    path: "{{ lookup('env', 'HOME') }}/.docker"
+    state: directory
+    mode: "0600"
+  tags: registry_auth
+  when: not images.stat.exists and registry_auth == "True"
+
+- name: Copy docker registry auth file
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0400"
+  with_items:
+    - { src: "{{ lookup('env','HOME') }}/.docker/config.json", dest: "{{ lookup('env','HOME') }}/.docker/config.json" }
+  tags: registry_auth
+  when: not images.stat.exists and registry_auth == "True"
+
+- name: Copy docker logrotate template
+  template: src=docker-containers dest=/etc/logrotate.d/docker-containers mode=0644
+
+- include: vts_vpp_setup.yaml
+  when: MECHANISM_DRIVERS == "vts" or MECHANISM_DRIVERS == "vpp"
+  tags:
+    - vts_host_setup
+    - vpp_host_setup
+
+- include: aci_setup.yaml
+  when: MECHANISM_DRIVERS == "aci"
+
+- include: set_facts_dns.yml
+  when: ENABLE_KUBE_DEPLOYMENT == True
+
+# Put the task to the very end to have the most tasks optimized
+- include: nfv_setup.yaml
+  when: inventory_hostname in "{{ groups['nfv_hosts'] }}"
+  tags:
+    - nfv_host_setup
+
+- include: kvm_options.yaml
+  when: '"compute" in server_role'
+
+- include: tty_logging.yaml
+  when: ENABLE_TTY_LOGGING is defined and ENABLE_TTY_LOGGING|bool
+
+- include: gpu_check.yaml
+  when: '"compute" in server_role'
+
+- include: vgpu_install.yaml
+  when: '"compute" in server_role'

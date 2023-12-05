@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Glance registry Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/glance_registry_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}
+
+# Backup the glance registry volume contents
+- name: backup the glance registry volume contents
+  shell: cp /docker/glance_registry/* /docker/glance_registry_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the glance registry systemd file
+  command: cp /usr/lib/systemd/system/docker-glancer.service /docker/glance_registry_{{ GLANCE_REGISTRY_PREVIOUS_TAG }}/docker-glancer.service
+
+#####################################################
+# Shut down the old glance registry containers
+####################################################
+# Glance registry.
+- name: Shut off glance registry docker service
+  service:
+    name: docker-glancer
+    enabled: no
+    state: stopped
+
+- name: Remove glance registry service file
+  file:
+    path: "/usr/lib/systemd/system/docker-glancer.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove glance registry volume contents
+- name: List glance registry volume contents
+  shell: ls -A1 /docker/glance_registry/
+  register: contents
+
+- name: Remove glance registry volume contents
+  file:
+    path: /docker/glance_registry/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

@@ -1,0 +1,47 @@
+- name: GET VTF TAG
+#  hosts: neutron_vtf_all{{server|default('')}}
+  hosts: neutron_vtf_all[0]
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Find the current VTF Tag
+      shell: docker ps  | grep neutron_vtf | awk '{print $NF}' | cut -d "_" -f 3
+      register: content
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+    - name: Create Update file
+      shell: touch /root/update.yaml
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      delegate_to: localhost
+      run_once: True
+
+    - name: Add VTF Tag to Update.yaml
+      lineinfile:
+         dest: /root/update.yaml
+         state: present
+         regexp: "VTF_PREVIOUS_TAG: "
+         line: "VTF_PREVIOUS_TAG: {{ content.stdout }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      delegate_to: localhost
+      run_once: True
+
+    - name: Add DHCP Tag to Update.yaml
+      lineinfile:
+         dest: /root/update.yaml
+         state: present
+         regexp: "DHCP_AGENT_PREVIOUS_TAG: "
+         line: "DHCP_AGENT_PREVIOUS_TAG: latest"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      delegate_to: localhost
+      run_once: True
+
+    - name: Add META Tag to Update.yaml
+      lineinfile:
+         dest: /root/update.yaml
+         state: present
+         regexp: "METADATA_AGENT_PREVIOUS_TAG: "
+         line: "METADATA_AGENT_PREVIOUS_TAG: latest"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      delegate_to: localhost
+      run_once: True

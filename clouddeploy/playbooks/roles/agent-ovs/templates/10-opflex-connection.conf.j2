@@ -1,0 +1,13 @@
+{
+    "opflex":{
+        "domain":"comp/prov-OpenStack/ctrlr-[{{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}]-{{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}/sw-InsiemeLSOid",
+        "name":"{{ inventory_hostname }}",
+        "peers":[
+            {"hostname":"10.0.0.30", "port":"8009"}
+        ],
+        "ssl":{
+            "mode":"encrypted"
+        }
+    }
+}
+

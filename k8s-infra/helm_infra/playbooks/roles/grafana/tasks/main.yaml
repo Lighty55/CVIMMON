@@ -1,0 +1,21 @@
+- include: create-certs.yaml
+  when: ACTION is undefined or (ACTION is defined and (ACTION == "add-stack" or ACTION == 'add-cvim-pod' or ACTION == 'delete-cvim-pod'))
+- include: create-password.yaml
+  when: ACTION is undefined or (ACTION is defined and (ACTION == "add-stack" or ACTION == 'add-cvim-pod' or ACTION == 'delete-cvim-pod' or ACTION == "reconfigure-stack"))
+- include: check-helm.yaml
+- include: grafana-deploy.yaml
+  when: ACTION is undefined or (ACTION is defined and (ACTION == "add-stack" or ACTION == 'add-cvim-pod' or ACTION == 'delete-cvim-pod'))
+- include: grafana-remove.yaml
+  when: ACTION is defined and ACTION == "delete-stack"
+- include: grafana-update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: grafana-rollback.yaml
+  with_fileglob: "{{ grafana_helm_upgrade_path }}/grafana_old_version"
+  loop_control: { loop_var: "old_version_file" }
+  when: ACTION is defined and ACTION == "rollback"
+- include: regenerate-password.yaml
+  when: ACTION is defined and ACTION == "regenerate-password"
+- include: regenerate-certs.yaml
+  when: ACTION is defined and ACTION == "regenerate-certs"
+- include: grafana-reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure-stack"

@@ -1,0 +1,11 @@
+- name: Copy nova conductor config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_conductor_config.j2",
+        dest: "{{ docker.nova_conductor.host_data_dir }}/nova_conductor_config" }
+
+- name: Pull Nova conductor image
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.nova_conductor.name }}:{{ docker.nova_conductor.image_tag }}"

@@ -1,0 +1,3 @@
+- include: neutron_vpp_upgrade_prepare.yaml
+- include: neutron_vpp_service_install.yaml
+- include: neutron_vpp_service_start.yaml

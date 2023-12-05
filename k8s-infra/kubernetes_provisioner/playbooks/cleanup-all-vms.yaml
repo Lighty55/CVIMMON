@@ -1,0 +1,7 @@
+- hosts: all-servers
+  become: yes
+  gather_facts: no
+  ignore_errors: yes
+  roles:
+    - helm-reset
+    - cleanup

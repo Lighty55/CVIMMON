@@ -1,0 +1,200 @@
+# First remove the new container and artifacts and nova libvirt
+- name: Shut off nova libvirt docker service
+  service:
+    name: docker-novalibv
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova libvirt service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novalibv.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Remove libvirt container by looping
+  shell: docker ps -a | grep novalibvirt_{{ docker.nova_libvirt.image_tag }} | cut -f1 -d ' ' | xargs docker rm -f
+  register: result
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  until: result.rc == 123
+  retries: 5
+  delay: 10
+
+- name: Removal of nova libvirt container failed
+  fail: msg="Nova Libvirt Container remove failed"
+  when: result.rc != 123
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}"
+    tag: "{{ docker.nova_libvirt.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove contents of nova libvirt volume
+- name: List contents of nova libvirt volume
+  shell: ls -A1 /docker/nova_libvirt/
+  register: contents
+
+- name: Remove contents of nova libvirt volume
+  file:
+    path: /docker/nova_libvirt/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+# Recover the nova libvirt volume contents
+- name: Recover the nova libvirt volume contents
+  shell: cp /docker/nova_libvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}/* /docker/nova_libvirt/.
+
+# Now remove the backup volume
+- name: Remove back up nova libvirt Directory
+  file:
+    path: "/docker/nova_libvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Remove the old container
+  shell: docker ps -a | grep novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} | cut -f1 -d ' ' | xargs docker rm -f
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: result
+  until: result.rc == 123
+  retries: 5
+  delay: 10
+
+- name: Removal of nova libvirt container failed
+  fail: msg="Nova Libvirt Container remove failed"
+  when: result.rc != 123
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}"
+    tag: "{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_libvirt/docker-novalibv.service /usr/lib/systemd/system/docker-novalibv.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Check if Nova Libvirt Docker container is already running
+  shell: docker ps -a | grep Up | grep novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Copy Ceph secret XML.
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "secret.xml",
+        dest: "{{ docker.nova_libvirt.host_data_dir}}/secret.xml" }
+  when: command_result.stdout == "" and NETAPP is not defined and ZADARA is not defined
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias libvirt='in_container novalibvirt_"
+    line: "{{ item }}"
+  with_items:
+    - alias libvirt='in_container novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}'
+
+- name: Start the Nova Libvirt Docker Service
+  docker_container:
+    name: "novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /lib/modules:/lib/modules:ro
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and not MECHANISM_DRIVERS in ["vts", "vpp"]
+
+- name: Start the Nova Libvirt Docker Service
+  docker_container:
+    name: "novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /lib/modules:/lib/modules:ro
+        - /var/tmp:/var/tmp:rw,z
+        - /tmp:/tmp:rw,z
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and MECHANISM_DRIVERS in ["vts", "vpp"]
+
+- pause: seconds=60 prompt="Waiting for sometime"
+
+- name: Check if Nova libvirt  Docker container has started running
+  shell: docker ps -a | grep Up | grep novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova libvirt Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Check for secret file
+  stat: path={{ docker.nova_libvirt.host_data_dir }}/secret.xml
+  register: file_status
+  when: NETAPP is not defined and ZADARA is not defined and (PODTYPE is not defined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+
+- name: Define Secret for volume
+  shell: docker exec -t novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} bash -c "virsh secret-define --file /etc/ceph/secret.xml"
+  when: file_status.stat is defined and file_status.stat.exists == True and NETAPP is not defined and ZADARA is not defined and (PODTYPE is not defined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+
+- name: Set the secret value
+  shell: docker exec -t novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} bash -c "virsh secret-set-value --secret {{ SECRET_UUID }} --base64 {{ CINDER_CLIENT_KEY }}"
+  when: file_status.stat is defined and file_status.stat.exists == True and NETAPP is not defined and ZADARA is not defined and (PODTYPE is not defined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+
+- name: Remove the secret file
+  shell: docker exec novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} bash -c "rm -f /etc/ceph/secret.xml"
+  when: file_status.stat is defined and file_status.stat.exists == True and NETAPP is not defined and ZADARA is not defined and (PODTYPE is not defined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+
+- name: Remove the secret file from host
+  file:
+    dest: "{{ docker.nova_libvirt.host_data_dir }}/secret.xml"
+    state: absent
+  when: file_status.stat is defined and file_status.stat.exists == True and NETAPP is not defined and ZADARA is not defined and (PODTYPE is not defined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+
+# Start the container
+- name: Start the nova libvirt service
+  service:
+   name: docker-novalibv
+   enabled: yes
+   state: started
+
+
+

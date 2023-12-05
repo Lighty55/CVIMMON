@@ -1,0 +1,14 @@
+[Unit]
+Description=load the kernel to kexec
+Documentation=man:kexec(8)
+DefaultDependencies=no
+Before=shutdown.target umount.target final.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kexec-prepare
+
+[Install]
+WantedBy=kexec.target
+# If you make reboot do a kexec you'll also want...
+WantedBy=reboot.target

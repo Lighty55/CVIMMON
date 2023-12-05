@@ -1,0 +1,45 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova common Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}
+
+# Back up the nova common volume
+- name: back up the nova common volume
+  shell: cp /docker/nova_common/* /docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up nova common systemd file
+  command: cp /usr/lib/systemd/system/docker-novacommon.service /docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}/docker-novacommon.service
+
+# Shut down the old nova common container
+- name: Shut down the nova common docker service
+  service:
+    name: docker-novacommon
+    enabled: no
+    state: stopped
+
+- name: Remove nova-common service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacommon.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of nova common volume contents
+- name: List the contents of nova common volume contents
+  shell: ls -A1 /docker/nova_common/
+  register: contents
+
+- name: Remove the contents of nova common volume contents
+  file:
+    path: /docker/nova_common/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

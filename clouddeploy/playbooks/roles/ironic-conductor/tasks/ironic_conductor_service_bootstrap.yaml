@@ -1,0 +1,36 @@
+- name: Check if Ironic Conductor Docker container is already running
+  shell: docker ps -a | grep Up | grep ironic_conductor_{{ docker.ironic_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- stat: path={{ IRONIC_VOLUME }}
+  register: ironic_dir_check
+
+- name: Create ironic directory
+  file:
+    path: "{{ IRONIC_VOLUME }}"
+    state: directory
+    owner: ironic
+    group: ironic
+    mode: 0755
+  when: ironic_dir_check.stat.exists == False
+
+- name: Create tftpboot directory
+  file:
+    path: "{{ IRONIC_VOLUME }}/tftpboot"
+    state: directory
+    owner: ironic
+    group: root
+    mode: 0755
+  when: ironic_dir_check.stat.exists == False
+
+- name: Create httpboot directory
+  file:
+    path: "{{ IRONIC_VOLUME }}/httpboot"
+    state: directory
+    owner: ironic
+    group: root
+    mode: 0755
+  when: ironic_dir_check.stat.exists == False
+
+- include: ironic_conductor_container_bootstrap.yaml
+  when: command_result.stdout == ""

@@ -1,0 +1,12 @@
+- include: keepalived-install.yaml
+  when: PODTYPE is defined and PODTYPE == 'ceph' and CVIM_MON is defined and CVIM_MON.enabled and CVIM_MON.central is defined and CVIM_MON.central == True
+
+- include: cvim-mon-configure-mgmt.yaml
+- include: cvim-mon-configure-host-all.yaml
+- include: cvim-mon-configure-host-control.yaml
+- include: cvim-mon-configure-external.yaml
+
+- include: calipso-configure-mgmt.yaml
+  when: "{{ INVENTORY_DISCOVERY is defined and INVENTORY_DISCOVERY.enabled }}"
+- include: calipso-configure-host-control.yaml
+  when: "{{ INVENTORY_DISCOVERY is defined and INVENTORY_DISCOVERY.enabled }}"

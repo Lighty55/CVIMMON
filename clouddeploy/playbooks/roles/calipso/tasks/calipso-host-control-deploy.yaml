@@ -1,0 +1,306 @@
+- set_fact:
+    CALIPSO_API_SERVICE_PWD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CALIPSO_API_SERVICE_PWD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CALIPSO_MONGO_SERVICE_PWD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CALIPSO_MONGO_SERVICE_PWD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: true
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Ctrl Deploy | Create log directory for Calipso
+  file:
+    path: "/var/log/calipso"
+    state: directory
+    owner: root
+    group: 2033
+
+- name: Ctrl Deploy | Create calipso library directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: 2033
+    mode: "0770"
+  with_items:
+    - /var/lib/calipso
+    - /var/lib/calipso/db
+
+# TODO: check if mongo auth was enabled prior to transfer to avoid unnecessary restarts
+
+- name: Ctrl Deploy | Transfer calipso config files from mgmt node
+  copy:
+    src: /var/lib/calipso/
+    dest: /var/lib/calipso/
+    owner: 2033
+    group: 2033
+    mode: "0600"
+
+- name: Ctrl Deploy | Copy ssh keys from mgmt node
+  copy:
+    src: /root/.ssh/{{ item.file }}
+    dest: /root/.ssh/
+    mode: "{{ item.mode }}"
+    owner: root
+  with_items:
+    - { file: "id_rsa", mode: "0600" }
+    - { file: "id_rsa.pub", mode: "0644" }
+
+#########################################################
+# Start calipso-mongo container if not already running  #
+#########################################################
+
+- name: Ctrl Deploy | Check if calipso-mongo Docker container is already running
+  shell: docker ps -a | grep Up | grep calipso_mongo_{{ docker.calipso_mongo.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Start the calipso-mongo container
+  docker_container:
+    name: "calipso_mongo_{{ docker.calipso_mongo.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.calipso_mongo.name }}:{{ docker.calipso_mongo.image_tag }}"
+    volumes:
+      - "{{ USER_VOLUME_PATH }}:/tmp/calipso:rw"
+      - /var/log/calipso:/var/log/calipso:z
+      - /var/lib/calipso:/data:z
+      - /etc/localtime:/etc/localtime:ro
+    privileged: no
+    state: started
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+      CALIPSO_MONGO_CONFIG_DIR: "{{ CALIPSO_MONGO_CONFIG_DIR }}"
+    ports:
+      - "{{CALIPSO_MONGO_SERVICE_PORT}}:{{CALIPSO_MONGO_SERVICE_PORT}}"
+      - "28017:28017"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Wait for calipso_mongo
+  pause: seconds=15 prompt="Wait for some time"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Check if calipso-mongo Docker container has started running
+  shell: docker ps -a | grep Up | grep calipso_mongo_{{ docker.calipso_mongo.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Fail if calipso-mongo container is not UP.
+  fail: msg="calipso-mongo container does not seem to be running"
+  when: command_result.stdout == ""
+
+#########################################################
+# Manage testbed environment configuration              #
+#########################################################
+
+# Ignore error when initial data setup has already been done
+- name: Ctrl Deploy | Populate initial collections in db
+  shell: docker exec -e CALIPSO_MONGO_SERVICE_PWD={{ CALIPSO_MONGO_SERVICE_PWD }} calipso_mongo_{{ docker.calipso_mongo.image_tag }} bash -c "source /data/calipso_config && python /setup_initial_data.py > /var/log/calipso/setup_initial_data.log 2>&1"
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+# Ignore docker file permission error
+- name: Ctrl Deploy | Update pod environment configuration in db
+  shell: docker exec -e CALIPSO_MONGO_SERVICE_PWD={{ CALIPSO_MONGO_SERVICE_PWD }} calipso_mongo_{{ docker.calipso_mongo.image_tag }} bash -c "source /data/calipso_config && python /update_mercury_environment.py > /var/log/calipso/update_mercury_environment.log 2>&1"
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Setup Environment | Find out if calipso-mongo auth is enabled
+  shell: "cat /var/lib/calipso/calipso_config | grep CALIPSO_MONGO_SERVICE_AUTH_ENABLED | awk -F '=' '{print $NF}' | awk '{$1=$1};1'  | tr '[:upper:]' '[:lower:]'"
+  register: mongo_auth_enabled
+
+- name: Setup Environment | Enable mongo auth in calipso_config"
+  lineinfile:
+    dest: /var/lib/calipso/calipso_config
+    regexp: '^export CALIPSO_MONGO_SERVICE_AUTH_ENABLED'
+    line: 'export CALIPSO_MONGO_SERVICE_AUTH_ENABLED=true'
+    state: present
+  when: "mongo_auth_enabled.stdout != 'true'"
+
+- name: Ctrl Deploy | Copy docker-calipso restart-on-boot files.
+  template:
+     src: "{{ item }}.service"
+     dest: /usr/lib/systemd/system/{{ item }}.service
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+  with_items:
+    - docker-calipso-mongo
+    - docker-calipso-api
+    - docker-calipso-scan
+
+- name: Ctrl Deploy | Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Ctrl Deploy | Enable docker-calipso-mongo service
+  service:
+    name: docker-calipso-mongo
+    enabled: yes
+    state: started
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  tags:
+    - reboot-on-failure
+
+- name: Ctrl Deploy | Restart calipso-mongo service if calipso_config file was changed
+  service:
+    name: docker-calipso-mongo
+    state: restarted
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: "mongo_auth_enabled.stdout != 'true'"
+
+- set_fact:
+    CALIPSO_MONGO_SERVICE_AUTH_ENABLED: true
+
+
+#########################################################
+# Start calipso-api container if not already running    #
+#########################################################
+
+- name: Ctrl Deploy | Check if calipso-api Docker container is already running
+  shell: docker ps -a | grep Up | grep calipso_api_{{ docker.calipso_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Start the calipso-api container
+  docker_container:
+    name: "calipso_api_{{ docker.calipso_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.calipso_api.name }}:{{ docker.calipso_api.image_tag }}"
+    volumes:
+      - "{{ USER_VOLUME_PATH }}:/tmp/calipso:rw"
+      - /var/log/calipso:/var/log/calipso:z
+      - /var/lib/calipso:/var/lib/calipso:z
+      - /etc/localtime:/etc/localtime:ro
+    privileged: no
+    state: started
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+      CALIPSO_API_CONFIG_DIR: "{{ CALIPSO_API_CONFIG_DIR }}"
+    ports:
+      - "{{CALIPSO_API_SERVICE_BIND_PORT}}:{{CALIPSO_API_SERVICE_BIND_PORT}}"
+      - "{{CALIPSO_API_SERVICE_SSH_PORT}}:22"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Wait for calipso_api
+  pause: seconds=10 prompt="Wait for some time"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Check if calipso-api Docker container has started running
+  shell: docker ps -a | grep Up | grep calipso_api_{{ docker.calipso_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Fail if calipso-api container is not UP.
+  fail: msg="calipso-api container does not seem to be running"
+  when: command_result.stdout == ""
+
+#########################################################
+# Start calipso-scan container if not already running   #
+#########################################################
+
+- name: Ctrl Deploy | Check if calipso-scan Docker container is already running
+  shell: docker ps -a | grep Up | grep calipso_scan_{{ docker.calipso_scan.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Start the calipso-scan container
+  docker_container:
+    name: "calipso_scan_{{ docker.calipso_scan.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.calipso_scan.name }}:{{ docker.calipso_scan.image_tag }}"
+    volumes:
+      - "{{ USER_VOLUME_PATH }}:/tmp/calipso:rw"
+      - /var/log/calipso:/var/log/calipso:rw
+      - /var/lib/calipso:/var/lib/calipso:z
+      - /etc/localtime:/etc/localtime:ro
+    privileged: no
+    state: started
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    ports:
+      - "{{CALIPSO_SCAN_SERVICE_SSH_PORT}}:22"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Wait for calipso_scan
+  pause: seconds=10 prompt="Wait for some time"
+  when: command_result.stdout == ""
+
+- name: Ctrl Deploy | Check if calipso-scan Docker container has started running
+  shell: docker ps -a | grep Up | grep calipso_scan_{{ docker.calipso_scan.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Ctrl Deploy | Fail if calipso-scan container is not UP.
+  fail: msg="calipso-scan container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+#########################################################
+# Manage docker-calipso service files                   #
+#########################################################
+
+- name: Ctrl Deploy | Add aliases for calipso containers
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias calipso_{{ item.name }}='in_container calipso_{{ item.name }}_"
+    line: "{{ item.line }}"
+  with_items:
+    - { name: "mongo", line: "alias calipso_mongo='in_container calipso_mongo_{{ docker.calipso_mongo.image_tag }}'"}
+    - { name: "api", line: "alias calipso_api='in_container calipso_api_{{ docker.calipso_api.image_tag }}'"}
+    - { name: "scan", line: "alias calipso_scan='in_container calipso_scan_{{ docker.calipso_scan.image_tag }}'"}
+
+- name: Ctrl Deploy | Enable docker-calipso-api and docker-calipso-scan services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure
+  with_items:
+    - docker-calipso-api
+    - docker-calipso-scan
+
+#########################################################
+# Install calipso clients                               #
+#########################################################
+
+- name: Ctrl Deploy | Check if calipso repo file exists
+  stat:
+    path:  /etc/yum.repos.d/mercury-calipso-rpms.repo
+  register: mercury_calipso_rpms_repo
+
+- name: Ctrl Deploy | Download calipso repofile from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/mercury-calipso-rpms.repo"
+    dest: /etc/yum.repos.d/mercury-calipso-rpms.repo
+    return_content: yes
+    status_code: 200,304
+  when: mercury_calipso_rpms_repo.stat.exists == False
+
+- name: Ctrl Deploy | Install python-elasticsearch rpm
+  yum:
+    name: python-elasticsearch-{{ CALIPSO_PYTHON_ELASTICSEARCH_VERSION }}
+    state: present
+
+- name: Ctrl Deploy | Install calipso API and replication clients
+  yum:
+    name: calipso-{{ CALIPSO_RPM_VERSION }}
+    state: present
+
+
+### Cleanup sensitive files
+
+- name: Ctrl Deploy | Clean up pod environment file
+  file:
+    path: /var/lib/calipso/mercury_environment_config.json
+    state: absent
+
+- name: Ctrl Deploy | Clean up sensitive files on mgmt node
+  file:
+    path: "{{ item }}"
+    state: absent
+  delegate_to: localhost
+  run_once: true
+  with_items:
+    - /var/lib/calipso/mercury_environment_config.json
+    - /var/lib/calipso/api_auth_config.json

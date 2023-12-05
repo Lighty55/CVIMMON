@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Ironic API directory
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old Ironic API docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_api_{{ IRONIC_API_PREVIOUS_TAG }}" }
+
+- name: Remove Ironic API docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_api.name }}"
+    tag: "{{ IRONIC_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

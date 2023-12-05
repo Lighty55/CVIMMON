@@ -1,0 +1,42 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Update | Create Gnocchi statsd docker staging folder.
+  file:
+    path: "/docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: directory
+    mode: "0755"
+
+# Back up the gnocchi statsd volume contents
+- name: Update | back up gnocchi statsd volume contents
+  shell: cp /docker/gnocchi_statsd/* /docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG}}/.
+
+- name: Update | Back up the gnocchi statsd systemd file
+  command: cp /usr/lib/systemd/system/docker-gnocchi-statsd.service /docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}/docker-gnocchi-statsd.service
+
+####################################################
+# Shut down the old statsd statsd container
+####################################################
+- name: Update | Shut off gnocchi statsd docker service
+  service:
+    name: docker-gnocchi-statsd
+    enabled: no
+    state: stopped
+
+- name: Update | Remove gnocchi statsd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-statsd.service"
+    state: absent
+
+- name: Update | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Update | List gnocchi Statsd volume contents
+  shell: ls -A1 /docker/gnocchi_statsd/
+  register: contents
+
+- name: Update | Remove gnocchi Statsd volume contents
+  file:
+    path: /docker/gnocchi_statsd/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

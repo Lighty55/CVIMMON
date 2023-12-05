@@ -1,0 +1,57 @@
+- name: Install the cvimlog scripts in all nodes
+  hosts: host_power_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  any_errors_fatal: True
+  tags:
+    - update
+    - host-packages
+  tasks:
+    - name: Delete tools directory
+      file: path="/root/tools" state=absent
+
+    - name: Create tools directory
+      file: path="/root/tools" state=directory mode=0755
+
+    - name: Copy files into the nodes
+      synchronize:
+          src: "{{ playbook_dir | dirname }}/remote_tools/"
+          dest: "/root/tools/"
+          copy_links: yes
+
+    - name: Install cvimlog
+      shell: cd /root/tools ; python setup.py install
+      ignore_errors: True
+      failed_when: False
+
+    ##########################################################
+    # Handling hostname changes for the /var/log/messages file
+    - name: Get the hostname of the management server
+      command: hostname
+      register: MGMT_HOSTNAME
+      failed_when: not MGMT_HOSTNAME.stdout
+
+    - name: Check for /var/log/messages handles dots hostname
+      command: "grep '^$LocalHostName {{ MGMT_HOSTNAME.stdout }}' /etc/rsyslog.conf"
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      ignore_errors: True
+      failed_when: False
+      register: exists
+
+    - name: Make sure /var/log/messages handles hostname with dots
+      lineinfile:
+          dest: "/etc/rsyslog.conf"
+          state: present
+          regexp: "^[$]LocalHostName *."
+          line: "$LocalHostName {{ MGMT_HOSTNAME.stdout }}"
+          insertafter: "^[#]+ GLOBAL DIRECTIVES.*"
+      when: not exists.stdout and (not exists.rc or exists.rc == 1)
+
+    # Update the hostname on /var/log/messages
+    - name: Restart rsyslog service
+      service:
+         name: rsyslog
+         enabled: yes
+         state: restarted
+      when: not exists.stdout and (not exists.rc or exists.rc == 1)

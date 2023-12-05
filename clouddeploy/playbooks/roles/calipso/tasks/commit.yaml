@@ -1,0 +1,34 @@
+- include_vars: "{{ playbook_dir }}/../../openstack-configs/update.yaml"
+
+- name: Commit | Remove backup calipso service directory.
+  file:
+    path: /opt/cisco/update/{{ item.name }}_{{ item.tag }}
+    state: absent
+  with_items:
+    - { name: "calipso_mongo", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+    - { name: "calipso_scan", tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "calipso_api", tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+
+- name: Commit | Stop and remove old calipso docker containers.
+  docker_container:
+    image: "{{ docker.common.registry }}/{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "{{ docker.calipso_scan.name }}:{{ CALIPSO_SCAN_PREVIOUS_TAG }}", name: "calipso_scan_{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { image: "{{ docker.calipso_api.name }}:{{ CALIPSO_API_PREVIOUS_TAG }}", name: "calipso_api_{{ CALIPSO_API_PREVIOUS_TAG }}" }
+    - { image: "{{ docker.calipso_mongo.name }}:{{ CALIPSO_MONGO_PREVIOUS_TAG }}", name: "calipso_mongo_{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+
+- name: Commit | Remove old calipso docker images.
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ item.name }}"
+    tag: "{{ item.tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { name: "{{ docker.calipso_api.name }}", tag: "{{ CALIPSO_API_PREVIOUS_TAG }}" }
+    - { name: "{{ docker.calipso_scan.name }}", tag: "{{ CALIPSO_SCAN_PREVIOUS_TAG }}" }
+    - { name: "{{ docker.calipso_mongo.name }}", tag: "{{ CALIPSO_MONGO_PREVIOUS_TAG }}" }
+  delegate_to: localhost
+  run_once: true

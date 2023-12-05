@@ -1,0 +1,123 @@
+- name: Copy the new ceilometer compute configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ceilometer_compute_config.j2", dest: "{{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_reconfigure.j2" }
+
+- name: Compare old and new rendered template
+  command: diff {{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_config.j2 {{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_reconfigure.j2
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv {{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_reconfigure.j2 {{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_config.j2
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path={{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_reconfigure.j2 state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the ceilometer compute config file inside container to force a reconfigure
+  command: docker cp {{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_config.j2 ceilometercompute_{{ docker.ceilometer_compute.image_tag }}:/opt/kolla/ceilometer_compute_config.j2
+  when: command_result.stdout != ""
+
+# Ceilometer pipeline difference check
+- name: Reconf | Copy Ceilometer pipeline file
+  template:
+    src: "{{ playbook_dir }}/roles/ceilometer-common/templates/pipeline.yaml"
+    dest: "{{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml_reconfigure"
+
+- name: Reconf | Compare old and new rendered pipeline
+  command: diff {{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml {{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: pipeline_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new pipeline config
+  command: mv {{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml_reconfigure {{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml
+  when: pipeline_diff.stdout
+
+# Remove the reconfigure pipeline.yaml when there is no diff
+- name: Reconf | Remove pipeline reconfigure file
+  file: path={{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml_reconfigure state=absent
+  when: not pipeline_diff.stdout
+
+# Now delete the template file inside the container
+- name: Delete the ceilometer compute pipeline file inside container to force a reconfigure
+  command: docker cp {{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml ceilometercompute_{{ docker.ceilometer_compute.image_tag }}:/etc/ceilometer/pipeline.yaml
+  when: pipeline_diff.stdout
+
+# Ceilometer polling difference check
+- name: Reconf | Copy Ceilometer polling file
+  template:
+    src: "{{ playbook_dir }}/roles/ceilometer-common/templates/polling.yaml"
+    dest: "{{ docker.ceilometer_compute.host_data_dir }}/polling.yaml_reconfigure"
+
+- name: Reconf | Compare old and new rendered polling yaml
+  command: diff {{ docker.ceilometer_compute.host_data_dir }}/polling.yaml {{ docker.ceilometer_compute.host_data_dir }}/polling.yaml_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: polling_diff
+
+# Now if there is a diff there is a need to reconfigure
+- name: Reconf | Copy the new polling config
+  command: mv {{ docker.ceilometer_compute.host_data_dir }}/polling.yaml_reconfigure {{ docker.ceilometer_compute.host_data_dir }}/polling.yaml
+  when: polling_diff.stdout
+
+# Remove the reconfigure pipeline.yaml when there is no diff
+- name: Reconf | Remove polling reconfigure file
+  file: path={{ docker.ceilometer_compute.host_data_dir }}/polling.yaml_reconfigure state=absent
+  when: not polling_diff.stdout
+
+- name: Delete the ceilometer compute polling file inside container to force a reconfigure
+  command: docker cp {{docker.ceilometer_compute.host_data_dir }}/polling.yaml ceilometercompute_{{ docker.ceilometer_compute.image_tag }}:/etc/ceilometer/polling.yaml
+  when: polling_diff.stdout
+
+- name: Generate the reconfig credentials
+  command: docker exec ceilometercompute_{{ docker.ceilometer_compute.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec ceilometercompute_{{ docker.ceilometer_compute.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec ceilometercompute_{{ docker.ceilometer_compute.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart ceilometer compute service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-ceilometercompute
+  when: (command_result.stdout != "" or pipeline_diff.stdout or polling_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: (command_result.stdout != "" or pipeline_diff.stdout or polling_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Check if Ceilometer compute Docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometercompute_{{ docker.ceilometer_compute.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: (command_result.stdout != "" or pipeline_diff.stdout or polling_diff.stdout or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer compute container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

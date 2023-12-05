@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ceilometer notification docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}
+
+# Backup the ceilometer notification volume
+- name: backup the ceilometer notification volume
+  shell: cp /docker/ceilometer_notification/* /docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the ceilometer notification systemd file
+  command: cp /usr/lib/systemd/system/docker-ceilometernotification.service /docker/ceilometer_notification_{{ CEILOMETER_NOTIFICATION_PREVIOUS_TAG }}/docker-ceilometernotification.service
+
+#####################################################
+# Shut down the old ceilometer notification containers
+####################################################
+# ceilometer notification.
+- name: Shut off ceilometer notification docker service
+  service:
+    name: docker-ceilometernotification
+    enabled: no
+    state: stopped
+
+- name: Remove ceilometer notification service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometernotification.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of ceilometer notification volume
+- name: List contents of ceilometer notification volume
+  shell: ls -A1 /docker/ceilometer_notification/
+  register: contents
+
+- name: Remove content of ceilometer notification volume
+  file:
+    path: /docker/ceilometer_notification/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

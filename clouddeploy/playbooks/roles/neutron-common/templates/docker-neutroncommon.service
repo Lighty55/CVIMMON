@@ -1,0 +1,16 @@
+[Unit]
+Description=Neutron Common Docker
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval=10m
+StartLimitBurst=10
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a neutron_common_{{ docker.neutron_common.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 neutron_common_{{ docker.neutron_common.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+- include: create-certs.yaml
+  when: ACTION is undefined
+- include: create-password.yaml
+  when: ACTION is undefined
+- include: check-helm.yaml
+
+- include: deploy.yaml
+  when: ACTION is undefined
+
+- include: regenerate-password.yaml
+  when: ACTION is defined and ACTION == "regenerate-password"
+- include: regenerate-certs.yaml
+  when: ACTION is defined and ACTION == "regenerate-certs"
+
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: rollback.yaml
+  with_fileglob: "{{ calipso_helm_upgrade_path }}/calipso-old-version"
+  loop_control: { loop_var: "old_version_file" }
+  when: ACTION is defined and ACTION == "rollback"
+
+- include: get-secrets.yaml
+  when: ACTION is undefined or (ACTION is defined and (ACTION == "add-stack" or ACTION == "delete-stack" or ACTION == 'add-cvim-pod' or ACTION == 'delete-cvim-pod'))
+
+- name: "Main | Render pods config file for Calipso clients"
+  script: ./get_pods_config.py --src "{{ playbook_dir }}/../../../../openstack-configs/setup_data.yaml" --dest "{{ CALIPSO_CONFIG_DIR }}/pods_config.yaml" --host "{{ ingress_host_calipso_mongo }}" --pwd "{{ mongo_password }}"
+  when: ACTION is undefined or (ACTION is defined and (ACTION == "regenerate-password" or ACTION == "add-stack" or ACTION == "delete-stack" or ACTION == 'add-cvim-pod' or ACTION == 'delete-cvim-pod'))

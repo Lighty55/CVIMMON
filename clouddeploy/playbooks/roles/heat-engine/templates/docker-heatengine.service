@@ -1,0 +1,15 @@
+[Unit]
+Description=Heat engine Docker
+After=docker-novaapi.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a heatengine_{{ docker.heat_engine.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 heatengine_{{ docker.heat_engine.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+#####################################################
+# Shut down the old ovs vswitchd containers
+####################################################
+- name: Shut off ovs vswitchd docker service
+  service:
+    name: docker-ovs_vswitch
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ovs vswitchd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_vswitch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ovs vswitch docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}" }
+
+- name: Remove ovs vswitch docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ OVS_VSWITCH_PREVIOUS_NAME }}"
+    tag: "{{ OVS_VSWITCH_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ovs vswitch Directory
+  file:
+    path: "{{ docker.ovs_vswitch.host_data_dir }}"
+    state: absent

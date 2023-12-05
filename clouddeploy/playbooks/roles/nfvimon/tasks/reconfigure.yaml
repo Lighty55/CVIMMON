@@ -1,0 +1,18 @@
+- name: Check if nfvimon zenoss public ssh key file is already present
+  stat: path=/root/.ssh/zenoss_id_rsa.pub
+  register: pub_file
+  delegate_to: localhost
+  run_once: True
+
+- name: Check if reconfiguring from root to non-root
+  include: nfvimon_root_user_uninstall.yaml
+  when: pub_file.stat.exists == True and NFVIMON.NFVIMON_ADMIN is defined
+
+- name: Check again if nfvimon zenoss public ssh key file is already present
+  stat: path=/root/.ssh/zenoss_id_rsa.pub
+  register: pub_file
+  delegate_to: localhost
+  run_once: True
+
+- include: deploy.yaml
+  when: pub_file.stat.exists == False

@@ -1,0 +1,7 @@
+- name: Configure cvim-mon and telegraf on management node
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "root"
+  roles:
+    - { role: "cvim-mon", mgmt: false, host_all: false, host_control: false, external: true }
+  tags: [ "base", "central-ceph" ]

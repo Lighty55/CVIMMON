@@ -1,0 +1,4 @@
+---
+#Service Subnet for Calico IPV6
+calico_ipv6_service_cidr: fd00:1234::/110
+calico_ipv6_pool_cidr: fd20::0/112

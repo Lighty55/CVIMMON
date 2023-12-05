@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron lbaas directory
+  file:
+    path: "/docker/neutron_lbaas_agent_{{ LBAAS_AGENT_PREVIOUS_TAG  | default('') }}"
+    state: absent
+
+- name: Stop and remove old neutron lbaas docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_lbaas_agent_{{ LBAAS_AGENT_PREVIOUS_TAG  | default('') }}" }
+
+- name: Remove neutron lbaas docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_lbaas_agent.name }}"
+    tag: "{{ LBAAS_AGENT_PREVIOUS_TAG  | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

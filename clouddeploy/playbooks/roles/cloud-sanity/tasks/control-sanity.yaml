@@ -1,0 +1,327 @@
+############################################################################################################################
+# Important Note: If you want to report a test to cloud-sanity, please make sure that the test name as the following syntax
+#
+# - name: Control - <Test Name>
+#
+# if you don't want to report the test to cloud sanity, please use the following syntax for name:
+#
+# - name: <Test Name with no "-" >
+#
+############################################################################################################################
+
+- set_fact:
+   DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+   RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+#Ping all controller nodes IPv4
+# NOTE: If dual stack, this check will be skipped since IPv4 might not be reachable
+#       from Management node.
+- name: Control - IPv4 Ping All Controller Nodes from Management node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['nova_api_mgmt_ip'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ansible_host | ipv4
+
+- name: Control - IPv4 Ping All Controller Nodes from Controller Node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['nova_api_mgmt_ip'] }}"
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and item != inventory_hostname
+
+#Ping all controller nodes IPv6
+- name: Control - IPv6 Ping All Controller Nodes from Management node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['nova_api_mgmt_ip'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ansible_host | ipv6 and hostvars[item]['management_ipv6'] is defined
+
+- name: Control - IPv6 Ping All Controller Nodes from Controller Node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['nova_api_mgmt_ip'] }}"
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and item != inventory_hostname and hostvars[item]['management_ipv6'] is defined
+
+#Ping all controller nodes IPv4
+# NOTE: If dual stack, this check will be skipped since IPv4 might not be reachable
+#       from Management node.
+- name: Control - IPv4 Ping All Ceph OSD Nodes from Management Node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['ceph_mon_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is defined and PODTYPE == "ceph" and ansible_host | ipv4
+
+- name: Control - IPv4 Ping All Ceph OSD Nodes from Ceph OSD Node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['ceph_mon_all'] }}"
+  when: PODTYPE is defined and PODTYPE == "ceph" and item != inventory_hostname
+
+#Ping all controller nodes IPv6
+- name: Control - IPv6 Ping All Ceph OSD Nodes from Management Node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['ceph_mon_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is defined and PODTYPE == "ceph" and ansible_host | ipv6 and hostvars[item]['management_ipv6'] is defined
+
+- name: Control - IPv6 Ping All Ceph OSD Nodes from Ceph OSD Node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['ceph_mon_all'] }}"
+  when: PODTYPE is defined and PODTYPE == "ceph" and item != inventory_hostname and hostvars[item]['management_ipv6'] is defined
+
+#Ping VIP internal
+# NOTE: If dual stack, this check will be skipped since IPv4 might not be reachable
+#       from Management node.
+- name: Control - IPv4 Ping internal VIP from Management Node
+  shell: ping -c 2 {{ internal_lb_vip_address }}
+  register: v4_int_ping
+  until: v4_int_ping.rc == 0
+  retries: 10
+  delay: 5
+  delegate_to: localhost
+  run_once: True
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ansible_host | ipv4
+
+- name: Control - IPv4 Ping internal VIP from Controller Node
+  shell: ping -c 2 {{ internal_lb_vip_address }}
+  register: v4_int_ping
+  until: v4_int_ping.rc == 0
+  retries: 10
+  delay: 5
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Control - IPv6 Ping internal VIP from Management Node
+  shell: ping6 -c 2 {{ internal_lb_vip_ipv6_address }}
+  register: v6_int_ping
+  until: v6_int_ping.rc == 0
+  retries: 10
+  delay: 5
+  delegate_to: localhost
+  run_once: True
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ansible_host | ipv6 and internal_lb_vip_ipv6_address is defined
+
+- name: Control - IPv6 Ping internal VIP from Controller Node
+  shell: ping6 -c 2 {{ internal_lb_vip_ipv6_address }}
+  register: v6_int_ping
+  until: v6_int_ping.rc == 0
+  retries: 10
+  delay: 5
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and internal_lb_vip_ipv6_address is defined
+
+- name: Control - Check Mariadb cluster size
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e "SHOW STATUS LIKE 'wsrep_cluster_size'" | grep wsrep_cluster_size | sed -e 's/wsrep_cluster_size\t//'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_size
+  until: cluster_size.stdout == "{{ groups['mariadb_mgmt_ip'] | length }}"
+  retries: 5
+  delay: 3
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Control - Check RabbitMQ is running
+  shell: docker ps -a | grep rabbit | grep Up | awk '{print $NF}' | cut -f2 -d '_'
+  register: rabbitmq_tag
+  failed_when: rabbitmq_tag.stdout == ""
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Control - Check RabbitMQ cluster size
+  rabbitmq_monit:
+    operation: check_cluster_size
+    username: "{{ RABBITMQ_USER }}"
+    password: "{{ RABBITMQ_PASSWORD }}"
+    image_tag: "{{ rabbitmq_tag.stdout }}"
+    clust_sz: "{{ groups['rabbitmq_all'] | length }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: validation_status
+  until: validation_status.result.status == 'PASS'
+  retries: 5
+  delay: 2
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Determine if RabbitMQ is listening on RABBITMQ_SERVICE_HOST address
+  wait_for:
+    host: "{{ RABBITMQ_SERVICE_HOST }}"
+    port: "{{ RABBITMQ_PORT }}"
+    timeout: 15
+  register: rabbitmq_host_address
+  ignore_errors: True
+  failed_when: False
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+# Temporary backward compatibility to handle coming from RabbitMQ listening on IPv4 setup
+- name: Determine if RabbitMQ is listening on IPv4 for upgrade or update only
+  wait_for:
+    host: "{{ control_bond }}"
+    port: "{{ RABBITMQ_PORT }}"
+    timeout: 15
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and (rabbitmq_host_address.state is not defined or rabbitmq_host_address.state != "started")
+
+- set_fact:
+    _rabbitmq_service_host: "{% if rabbitmq_host_address.state is defined and rabbitmq_host_address.state == 'started' %}{{ RABBITMQ_SERVICE_HOST }}{% else %}{{ control_bond }}{% endif %}"
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+# Rabbit Cluster check
+#- name: Control - Check RabbitMQ cluster status
+#  shell: cd ../../tools; python rabbit_api.py --hostname {{ _rabbitmq_service_host | ipwrap }} --username {{ RABBITMQ_USER }} --password {{ RABBITMQ_PASSWORD }} --supress_output True
+#  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+#  register: rabbit_cluster_status
+#  retries: 3
+#  delay: 30
+#  until: rabbit_cluster_status.stdout.find('PASS') != -1
+#  when: "PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != 'ceph')) and {{ RABBIT_SANITY_CHECK|default(False) }}"
+#  delegate_to: localhost
+#  run_once: True
+
+# Rabbit Cluster check
+- name: Control - Check RabbitMQ cluster status
+  shell: cd ../../tools; python rabbit_api.py --hostname {{ _rabbitmq_service_host | ipwrap }} --username {{ RABBITMQ_USER }} --password {{ RABBITMQ_PASSWORD }} --supress_output True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: rabbit_cluster_status
+  retries: 3
+  delay: 30
+  until: rabbit_cluster_status.stdout.find('PASS') != -1
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != 'ceph'))
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy Nova Check File to /tmp/
+  copy: src="nova-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Execute Nova Service List
+  shell: python /tmp/nova-check.py check_cloudcontroller_status {{  '"' + groups['controllers'] | join (" " ) + '"' }}
+  delegate_to: localhost
+  run_once: True
+  register: nova_service_result
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Control - Check Nova service list
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph")) and (nova_service_result.stdout.find('FAIL') != -1)
+  fail: msg="{{ nova_service_result.stdout }}"
+
+- name: Remove Nova Service Check file from /tmp/
+  file:
+    path: /tmp/nova-check.py
+    state: absent
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Copy disk.check.py to /tmp
+  copy: src="disk-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Run Disk maintenance for results data
+  shell: python /tmp/disk-check.py create control raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: dm_status
+  when: ("{{ RUN_DISK_CHECK }} == True") and PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Control - Disk maintenance RAID Health
+  shell: python /tmp/disk-check.py reuse control raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: raid_health
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ("(dm_status is defined and 'SKIP' not in dm_status.stdout)")
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Control - Disk maintenance VD Health
+  shell: python /tmp/disk-check.py reuse control vd-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: vd_health
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ("(dm_status is defined and 'SKIP' not in dm_status.stdout)")
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove disk.check.py from /tmp
+  file: path=/tmp/disk-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Remove diskmgmt check disks results json file
+  file: path=/tmp/disk-maintenance/.disk-maintenance.check-disks.json state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Copy docker api check.py to /tmp
+  copy: src="docker-api-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy docker api check.py to /tmp
+  copy: src="docker-api-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+
+- name: Run Docker API Check for actual container data on target
+  shell: python /tmp/docker-api-check.py get_actual_docker_data
+  register: result
+
+- name: Save actual docker tag results JSON output
+  set_fact:
+    actual_docker_tags: "{{ result.stdout | from_json }}"
+
+- name: Test container names/version
+  shell: python /tmp/docker-api-check.py verify_container_tag {{ actual_docker_tags[item]['name'] }} {{ actual_docker_tags[item]['image_name'] }} {{ actual_docker_tags[item]['tag'] }}
+  with_items: "{{ actual_docker_tags.keys() }}"
+  delegate_to: localhost
+  register: container_version_result
+  ignore_errors: True
+
+- name: Control - Container version check
+  delegate_to: localhost
+  fail: msg="{{ item.stdout }}"
+  failed_when: item.stdout.find('FAIL') != -1
+  with_items: "{{ container_version_result.results  }}"
+
+- name: Test current container status
+  shell: python /tmp/docker-api-check.py get_exited_containers
+  register: result
+
+- name: Save container status JSON output
+  set_fact:
+    container_status_result: "{{ result.stdout | from_json }}"
+
+- name: Control - Docker container exit status check
+  fail: msg="{{ container_status_result[item]['name'] }} is in exited state"
+  failed_when: container_status_result[item]['name'] != ""
+  with_items: "{{ container_status_result }}"
+  when: RUN_CONTAINER_EXITED_CHECK and container_status_result.keys()|length > 0
+
+- name: Retrieve used disk percent on /var
+  shell: df -h /var | tail -n +2 | awk '$NF == "/var" {print $5}' | sed 's/%//'
+  register: var_percent_utilized
+
+- name: Determine disk space on /var within threshold
+  shell: echo True
+  register: control_disk_space_warning
+  when: (var_percent_utilized.stdout | int) > (DISK_SPACE_USED_THRESHOLD | int)
+
+- name: Control - Percent used on /var check
+  delegate_to: localhost
+  fail: msg="WARNING Disk space used on /var above warning threshold"
+  failed_when: item == True
+  ignore_errors: True
+  with_items: "{{ control_disk_space_warning.changed }}"
+  when: control_disk_space_warning is defined

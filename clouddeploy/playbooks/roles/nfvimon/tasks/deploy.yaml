@@ -1,0 +1,7 @@
+- name: "Run NFVIMON deploy steps for root user"
+  include: nfvimon_root_user_deploy.yaml
+  when: NFVIMON.NFVIMON_ADMIN is not defined
+
+- name: "Run NFVIMON deploy steps for other admin users"
+  include: nfvimon_admin_users_deploy.yaml
+  when: NFVIMON.NFVIMON_ADMIN is defined

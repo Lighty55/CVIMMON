@@ -1,0 +1,7 @@
+- name: "Render values | Render Helm Values File"
+  become: true
+  template: { src: "calipso-values.yaml", dest: "{{ directory_matched.stdout }}/{{ calipso_app_directory }}/values.yaml" }
+
+- name: "Render values | Render Helm Values File for Metro"
+  become: true
+  template: { src: "calipso-values.yaml", dest: "{{ calipso_helm_upgrade_path }}/calipso-values.yaml" }

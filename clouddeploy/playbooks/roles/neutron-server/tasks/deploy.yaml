@@ -1,0 +1,8 @@
+- include: neutron_server_service_install.yaml
+- include: neutron_server_service_bootstrap.yaml
+  when: server is undefined
+- include: aim_event_polling_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+- include: aim_bootstrap.yaml
+  when: server is undefined and MECHANISM_DRIVERS == "aci"
+- include: neutron_server_service_start.yaml

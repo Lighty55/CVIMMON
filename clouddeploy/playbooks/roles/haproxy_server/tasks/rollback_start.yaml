@@ -1,0 +1,91 @@
+# First remove the new container and artifacts and haproxy
+- name: Shut off haproxy docker service
+  service:
+    name: docker-haproxy
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove haproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-haproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove haproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "haproxy_{{ docker.haproxy.image_tag }}" }
+
+- name: Remove haproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.haproxy.name }}"
+    tag: "{{ docker.haproxy.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove haproxy volume contents
+- name: List haproxy volume contents
+  shell: ls -A1 /docker/haproxy/
+  register: contents
+
+- name: Remove haproxy volume contents
+  file:
+    path: /docker/haproxy/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+# Recover the haproxy volume contents
+- name: recover the haproxy volume contents
+  shell: cp /docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}/* /docker/haproxy/.
+
+# Now remove the backup volume
+- name: Remove back up haproxy Directory
+  file:
+    path: "/docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/haproxy/docker-haproxy.service /usr/lib/systemd/system/docker-haproxy.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias haproxy='in_container haproxy_"
+    line: "{{ item }}"
+  with_items:
+    - alias haproxy='in_container haproxy_{{ HAPROXY_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the haproxy container
+  service:
+    name: docker-haproxy
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Haproxy Docker container has started running
+  shell: docker ps -a | grep Up | grep haproxy_{{ HAPROXY_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Haproxy Container does not seem to be running"
+  when: command_result.stdout == ""

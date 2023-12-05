@@ -1,0 +1,78 @@
+- name: CronJob | Get frequency from inventory
+  shell: "grep '^KEYSTONE_FERNET_ROTATION: ' inventory/group_vars/all.yaml | awk '{ print $NF }'"
+  register: _frequency
+  run_once: True
+  delegate_to: "127.0.0.1"
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"
+
+- name: CronJob | Update setting frequency to auto rotate keys
+  lineinfile:
+    dest: "inventory/group_vars/all.yaml"
+    regexp: "^KEYSTONE_FERNET_ROTATION: "
+    line: "KEYSTONE_FERNET_ROTATION: '{{ FERNET_ROTATION }}'"
+    state: present
+  run_once: true
+  delegate_to: "127.0.0.1"
+  when: (FERNET_ROTATION is defined) and
+        (_frequency.stdout != FERNET_ROTATION) and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+- name: CronJob | Create crontab directory if it doesn't exist
+  file:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+    state: directory
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+# Setup the cron job to auto rotate the fernet keys
+- name: CronJob | Create fernet rotation script
+  template:
+    src: "keystone_fernet_rotate_keys.sh.j2"
+    dest: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    owner: root
+    group: root
+    mode: "u=rwx"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"
+
+- name: CronJob | Remove Fernet keys cronjob to change period
+  cron:
+    name: "Fernet keys rotation job"
+    job: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (FERNET_ROTATION is defined) and
+        (_frequency.stdout != FERNET_ROTATION) and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+- name: CronJob | Get special_time from FERNET_ROTATION value
+  set_fact: _special_time="{{ FERNET_ROTATION }}"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (FERNET_ROTATION is defined) and
+        (_frequency.stdout != FERNET_ROTATION) and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+- name: CronJob | Get special_time from KEYSTONE_FERNET_ROTATION value
+  set_fact: _special_time="{{ KEYSTONE_FERNET_ROTATION }}"
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: (FERNET_ROTATION is not defined) and
+        (KEYSTONE_FERNET_CRONJOB == "Enabled")
+
+- debug: msg="periodic time of cronjob is {{ _special_time }}"
+
+# This creates the auto rotation job on the first keystone host.
+- name: CronJob | Create Fernet Keys rotation cron job
+  cron:
+    name: "Fernet keys rotation job"
+    special_time: "{{ _special_time }}"
+    user: root
+    job: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    state: present
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"

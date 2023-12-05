@@ -1,0 +1,209 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+
+- name: Install Neutron common data container.
+  hosts: neutron_common_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-common", tags: [ "base", "neutron-common", "neutron-install" ] }
+
+- name: Install etcd peer Containerized service.
+  hosts: etcd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "etcd", tags: [ "vpp", "etcd", "etcd-install" ] }
+
+- name: Install Neutron Server Containerized service.
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-server", tags: [ "base", "neutron-server", "neutron-install" ] }
+  serial:  "{% if MECHANISM_DRIVERS is defined and MECHANISM_DRIVERS in ['vts'] %}1{% elif docker.neutron_server is defined %}{{ docker.neutron_server.service_count | default(3) }}{% endif %}"
+
+- name: Install AIM Event Polling Containerized service.
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-event-polling", tags: [ "aci", "aim-event-polling", "neutron-install" ] }
+
+- name: Install AIM Event RPC Containerized service.
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-event-rpc", tags: [ "aci", "aim-event-rpc", "neutron-install" ] }
+
+- name: Install AIM AID Containerized service.
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "aim-aid", tags: [ "aci", "aim-aid", "neutron-install" ] }
+  serial: "30%"
+
+- name: Install ovs dbserver.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_dbserver", tags: [ "aci", "openvswitch", "ovs_dbserver", "neutron-ovs-agent", "neutron-install" ] }
+
+- name: Install openvswitch Agent Containerized service.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_vswitch", tags: [ "aci", "openvswitch", "ovs_vswitch", "neutron-ovs-agent", "neutron-install" ] }
+
+- name: Install openvswitch Agent Containerized service.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-ovs", tags: [ "openvswitch", "neutron-ovs", "neutron-install" ] }
+
+- name: Install SRIOV Agent Containerized service.
+  hosts: neutron_sriov_agent_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-sriov", tags: [ "neutron-sriov", "neutron-install" ] }
+
+- name: Install Linux Bridge Agent Containerized service.
+  hosts: neutron_linuxbridge_agent_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-linuxbridge", tags: [ "linuxbridge", "neutron-linuxbridge", "neutron-install" ] }
+
+- name: Install VTF Containerized service.
+  hosts: neutron_vtf_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vtf", tags: [ "vts", "neutron-vtf", "neutron-install" ] }
+
+- name: Install DHCP Agent Containerized service.
+  hosts: neutron_dhcp_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-dhcp", tags: [ "base", "neutron-dhcp", "neutron-install" ] }
+
+- name: Install L3 Agent Containerized service.
+  hosts: neutron_l3_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-l3", tags: [ "openvswitch", "vpp", "linuxbridge", "neutron-l3", "neutron-install" ] }
+
+- name: Install Metadata Agent Containerized service.
+  hosts: neutron_metadata_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-metadata", tags: [ "openvswitch", "vpp", "neutron-vtf", "vts", "linuxbridge", "neutron-metadata", "neutron-install" ] }
+
+- name: Install Lbaas Agent Containerized service.
+  hosts: neutron_lbaas_agent_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-lbaas", tags: [ "lbaas", "neutron-lbaas", "neutron-install", "openvswitch", "linuxbridge", "vpp" ] }
+
+- name: Install VPP Containerized service.
+  hosts: neutron_vpp_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vpp", tags: [ "vpp", "neutron-vpp", "neutron-install" ] }
+
+- name: Install VPP Containerized service.
+  hosts: neutron_vpp_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-vpp", tags: [ "vpp", "neutron-vpp", "neutron-install" ] }
+
+- name: Install mcast daemon ervice.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "mcast-daemon", tags: [ "aci", "mcast-daemon", "neutron-install" ] }
+
+- name: Install agent ovs service.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "agent-ovs", tags: [ "aci", "agent-ovs", "neutron-install" ] }
+
+- name: Install neutron opflex agent service.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "neutron-opflex-agent", tags: [ "aci", "neutron-opflex-agent", "neutron-install" ] }
+
+- name: Update the MTU on integration bridge for Large MTU setups.
+  hosts: ovs_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Set the mtu on interface
+      command: docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl set int br-int mtu_request={{ JUMBO_MTU_SIZE }}
+      when: ENABLE_JUMBO_FRAMES is defined and ENABLE_JUMBO_FRAMES
+  tags:
+    - openvswitch
+    - ovs_dbserver
+    - neutron-ovs-agent
+    - neutron-install
+
+- name: Workaround to restart neutron server during replace controller for trunk plugin
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    # Now restart the service
+    - name: Restart neutron server service
+      service:
+        name: "{{ item }}"
+        enabled: yes
+        state: restarted
+      with_items:
+        - docker-neutronsrv
+      when: server is defined
+  tags:
+    - openvswitch
+    - ovs_dbserver
+    - neutron-ovs-agent
+    - neutron-install

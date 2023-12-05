@@ -1,0 +1,126 @@
+# This task is for system that's being updated/upgraded to address CSCvk52745.
+# Ideally, networking service should be restart to clear the systemd error.
+# For now will assumed udev rules file is generated correctly and skip
+# networking service restart to avoid potential Ansible lost of connectivity
+# issue.
+- name: Set persistent NIC device name with PCI slot via udev instead of MAC address
+  script: ifcfg-hwaddr-to-udev-net-rules.sh
+
+# Revert the lacp mode's link up delay from 2.5 seconds back to 0 for update or
+# or upgrade setup.  The 2.5 seconds change was added by CSCvm72460.
+#
+# NOTE: For update or upgrade without going through baremetal step, this delay
+#       change does NOT take in effect immediately since it require flapping
+#       the interface which may run into the risk of lossing SSH connectivity.
+- name: Restore link up delay back to default for team lacp interface
+  shell: sed -Ei '/TEAM_CONFIG=.*"name"\s*:\s*"lacp"/ s/("delay_up"\s*:\s*)[0-9]+/\10/' /etc/sysconfig/network-scripts/ifcfg-*
+
+# LACP is only allow to be running on one interface, this become problem for
+# VIC deployment where multiple vNIC interfaces share one physical interface.
+# Non-LACP vNIC interfaces will continue forward traffic as long as the link is
+# up, regardless neighbor's LACP status.
+#
+# Workaround this limitation by adding monitoring script which tracks LACP
+# protocol status on the main vNIC interface and reflect it to the rest of the
+# vNIC interfaces.
+- name: Check if bond_lacp interface exist
+  shell: ip link show bond_lacp && teamdctl bond_lacp state
+  register: bond_lacp_exist
+  ignore_errors: true
+  failed_when: false
+
+- name: Add bond_lacp-monitor.sh file
+  copy:
+    src: bond_lacp-monitor.sh
+    dest: /usr/bin/bond_lacp-monitor.sh
+    mode: "u=rwx,g=rx,o=rx"
+  when: bond_lacp_exist.rc == 0
+
+- name: Add bond_lacp-monitor.service file
+  copy:
+    src: bond_lacp-monitor.service
+    dest: /usr/lib/systemd/system/bond_lacp-monitor.service
+    mode: "u=rwx,g=r,o=r"
+  when: bond_lacp_exist.rc == 0
+
+# Always restart instead of just start to handle case where the script have
+# been modified or updated, this way it will always pick up the latest version.
+- name: Restart bond_lacp-monitor.service
+  service:
+    name: bond_lacp-monitor.service
+    enabled: yes
+    state: restarted
+  when: bond_lacp_exist.rc == 0
+
+# Change the storage scheduler from CFQ to deadline
+- name: Change the default grub storage scheduler from CFQ to deadline
+  replace:
+    dest: /etc/default/grub
+    regexp: elevator=cfq
+    replace: elevator=deadline
+  register: grub_change
+
+- name: Update grub config
+  shell: grub2-mkconfig -o /boot/grub2/grub.cfg
+  when: grub_change | changed
+
+- name: Check EFI GRUB file exist
+  stat:
+    path: /boot/efi/EFI/redhat/grub.cfg
+  register: efi_grub
+  when: grub_change | changed
+
+- name: Update EFI GRUB if exist
+  shell: "rm -f /boot/efi/EFI/redhat/grub.cfg && cp -f /boot/grub2/grub.cfg /boot/efi/EFI/redhat/grub.cfg"
+  when: grub_change | changed and efi_grub.stat.exists
+
+- name: Update the running storage scheduler without the need to reboot
+  shell: for path in $(ls /sys/block/sd*/queue/scheduler); do echo deadline > ${path}; done
+  ignore_errors: true
+  failed_when: false
+  when: grub_change | changed
+
+# Disable RAID caching if VD is consist of SSDs
+- name: Check VD's physical drive type
+  shell: /opt/MegaRAID/storcli/storcli64 /c0/v0 show all | grep -w 'Onln .* SSD' | wc -l
+  register: ssd_count
+  ignore_errors: true
+  failed_when: false
+
+- name: Set VD's caching if consist of SSD to WT and NoRA
+  shell: /opt/MegaRAID/storcli/storcli64 /c0/v0 set wrcache=WT rdcache=NoRA
+  when: ssd_count.stdout is defined and ssd_count.stdout | int > 0
+
+# Disable multicast_snooping on combined samx+pet interface setup
+- name: Check for combined samx+pet interface
+  stat:
+    path: /sys/class/net/samxpet
+  register: found_samxpet
+
+- name: Disable multicast_snooping on br_mgmt interface
+  shell: echo 0 > /sys/class/net/br_mgmt/bridge/multicast_snooping
+  when: found_samxpet.stat.exists
+
+- name: Check for br_api interface
+  stat:
+    path: /sys/class/net/br_api
+  register: found_br_api
+  when: found_samxpet.stat.exists
+
+- name: Disable multicast_snooping on br_api interface
+  shell: echo 0 > /sys/class/net/br_api/bridge/multicast_snooping
+  when: found_samxpet.stat.exists and found_br_api.stat.exists
+
+- name: Fix br_mgmt interface config file
+  lineinfile:
+    dest: /etc/sysconfig/network-scripts/ifcfg-br_mgmt
+    regexp: "^BRIDGING_OPTS="
+    line: BRIDGING_OPTS="stp=no multicast_snooping=0"
+  when: found_samxpet.stat.exists
+
+- name: Fix br_api interface config
+  lineinfile:
+    dest: /etc/sysconfig/network-scripts/ifcfg-br_api
+    regexp: "^BRIDGING_OPTS="
+    line: BRIDGING_OPTS="stp=no multicast_snooping=0"
+  when: found_samxpet.stat.exists and found_br_api.stat.exists

@@ -1,0 +1,16 @@
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+
+- name: "{{ metro_name }} Rollback | Delete log-rotate manifest"
+  command: kubectl delete -f {{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.yaml -n {{ metro_name }}
+
+- name: "{{ metro_name }} Rollback | Delete log-rotate manifest"
+  file: path={{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.yaml state=absent
+
+- name: "{{ metro_name }} Rollback | Recover old log-rotate manifest"
+  shell: cp /opt/cisco/update/log_rotate_{{ LOG_ROTATE_PREVIOUS_TAG }}/{{ metro_name }}/log_rotate_manifest.yaml {{ LOG_ROTATE_STACK_PATH }}/
+
+# Remove old update directory
+- include: commit.yaml
+
+# Deploy manifest from old config
+- include: log_rotate_start.yaml

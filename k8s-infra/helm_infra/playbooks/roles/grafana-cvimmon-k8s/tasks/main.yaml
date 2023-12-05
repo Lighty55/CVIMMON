@@ -1,0 +1,21 @@
+- include: create-certs.yaml
+  when: ACTION is undefined
+- include: create-password.yaml
+  when: ACTION is undefined or (ACTION is defined and ACTION == "reconfigure-stack")
+- include: check-helm.yaml
+- include: grafana-deploy.yaml
+  when: ACTION is undefined
+- include: regenerate-password.yaml
+  when: ACTION is defined and ACTION == "regenerate-password"
+- include: regenerate-certs.yaml
+  when: ACTION is defined and ACTION == "regenerate-certs"
+- include: grafana-update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: grafana-rollback.yaml
+  with_fileglob: "{{ grafana_helm_upgrade_path }}/grafana-cvim-old-version"
+  loop_control: { loop_var: "old_version_file" }
+  when: ACTION is defined and ACTION == "rollback"
+- include: grafana-reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure"
+#- include: grafana-upgrade.yaml
+#  when: ACTION is defined and ACTION == "grafana-upgrade"

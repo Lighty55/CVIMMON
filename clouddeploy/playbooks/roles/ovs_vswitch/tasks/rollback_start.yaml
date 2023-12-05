@@ -1,0 +1,81 @@
+# First remove the new container and artifacts
+- name: Shut off ovs_vswitch docker service
+  service:
+    name: docker-ovs_vswitch
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove ovs_vswitch service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_vswitch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ovs_vswitch docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ovs_vswitch_{{ docker.ovs_vswitch.image_tag }}" }
+
+- name: Remove ovs_vswitch docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ovs_vswitch.name }}"
+    tag: "{{ docker.ovs_vswitch.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}/docker-ovs_vswitch.service /usr/lib/systemd/system/docker-ovs_vswitch.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now remove the backup volume
+- name: Remove back up ovs_vswitch Directory
+  file:
+    path: "/docker/ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ovsvswitch='in_container ovs_vswitch_"
+    line: "{{ item }}"
+  with_items:
+    - alias ovsvswitch='in_container ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}'
+
+- name: Start ovs_vswitch container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ovs_vswitch
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if ovs_vswitch Docker container has started running
+  shell: docker ps -a | grep Up | grep ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="ovs_vswitch Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

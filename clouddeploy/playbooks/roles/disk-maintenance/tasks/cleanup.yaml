@@ -1,0 +1,5 @@
+- name: Cleanup disk-maintenance data
+  file:
+    path: "/tmp/disk-maintenance"
+    state: absent
+  delegate_to: localhost

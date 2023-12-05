@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ironic Conductor Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}"
+
+# Back up the ironic conductor volume contents
+- name: Back up the Ironic Conductor volume contents
+  shell: "cp -r {{ docker.ironic_conductor.host_data_dir }}/. {{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}/"
+
+# Backup the systemd file
+- name: Back up the Ironic Conductor systemd file
+  command: "cp /usr/lib/systemd/system/docker-ironiccond.service {{ docker.ironic_conductor.host_data_dir }}_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}/"
+
+#####################################################
+# Shut down the old ironic conductor containers
+####################################################
+- name: Shut off Ironic Conductor docker service
+  service:
+    name: docker-ironiccond
+    enabled: no
+    state: stopped
+
+- name: Remove Ironic Conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironiccond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove ironic conductor volume contents
+- name: List Ironic Conductor volume contents
+  shell: ls -A1 {{ docker.ironic_conductor.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic Conductor volume contents
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

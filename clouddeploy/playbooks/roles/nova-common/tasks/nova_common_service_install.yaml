@@ -1,0 +1,63 @@
+- name: Create Nova common Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_common
+
+- name: Get a list of SRIOV interfaces
+  shell: ls /sys/class/net/{{ SRIOV_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: sriov_intfs
+  ignore_errors: true
+  failed_when: false
+  when: '"compute" in server_role and intel_sriov_vfs is defined and intel_sriov_vfs | int > 0'
+
+- name: Get a list of FPGA interfaces
+  shell: ls /sys/class/net/{{ FPGA_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: fpga_intfs
+  ignore_errors: true
+  failed_when: false
+  when: '"compute" in server_role and intel_vc_sriov_vfs is defined and intel_vc_sriov_vfs | int > 0'
+
+- name: Check for Intel FPGA N3000 card
+  shell: lspci -d {{ FPGA_VENDOR_ID }}:{{ FPGA_PF_DEVICE_ID }} | wc -l
+  register: intel_fpga
+  when: '"compute" in server_role'
+
+- name: Install Intel FPGA N3000 card OPAE driver and utils
+  yum:
+    name:
+      - opae-intel-fpga-driver
+      - opae-tools
+      - vc-fpga-utils
+    state: latest
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  when: '"compute" in server_role and intel_fpga.stdout | int > 0'
+
+- name: Create Intel FPGA VFs
+  shell: /opt/cisco/bbdev_pf_config_app/create-fpga-vf.sh {{ intel_fpga_vfs }}
+  when: '"compute" in server_role and intel_fpga_vfs | int > 0 and intel_fpga.stdout | int > 0'
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-novacommon.service",
+        dest: "/usr/lib/systemd/system/docker-novacommon.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload to avoid access denied issue.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

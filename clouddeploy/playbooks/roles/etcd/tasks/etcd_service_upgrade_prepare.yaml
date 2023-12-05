@@ -1,0 +1,41 @@
+#####################################################
+# Shut down the old etcd containers
+####################################################
+# Etcd uid:gid has changed in 2.4.
+- name: Change etcd data dir permissions
+  shell: docker exec -u root etcd_{{ ETCD_PREVIOUS_TAG }} chown -R 2200:2200 /var/lib/etcd
+
+- name: Shut off etcd docker service
+  service:
+    name: docker-etcd
+    enabled: no
+    state: stopped
+
+- name: Remove etcd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-etcd.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove etcd docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "etcd_{{ ETCD_PREVIOUS_TAG }}" }
+
+- name: Remove etcd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ ETCD_PREVIOUS_NAME }}"
+    tag: "{{ ETCD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove etcd Directory
+  file:
+    path: "{{ docker.etcd.host_data_dir  }}"
+    state: absent

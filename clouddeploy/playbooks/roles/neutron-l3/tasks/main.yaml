@@ -1,0 +1,12 @@
+- include: deploy.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is undefined and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is undefined and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)
+- include: update.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "update" and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "update" and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)
+- include: commit.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "commit" and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "commit" and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)
+- include: rollback.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "rollback" and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "rollback" and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)
+- include: upgrade.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "upgrade" and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "upgrade" and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)
+- include: reconfigure.yaml
+  when: (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "reconfigure" and NETWORK_OPTIONS is not defined) or (MECHANISM_DRIVERS in ["linuxbridge", "openvswitch", "vpp"] and ACTION is defined and ACTION == "reconfigure" and NETWORK_OPTIONS is defined and "l3vpn" not in NETWORK_OPTIONS)

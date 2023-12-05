@@ -1,0 +1,48 @@
+- name: Remove the ping script for {{ src_ip }}
+  file:
+    path: /tmp/ping_mtu.py
+    state: absent
+
+- name: Copy the ping script for {{ src_ip }}
+  copy:
+    src: "ping_mtu.py"
+    dest: "/tmp/ping_mtu.py"
+    mode: "0111"
+
+- name: Determine interface name for {{ src_ip }}
+  shell: ip -o addr | grep -F {{ hostvars[inventory_hostname][src_ip] }}/ | awk '{print $2}'
+  register: interface_name
+  when: "role_ip in hostvars[inventory_hostname]"
+
+- name: Determine MTU size for {{ src_ip }}
+  shell: ip address show {{ interface_name.stdout }} | grep -Eo 'mtu +[0-9]*' | awk '{print $2}'
+  register: interface_mtu
+  when: "interface_name is defined and {{ interface_name.stdout_lines|length|int == 1 }}"
+
+- name: Check if interface is configured for {{ src_ip }}
+  fail:
+    msg="Interface configuration is not complete for {{ src_ip }}"
+  when: "role_ip in hostvars[inventory_hostname] and {{ legacy_storage_net is not defined and interface_mtu.stdout is not defined }}"
+
+- name: Set MTU size for {{ src_ip }}
+  set_fact:
+    mtu_size: "{% if legacy_storage_net is defined and legacy_storage_net %} 1500 {% else %} {{ interface_mtu.stdout }} {% endif %}"
+  when: "interface_name is defined and {{ interface_name.stdout_lines|length|int == 1 }}"
+
+#- debug: msg="python /tmp/ping_mtu.py {{ mtu_size|int - 28 }} {{ hostvars[inventory_hostname][src_ip] }} {{ groups[target_ip_list]|difference([hostvars[inventory_hostname][src_ip]]) | join (" ") }}"
+
+- name: Pinging all the server IPs for {{ src_ip }}
+  command: python /tmp/ping_mtu.py {{ mtu_size|int - 28 }} {{ hostvars[inventory_hostname][src_ip] }} {{ groups[target_ip_list]|difference([hostvars[inventory_hostname][src_ip]]) | join (" ") }}
+  register: ping_output
+  when: "hostvars[inventory_hostname][src_ip] is defined
+         and target_ip_list in groups|default([])
+         and {{ interface_name.stdout_lines|length|int == 1 }}"
+
+- name: Checking for Packet loss for {{ src_ip }}
+  fail: msg="Following hosts failed {{ ping_output.stdout_lines }}"
+  when: ping_output is defined and ping_output.stdout != ""
+
+- name: Remove the ping script for {{ src_ip }}
+  file:
+    path: /tmp/ping_mtu.py
+    state: absent

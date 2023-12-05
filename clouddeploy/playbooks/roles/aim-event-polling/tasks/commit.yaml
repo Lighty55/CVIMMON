@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove aim event polling directory
+  file:
+    path: "/docker/aim_event_polling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old aim event polling docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimeventpolling_{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}" }
+
+- name: Remove aim event polling docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}"
+    tag: "{{ AIM_EVENT_POLLING_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

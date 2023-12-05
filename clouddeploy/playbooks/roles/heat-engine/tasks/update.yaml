@@ -1,0 +1,4 @@
+- include: heat_engine_update_prepare.yaml
+- include: heat_engine_install.yaml
+- include: heat_engine_config.yaml
+- include: heat_engine_start.yaml

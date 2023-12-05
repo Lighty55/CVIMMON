@@ -1,0 +1,39 @@
+- name: "CVIMMON-Kubernetes-Monitor->Check whether helm binary exists"
+  stat:
+    path: /usr/bin/helm
+  register: helm_binary_stat
+  failed_when: not helm_binary_stat.stat.exists
+
+- name: "CVIMMON-Kubernetes-Monitor->List installed Helm charts."
+  shell: /usr/bin/helm list | awk '{print $1}' | grep -v NAME
+  register: helm_list_results
+  changed_when: False
+  ignore_errors: True
+  failed_when: False
+
+- name: "CVIMMON-Kubernetes-Monitor->Get Helm Parent Directory"
+  shell: |
+    bash -lc "cd ../application-charts && pwd"
+  register: directory_matched
+
+- name: "CVIMMON-Kubernetes-Monitor->Check whether Helm App directory exists"
+  stat:
+    path: "{{ directory_matched.stdout }}/{{ prometheus_app_directory }}/"
+
+- name: "CVIMMON-Kubernetes-Monitor->Checking for Required Files and Folders"
+  stat:
+    path: "{{item}}"
+  register: folder_stats
+  with_items:
+    - ["{{ conf_bin_path }}","{{ prometheus_values_path }}","{{ prometheus_helm_upgrade_path }}"]
+
+- name: "CVIMMON-Kubernetes-Monitor->Creating Required Folders if not Exists"
+  file:
+    path: "{{item.item}}"
+    state: directory
+    mode: 0755
+    group: root
+    owner: root
+  when: item.stat.exists == false
+  with_items:
+  - "{{folder_stats.results}}"

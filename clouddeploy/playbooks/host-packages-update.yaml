@@ -1,0 +1,13 @@
+- include: generate-updatefile.yaml
+- include: install-cvimlog-scripts.yaml
+- include: check_vms_compute.yaml
+  when: SKIP_UPGRADE is not defined
+- include: host-pkgs-update-control.yaml
+- include: host-pkgs-update-compute.yaml
+- include: host-pkgs-update-storage.yaml
+- include: host-pkgs-update-cleanup.yaml
+- include: skip_upgrade_user_group_setup.yaml
+  when: SKIP_UPGRADE is defined
+- include: fluentd-upgrade.yaml
+  when: SKIP_UPGRADE is defined
+

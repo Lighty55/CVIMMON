@@ -1,0 +1,15 @@
+- include: cvim-mon-mgmt.yaml
+  static: no
+  when: CVIM_MON_ENABLED and mgmt
+
+- include: cvim-mon-host-all.yaml
+  static: no
+  when: CVIM_MON_ENABLED and host_all
+
+- include: cvim-mon-host-control.yaml
+  static: no
+  when: CVIM_MON_ENABLED and host_control
+
+- include: cvim-mon-external.yaml
+  static: no
+  when: CVIM_MON_ENABLED and EXTERNAL_SERVERS and external

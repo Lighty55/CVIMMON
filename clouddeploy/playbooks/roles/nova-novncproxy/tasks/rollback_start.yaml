@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and nova consoleauth
+- name: Shut off nova novncproxy docker service
+  service:
+    name: docker-novanovncproxy
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova novncproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novanovncproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-novncproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novanovncproxy_{{ docker.nova_novncproxy.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_novncproxy.name }}"
+    tag: "{{ docker.nova_novncproxy.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova novncproxy volume contents
+- name: List nova novncproxy volume contents
+  shell: ls -A1 /docker/nova_novncproxy/
+  register: contents
+
+- name: Remove nova novncproxy volume contents
+  file:
+    path: /docker/nova_novncproxy/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+# Recover the nova novncproxy volume contents
+- name: Recover the nova novncproxy volume contents
+  shell: cp /docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG}}/* /docker/nova_novncproxy/.
+
+
+# Now remove the backup volume
+- name: Remove back up nova novncproxy Directory
+  file:
+    path: "/docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_novncproxy/docker-novanovncproxy.service /usr/lib/systemd/system/docker-novanovncproxy.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novncproxy='in_container novanovncproxy_"
+    line: "{{ item }}"
+  with_items:
+    - alias novncproxy='in_container novanovncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova console auth container
+  service:
+    name: docker-novanovncproxy
+    enabled: yes
+    state: started
+
+- pause: seconds=10 prompt="Waiting for sometime"
+
+- name: Check if Nova NoVNCproxy Docker container has started running
+  shell: docker ps -a | grep Up | grep novanovncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova NoVNCproxy Container does not seem to be running"
+  when: command_result.stdout == ""

@@ -1,0 +1,7 @@
+- name: Wait for the server to boot up
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      port=22
+      delay=70
+      timeout=800

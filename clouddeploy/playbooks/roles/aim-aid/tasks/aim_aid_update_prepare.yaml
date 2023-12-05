@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create aim aid Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/aim_aid_{{ AIM_AID_PREVIOUS_TAG }}
+
+# Back up the aim aid volume
+- name: back up the aim aid volume
+  shell: cp /docker/aim_aid/* /docker/aim_aid_{{ AIM_AID_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the aim aid systemd file
+  command: cp /usr/lib/systemd/system/docker-aimaid.service /docker/aim_aid_{{ AIM_AID_PREVIOUS_TAG }}/docker-aimaid.service
+
+#####################################################
+# Shut down the old aim aid containers
+####################################################
+- name: Shut off aim aid docker service
+  service:
+    name: docker-aimaid
+    enabled: no
+    state: stopped
+
+- name: Remove aim aid service file
+  file:
+    path: "/usr/lib/systemd/system/docker-aimaid.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of aim aid volume
+- name: List the contents of aim aid volume
+  shell: ls -A1 /docker/aim_aid/
+  register: contents
+
+- name: Remove the contents of aim aid volume
+  file:
+    path: /docker/aim_aid/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

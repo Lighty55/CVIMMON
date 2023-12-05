@@ -1,0 +1,43 @@
+- include: server_type_check.yaml
+  name: Check if UCS server or not
+  when: ACTION is defined and ACTION == "server-check"
+  tags: [server-check]
+
+- include: raid_type_check.yaml
+  name: Check if HW or SW RAID type
+  when: ACTION is defined and ACTION != "cleanup"
+  tags: [disk-check]
+
+- name: Check if raid_type was determined
+  stat:
+    path: "{{ RAID_TYPE_FILE }}_{{ inventory_hostname }}"
+  register: raid_type
+  tags: [disk-check]
+  delegate_to: localhost
+  when: ACTION is defined and ACTION != "cleanup"
+
+- include_vars: "{{ RAID_TYPE_FILE }}_{{ inventory_hostname }}"
+  when: ACTION is defined and ACTION != "cleanup" and raid_type.stat.exists
+  name: Include vars - main
+  tags: [disk-check]
+  delegate_to: localhost
+
+- include: HWR_disk_check.yaml
+  name: Obtain status of existing disks in HW RAID
+  tags: [disk-check]
+  when: 'ACTION is defined and ACTION == "disk-check" and ("{{ RAID_type }}" == "HW")'
+
+- include: HWR_disk_replace.yaml
+  name: Add new disk(s) as spare(s) in HW RAID
+  tags: [disk-replace]
+  when: 'ACTION is defined and ACTION == "disk-replace" and ("{{ RAID_type }}" == "HW")'
+
+- include: HWR_disk_locate.yaml
+  name: Perform disk location action in HW RAID
+  tags: [disk-locate]
+  when: 'LOCATOR_ACTION is defined and ACTION is defined and (ACTION == "disk-check" or ACTION == "disk-replace") and ("{{ RAID_type }}" == "HW")'
+
+- include: cleanup.yaml
+  name: cleanup operations after disk check
+  tags: [cleanup]
+  when: ACTION is defined and ACTION == "cleanup"

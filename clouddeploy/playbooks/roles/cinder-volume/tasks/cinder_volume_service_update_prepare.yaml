@@ -1,0 +1,43 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Cinder Volume Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/cinder_volume_{{ CINDER_VOLUME_PREVIOUS_TAG }}
+
+# Back up the cinder volume contents
+- name: back up the cinder volume contents
+  shell: cp /docker/cinder_volume/* /docker/cinder_volume_{{ CINDER_VOLUME_PREVIOUS_TAG }}/.
+
+#####################################################
+# Shut down the old cinder volume containers
+####################################################
+# Cinder Scheduler.
+- name: Shut off cinder volume docker service
+  service:
+    name: docker-cindervolume
+    enabled: no
+    state: stopped
+
+- name: Remove cindervolume service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindervolume.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove cinder volume directory contents
+- name: List cinder volume directory contents
+  shell: ls -A1 /docker/cinder_volume/
+  register: contents
+
+- name: Remove cinder volume directory contents
+  file:
+    path: /docker/cinder_volume/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

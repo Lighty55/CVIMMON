@@ -1,0 +1,6 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+  tags:
+    - host_setup
+

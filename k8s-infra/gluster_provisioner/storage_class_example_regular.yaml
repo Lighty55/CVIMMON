@@ -1,0 +1,11 @@
+#The URL should point to the Heketi Service
+#This Storage Class Assumes that the Gluster
+#Has Three Nodes in the Cluster
+---
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: glusterfs-st
+provisioner: kubernetes.io/glusterfs
+parameters:
+  resturl: "http://10.103.120.68:8080"

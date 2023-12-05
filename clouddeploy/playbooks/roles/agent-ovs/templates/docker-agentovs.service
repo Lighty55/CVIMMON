@@ -1,0 +1,16 @@
+[Unit]
+Description=Opflex OVS Agent
+Wants=docker-ovs_vswitch.service docker-mcast-daemon.service
+After=docker-ovs_vswitch.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a agent_ovs_{{ docker.agent_ovs.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 agent_ovs_{{ docker.agent_ovs.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

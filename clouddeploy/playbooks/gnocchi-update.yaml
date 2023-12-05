@@ -1,0 +1,26 @@
+- name: Gnocchi api update
+  hosts: gnocchi_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-api", tags: ["gnocchi", "gnocchi_update", "gnocchi-api"] }
+  serial: "30%"
+
+- name: Gnocchi metricd update
+  hosts: gnocchi_metricd_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-metricd", tags: ["gnocchi", "gnocchi_update", "gnocchi-metricd"] }
+  serial: "30%"
+
+- name: Gnocchi statsd update
+  hosts: gnocchi_statsd_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-statsd", tags: ["gnocchi", "gnocchi_update", "gnocchi-statsd"] }
+  serial: "30%"

@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old ironic ipxe containers
+####################################################
+# Ironic ipxe.
+- name: Shut off ironic ipxe docker service
+  service:
+    name: docker-ironicipxe
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ironic ipxe service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicipxe.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ironic ipxe docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_ipxe_{{ IRONIC_IPXE_PREVIOUS_TAG }}" }
+
+- name: Remove ironic ipxe docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ IRONIC_IPXE_PREVIOUS_NAME }}"
+    tag: "{{ IRONIC_IPXE_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ironic ipxe Directory
+  file:
+    path: "{{ docker.ironic_ipxe.host_data_dir }}"
+    state: absent

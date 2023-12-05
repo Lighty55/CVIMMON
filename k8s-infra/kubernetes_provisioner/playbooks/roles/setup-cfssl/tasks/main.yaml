@@ -1,0 +1,4 @@
+- name: "Install CFSSL Package"
+  yum:
+    name: cfssl
+    state: installed

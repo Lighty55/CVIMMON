@@ -1,0 +1,111 @@
+#
+# Reconfigure the DNS in /etc/resolv.conf file
+#
+- name: Reconf | Copy the new dns configuration file
+  template:
+    src: "dns_conf.j2"
+    dest: "/tmp/dns_reconfig"
+
+- name: Reconf | Compare old dns config with new rendered template
+  command: diff /etc/resolv.conf /tmp/dns_reconfig
+  ignore_errors: True
+  failed_when: False
+  register: diff_result
+
+- name: Reconf | Copy the resolv.conf config if there is a change
+  command: mv /tmp/dns_reconfig /etc/resolv.conf
+  when: diff_result.rc
+
+- name : Reconf | Restore selinux permissions
+  command: chcon system_u:object_r:net_conf_t:s0 /etc/resolv.conf
+  when: diff_result.rc
+
+- name: Reconf | Remove reconfigure file if there is no change
+  file: path=/tmp/dns_reconfig state=absent
+  when: not diff_result.rc
+
+#
+# Reconfigure the DNS on the interface files
+#
+- name: Reconf | Get list of intf files with DNS
+  find:
+    paths: /etc/sysconfig/network-scripts
+    patterns: 'ifcfg-*'
+    contains: '^DNS'
+    use_regex: True
+  register: _list_if_files
+
+- name: Reconf | Check if there is DNS in intf files
+  set_fact:
+    _num_if_files: "{{ _list_if_files.files | length }}"
+
+- name: Reconf | Get the old DNS configured
+  shell: "cat {{ _list_if_files.files[0].path }} | grep '^DNS' | awk -F= '{ print $NF }'"
+  register: _old_dns_cfgd
+  when: _num_if_files|int
+
+- name: Reconf | Check if new DNS and old DNS are the same
+  set_fact:
+     diff_dns: "(( _old_dns_cfgd.stdout_lines | difference(NETWORKING['domain_name_servers']) }}"
+  when: _num_if_files|int and not _old_dns_cfgd.rc
+
+- name: Reconf | Remove old dns config from intf files
+  lineinfile:
+    dest: "{{ item.path }}"
+    regexp: "^DNS*"
+    state: absent
+  with_items:
+    - "{{ _list_if_files.files }}"
+  when: _num_if_files|int and not _old_dns_cfgd.rc and diff_dns
+
+- name: Reconf | Get intf file list in good format to iterate
+  set_fact:
+    _list_item_files: "{{ _list_item_files|default([]) + [ item.path ] }}"
+  with_items: "{{ _list_if_files.files }}"
+  when: _num_if_files|int and not _old_dns_cfgd.rc and diff_dns
+
+- set_fact:
+    num_new_dns: "{{ NETWORKING['domain_name_servers']|length }}"
+  when: _num_if_files|int and not _old_dns_cfgd.rc and diff_dns
+
+- debug: msg="{{ num_new_dns }}"
+  when: _num_if_files|int and not _old_dns_cfgd.rc and diff_dns
+
+- name: Reconf | Write new DNS1 into the intf files
+  lineinfile:
+    dest: "{{ item }}"
+    state: present
+    regexp: "^DNS1="
+    line: "DNS1={{ NETWORKING['domain_name_servers'][0] }}"
+  with_items: "{{ _list_item_files }}"
+  when: (_num_if_files|int and not _old_dns_cfgd.rc and diff_dns and num_new_dns|int)
+
+- name: Reconf | Write new DNS2 into the intf files
+  lineinfile:
+    dest: "{{ item }}"
+    state: present
+    regexp: "^DNS2="
+    line: "DNS2={{ NETWORKING['domain_name_servers'][1]|default() }}"
+  with_items: "{{ _list_item_files }}"
+  when: (_num_if_files|int and not _old_dns_cfgd.rc and diff_dns and
+         (num_new_dns|int > 1))
+
+- name: Reconf | Write new DNS3 into the intf files
+  lineinfile:
+    dest: "{{ item }}"
+    state: present
+    regexp: "^DNS3="
+    line: "DNS3={{ NETWORKING['domain_name_servers'][2]|default() }}"
+  with_items: "{{ _list_item_files }}"
+  when: (_num_if_files|int and not _old_dns_cfgd.rc and diff_dns and
+         (num_new_dns|int > 2))
+
+- name: Reconf | Write new DNS3 into the intf files
+  lineinfile:
+    dest: "{{ item }}"
+    state: present
+    regexp: "^DNS4="
+    line: "DNS4={{ NETWORKING['domain_name_servers'][3]|default() }}"
+  with_items: "{{ _list_item_files }}"
+  when: (_num_if_files|int and not _old_dns_cfgd.rc and diff_dns and
+         (num_new_dns|int > 3))

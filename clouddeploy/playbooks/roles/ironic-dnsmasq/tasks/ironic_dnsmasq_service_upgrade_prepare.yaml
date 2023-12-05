@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old ironic dnsmasq containers
+####################################################
+# Ironic dnsmasq.
+- name: Shut off ironic dnsmasq docker service
+  service:
+    name: docker-ironicdnsmasq
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ironic dnsmasq service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicdnsmasq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ironic dnsmasq docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_dnsmasq_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}" }
+
+- name: Remove ironic dnsmasq docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ IRONIC_DNSMASQ_PREVIOUS_NAME }}"
+    tag: "{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ironic dnsmasq Directory
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}"
+    state: absent

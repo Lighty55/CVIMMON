@@ -1,0 +1,31 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Keystone Engine Directory
+  file:
+    path: "/docker/keystone_{{ KEYSTONE_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old Keystone docker container.
+  docker_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - {  image: "", name: "keystone_{{ KEYSTONE_PREVIOUS_TAG }}" }
+
+- name: Remove keystone docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.keystone.name }}"
+    tag: "{{ KEYSTONE_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove old auto rotation fernet script
+  file:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}_{{ KEYSTONE_PREVIOUS_TAG }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  when: inventory_hostname == "{{ groups['keystone_all'][0] }}"

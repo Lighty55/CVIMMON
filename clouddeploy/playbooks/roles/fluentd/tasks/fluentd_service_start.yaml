@@ -1,0 +1,49 @@
+- name: Check if the fluentd service is already running
+  shell: docker ps | awk '/Up/ && /fluentd_{{ docker.fluentd.image_tag }}/'
+  register: command_result
+
+- name: Add fluentd to the bashrc aliases
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias fluentd='in_container fluentd_"
+    line: "alias fluentd='in_container fluentd_{{ docker.fluentd.image_tag }}'"
+
+- name: Start the fluentd service
+  docker_container:
+    name: "fluentd_{{ docker.fluentd.image_tag }}"
+    image: "{{ docker.common.registry}}/{{ docker.fluentd.name }}:{{ docker.fluentd.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+        - "{{ docker.fluentd.host_data_dir }}:{{ docker.fluentd.host_data_dir }}:ro,z"
+        - /etc/localtime:/etc/localtime:ro
+        - /docker/logrotate:/docker/logrotate:z
+        - /var/log:/var/log:z
+    network_mode: "host"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    env:
+        LOGSERVER_NODE_IP: "{{ build_node_ip }}"
+        LOGSERVER_NODE_PORT: "7081"
+    state: started
+  when: not command_result.stdout
+
+- name: Check if fluentd container has started running
+  shell: docker ps | awk '/Up/ && /fluentd_{{ docker.fluentd.image_tag }}/'
+  register: fd_up
+  until: (not fd_up.rc or fd.stdout)
+  retries: 10
+  delay: 5
+
+- name: Fail if container is not up
+  fail: msg="Fluentd container does not seem to be running"
+  when: (fd_up.rc or not fd_up.stdout)
+
+- name: Enable docker-fluent Services
+  service:
+    name: docker-fluentd
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure

@@ -1,0 +1,37 @@
+- name: Get old workspace dir
+  hosts: ::1
+  tasks:
+    - include_vars: "{{ lookup('env','HOME') }}/openstack-configs/update.yaml"
+      when: ACTION is defined and ACTION == "rollback"
+
+
+- name: Remove update.yaml file
+  hosts: localhost
+  tasks:
+    - file:
+        path: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+        state: absent
+      when: ACTION is defined and (ACTION == "rollback" or ACTION == "commit")
+
+    # Remove management_node_ip from setup and backup setup data
+    # on commit as it has been removed from this release.
+    - name: Remove management_node_ip from setup datas
+      lineinfile:
+        dest: "{{ item }}"
+        regexp: "^management_node_ip.*"
+        state: absent
+      with_items:
+        - "{{ lookup('env', 'HOME') }}/openstack-configs/setup_data.yaml"
+        - "{{ lookup('env', 'HOME') }}/openstack-configs/.backup_setup_data.yaml"
+      when: ACTION is defined and ACTION == "commit"
+
+- name: Modify openstack-configs dir symlink
+  hosts: localhost
+  tasks:
+    - file: path={{ lookup('env','HOME') }}/openstack-configs state=absent
+      when: ACTION is defined and ACTION == "rollback"
+    - file:
+        src: "{{ OLD_WORKSPACE_DIR }}"
+        dest: "{{ lookup('env','HOME') }}/openstack-configs"
+        state: link
+      when: ACTION is defined and ACTION == "rollback"

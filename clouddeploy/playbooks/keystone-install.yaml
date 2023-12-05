@@ -1,0 +1,9 @@
+- name: Install Keystone Containarized service.
+  hosts: keystone_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  vars:
+     num_controllers: "{{ groups['keystone_all'] | length }}"
+  roles:
+    - { role: "keystone", tags: [ "base", "keystone" ] }

@@ -1,0 +1,56 @@
+- name: Ceph IO | Get current docker tag
+  shell: docker ps -a | grep cephmon | grep Up | awk '{print $NF}' | cut -f2 -d '_'
+  register: cephmon_tag
+  failed_when: cephmon_tag.stdout == ""
+
+- name: Ceph IO | Create object infile for "{{ rados_pool }}"
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "echo 'object in {{ rados_pool }}' > /tmp/{{ rados_pool }}_test.in"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Create object in rbd pool for "{{ rados_pool }}"
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "rados put {{ rados_pool }}_test_obj /tmp/{{ rados_pool }}_test.in \
+      --pool={{ rados_pool }}"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Fetch the contents of the created object for "{{ rados_pool }}"
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "rados get {{ rados_pool }}_test_obj --pool={{ rados_pool }} \
+      /tmp/{{ rados_pool }}_test.out"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Compare infile and outfile for "{{ rados_pool }}"
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "diff /tmp/{{ rados_pool }}_test.in /tmp/{{ rados_pool }}_test.out"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Cleanup infile and output for "{{ rados_pool }}"
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} bash -c "rm -f /tmp/{{ rados_pool }}_test.*"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Remove the created object from the "{{ rados_pool }}" pool
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "rados rm {{ rados_pool }}_test_obj --pool={{ rados_pool }}"
+  register: output
+  failed_when: output is defined and output.rc != 0
+
+- name: Ceph IO | Ensure object is removed from the "{{ rados_pool }}" pool
+  command: |
+      docker exec cephmon_{{ cephmon_tag.stdout }} \
+      bash -c "rados stat {{ rados_pool }}_test_obj --pool={{ rados_pool }}"
+  register: output
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: output and output.rc == 0

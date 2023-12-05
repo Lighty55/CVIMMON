@@ -1,0 +1,60 @@
+- name: Create gobgp Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.gobgp.host_data_dir }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-gobgp.service",
+        dest: "/usr/lib/systemd/system/docker-gobgp.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Getting list of available vxlan/mpls overlay networks
+  set_fact:
+      overlay_networks: "{% for net in NETWORKING.networks if net.segments[0][:5] == 'vxlan' or net.segments[0] == 'sr-mpls-tenant' %}{{ net.segments[0] }}{% if not loop.last %} {% endif %}{% endfor %}"
+
+- name: Copy prepare_netns.sh.
+  template:
+    src: "prepare_netns.sh.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/prepare_netns.sh"
+    mode: "0755"
+
+- name: Copy supervisord.conf configs.
+  template:
+    src: "supervisord.conf.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/supervisord.conf"
+    mode: "0644"
+  vars:
+    overlays: "{{ overlay_networks.split(' ') }}"
+
+- name: Copy gobgp agent configs.
+  template:
+    src: "gobgp_agent_config.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/gobgp-agent-{{ item.1 }}.cfg"
+    mode: "0644"
+  with_indexed_items:
+    - "{{ overlay_networks.split(' ') }}"
+
+- name: Copy gobgp wrapper scripts.
+  template:
+    src: "gobgp_wrapper.sh.j2"
+    dest: "{{ docker.gobgp.host_data_dir }}/gobgp_{{ item }}.sh"
+    mode: "0755"
+  with_items:
+    - "{{ overlay_networks.split(' ') }}"

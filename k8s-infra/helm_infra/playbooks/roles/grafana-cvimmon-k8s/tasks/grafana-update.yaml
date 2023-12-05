@@ -1,0 +1,78 @@
+---
+- name: Generate Grafana Configuration
+  shell: python "{{ playbook_dir }}/roles/grafana/files/generate_grafana_config.py" -w "{{ playbook_dir }}/../../../../" -d "{{ playbook_dir }}/roles/grafana-cvimmon-k8s/templates/" --monitor
+  when: CVIMMONHA_CLUSTER_MONITOR.ldap is defined
+
+- name: "CVIMMON-Kubernetes-Monitor->Render Grafana-k8s-cluster-monitor Helm Values File | Helm Values File"
+  become: true
+  template: { src: "grafana-values.yaml", dest: "{{ directory_matched.stdout }}/{{ grafana_app_directory }}/values.yaml" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list | grep {{ grafana_deployment_name }}
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the Last revision Number from helm"
+  shell: /usr/bin/helm list {{ grafana_deployment_name }} | tail -n +2 | awk '{print $2}'
+  register: grafana_cvim_old_version
+
+- name: "CVIMMON-Kubernetes-Monitor->Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ grafana_helm_upgrade_path }}/grafana-values.yaml", dest: "{{ grafana_helm_upgrade_path }}/grafana-values-{{ grafana_cvim_old_version.stdout }}.yaml" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Render Grafana-k8s-cluster-monitor Specific Grafana Helm Values File | Helm Values File for Metro"
+  become: true
+  template: { src: "grafana-values.yaml", dest: "{{ grafana_helm_upgrade_path }}" }
+
+- name: "CVIMMON-Kubernetes-Monitor->Save the old version of the helm stack"
+  lineinfile: { dest: "{{ grafana_helm_upgrade_path }}/grafana-cvim-old-version", regexp: '^GRAFANA-CVIM-OLD-REVISION=', line: 'GRAFANA-CVIM-OLD-REVISION={{ grafana_cvim_old_version.stdout }}', create: yes }
+
+- name: Remove ldap config file from template dir
+  file:
+    path: "{{ playbook_dir }}/roles/grafana-cvimmon-k8s/templates/ldap_config.toml"
+    state: absent
+
+- name: Get the ingress url
+  shell: "kubectl get ingress -n cvimmon-monitor | grep grafana | awk '{print $2}'"
+  register: grafana_ingress_url
+
+- include: regenerate-certs.yaml
+  when: "'{{ CLUSTER_NAME }}' not in '{{ grafana_ingress_url.stdout }}'"
+
+- name: "CVIMMON-Kubernetes-Monitor->Upgrade Prometheus-k8s-cluster-monitor with Helm."
+  command: >
+    /usr/bin/helm upgrade -f "{{ grafana_metro_values_path }}" "{{ grafana_deployment_name }}" --namespace "{{ grafana_namespace }}" "{{ directory_matched.stdout }}"/"{{ grafana_app_directory }}"
+
+- name: "Check Rollout Status of Grafana-k8s-cluster-monitor Deployment"
+  command: kubectl -n "{{ grafana_namespace }}" rollout status --timeout=300s deployment "{{ grafana_deployment_name }}"
+  ignore_errors: yes
+  register: grafana_cvim_update_status
+
+- name: "Check the status of Grafana-k8s-cluster-monitor Deployment once rolled-out"
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ grafana_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ grafana_deployment_name }}"
+  when: grafana_cvim_update_status is succeeded
+
+- name: "Ensure Grafana-k8s-cluster-monitor Deployment and pods are up and running."
+  changed_when: false
+  register: "grafana_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=grafana --output=json --namespace={{ grafana_namespace }}"
+  until:
+      - "grafana_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "grafana_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+  when: grafana_cvim_update_status is succeeded
+
+- include: grafana-rollback.yaml
+  when: grafana_cvim_update_status is failed
+
+- include: grafana-set-dashboard.yaml

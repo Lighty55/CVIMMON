@@ -1,0 +1,13 @@
+- hosts: all-masters[0]
+  become: yes
+  tasks:
+    - name: Label master Nodes
+      shell: /usr/bin/kubectl label node {{ item }} cvimmon.io/role=master --overwrite
+      delegate_to: localhost
+      with_items: "{{ groups['all-masters'] }}"
+
+    - name: Label Nodes
+      shell: /usr/bin/kubectl label node {{ item }} cvimmon.io/role=worker --overwrite
+      delegate_to: localhost
+      with_items: "{{ groups['all-workers'] }}"
+      when: "'all-workers' in groups"

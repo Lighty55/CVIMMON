@@ -1,0 +1,11 @@
+---
+- name: "Check if Argus Site File is Created"
+  stat:
+    path: /root/openstack-configs/argus_site.yaml
+  register: argus_site
+  failed_when: argus_site.stat.exists == false
+
+- name: "Copy Rendered Inventory File for CVIMMON"
+  template:
+    src: cvimmon_inventory.yaml
+    dest: /root/openstack-configs/cvimmon_inventory.yaml

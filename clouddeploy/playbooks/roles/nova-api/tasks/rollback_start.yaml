@@ -1,0 +1,82 @@
+# First remove the new container and artifacts and nova api
+- name: Shut off nova api docker service
+  service:
+    name: docker-novaapi
+    enabled: no
+    state: stopped
+
+- name: Remove novaapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaapi_{{ docker.nova_api.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_api.name }}"
+    tag: "{{ docker.nova_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova API volume contents
+- name: List the nova API volume contents
+  shell: ls -A1 /docker/nova_api/
+  register: contents
+
+- name: Remove the nova API volume contents
+  file:
+    path: /docker/nova_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the nova api volume contents
+- name: recover nova api volume contents
+  shell: cp /docker/nova_api_{{ NOVA_API_PREVIOUS_TAG }}/* /docker/nova_api/.
+
+# Now remove the backup volume
+- name: Remove back up nova API Directory
+  file:
+    path: "/docker/nova_api_{{ NOVA_API_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_api/docker-novaapi.service /usr/lib/systemd/system/docker-novaapi.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novaapi='in_container novaapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias novaapi='in_container novaapi_{{ NOVA_API_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova api service
+  service:
+    name: docker-novaapi
+    enabled: yes
+    state: started
+
+- name: Wait for Nova api to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_API_PORT }}

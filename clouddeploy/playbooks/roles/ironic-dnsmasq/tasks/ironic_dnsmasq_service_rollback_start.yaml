@@ -1,0 +1,94 @@
+# First remove the new container and artifacts
+- name: Shut off Ironic DNSMASQ docker service
+  service:
+    name: docker-ironicdnsmasq
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove Ironic DNSMASQ service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicdnsmasq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove Ironic DNSMASQ docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }}" }
+
+- name: Remove Ironic DNSMASQ docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_dnsmasq.name }}"
+    tag: "{{ docker.ironic_dnsmasq.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove ironic volume contents
+- name: List Ironic DNSMASQ volume contents
+  shell: ls -A1 {{ docker.ironic_dnsmasq.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic DNSMASQ volume contents
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the ironic volume contents
+- name: recover Ironic DNSMASQ volume contents
+  shell: "cp -r {{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}/. {{ docker.ironic_dnsmasq.host_data_dir }}/"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: "cp {{ docker.ironic_dnsmasq.host_data_dir }}/docker-ironicdnsmasq.service /usr/lib/systemd/system/docker-ironicdnsmasq.service"
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicdnsmasq='in_container ironic_dnsmasq_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicdnsmasq='in_container ironic_dnsmasq_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}'
+
+- name: Start Ironic DNSMASQ container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicdnsmasq
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic DNSMASQ Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_dnsmasq_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if Ironic DNSMASQ container is not UP.
+  fail: msg="Ironic DNSMASQ Container does not seem to be running"
+  when: command_result.stdout == ""
+
+# Now remove the backup volume
+- name: Remove back up Ironic DNSMASQ Directory
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}"
+    state: absent

@@ -1,0 +1,42 @@
+#############################################################################
+# Check replication health
+#
+# To identify performance issue and problem areas by sure all the members:
+# - can apply write-sets as fast as it receives them without replication
+#   throttling (wsrep_local_recv_queue_ava)
+# - able to run frequently without pausing and not failing behind the
+#   cluster (wsrep_flow_control_paused)
+# - can apply transaction parallelly between an average set of sequence
+#   number (wsrep_local_send_queue_avg)
+#############################################################################
+
+# TODO: placeholder threshold values
+#       these are some arbitrary values which may or may not
+#       make any sense since it's really system depended
+- name: replication health | define health stats field and threshold value to check
+  set_fact:
+    health_stats:
+      wsrep_local_recv_queue_avg: 10.0
+      wsrep_flow_control_paused: 0.5
+      wsrep_cert_deps_distance: 50.0
+      wsrep_local_send_queue_avg: 2.0
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: replication health | reset all replication health stats
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "{{ item.key }}"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: wsrep_result
+  failed_when: wsrep_result.stdout == "" or wsrep_result.stderr | search("ERROR")
+  with_dict: "{{ health_stats }}"
+
+- name: replication health | pause for sometime before polling again
+  pause:
+    seconds: 15
+
+- name: replication health | check all replication health stats are within the threshold value
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'SHOW STATUS LIKE "{{ item.key }}"\G' | awk '/Value/{print $2}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: wsrep_health_stats_value
+  failed_when: wsrep_health_stats_value.stdout | float > {{ item.value }} | float or wsrep_health_stats_value.stderr | search("ERROR")
+  with_dict: "{{ health_stats }}"

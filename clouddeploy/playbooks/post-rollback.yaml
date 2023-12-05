@@ -1,0 +1,50 @@
+- name: Get old workspace dir
+  hosts: localhost
+  tasks:
+    - include_vars: "{{ lookup('env','HOME') }}/openstack-configs/update.yaml"
+  tags:
+    - rollback
+
+- name: Remove update.yaml file
+  hosts: localhost
+  tasks:
+    - file:
+        path: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+        state: absent
+  tags:
+    - commit
+    - rollback
+
+- name: Modify openstack-configs dir symlink
+  hosts: localhost
+  tasks:
+    - file: path={{ lookup('env','HOME') }}/openstack-configs state=absent
+    - file:
+        src: "{{ OLD_WORKSPACE_DIR }}"
+        dest: "{{ lookup('env','HOME') }}/openstack-configs"
+        state: link
+  tags:
+    - rollback
+
+# Workaround for NFVBENCH not part of an update
+- name: Workaround for NFVBENCH being part of update scope
+  hosts: localhost
+  tasks:
+    - name: check whether build nfvbench is part of update scope
+      shell: cat "{{ playbook_dir }}/../../openstack-configs/update_scope.yaml" | grep "^- nfvbench$"
+      register: update_nfvbench
+      ignore_errors: True
+      failed_when: false
+    - name: Check if NFVbench is enabled
+      shell: "systemctl list-unit-files | grep -q docker-nfvbench.service"
+      register: docker_nfvbench_service_exists
+      failed_when: False
+    - name: Restart NFVbench container
+      systemd:
+        name: docker-nfvbench
+        enabled: yes
+        state: restarted
+        masked: no
+      when: docker_nfvbench_service_exists.rc == 0 and update_nfvbench.stdout == ""
+  tags:
+    - rollback

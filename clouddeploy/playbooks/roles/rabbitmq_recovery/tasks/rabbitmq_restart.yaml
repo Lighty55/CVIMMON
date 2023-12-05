@@ -1,0 +1,76 @@
+#############################################################################
+# RabbitMQ cluster restart
+#
+# Restart all the RabbitMQ service in the cluster in a particular order and
+# check to make sure the service is up afterward.
+#############################################################################
+- name: rabbitmq restart | stop docker-rabbitmq service on non-primary nodes first
+  service:
+    name: docker-rabbitmq
+    state: stopped
+  failed_when: false
+  when: inventory_hostname != groups['rabbitmq_all'][0]
+
+- name: rabbitmq restart | stop docker-rabbitmq service on primary node
+  service:
+    name: docker-rabbitmq
+    state: stopped
+  failed_when: false
+  when: inventory_hostname == groups['rabbitmq_all'][0]
+
+- name: wait for services to stop
+  wait_for:
+    host: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+    port: "{{ RABBITMQ_PORT }}"
+    delay: 30
+    state: stopped
+    timeout: 120
+
+- name: rabbitmq restart | remove mnesia on all nodes
+  file:
+    path: "/var/lib/docker/volumes/rabbitmq/_data/mnesia"
+    state: absent
+
+- name: rabbitmq restart | start docker-rabbitmq service on primary node first
+  service:
+    name: docker-rabbitmq
+    state: started
+  failed_when: false
+  when: inventory_hostname == groups['rabbitmq_all'][0]
+
+- name: wait for sometime before checking rabbitmq service port to be in listening state
+  wait_for:
+    host: "{{ hostvars[groups['rabbitmq_all'][0]]['ansible_host'] }}"
+    port: "{{ RABBITMQ_PORT }}"
+    delay: 30
+    timeout: 120
+
+- name: rabbitmq restart | start docker-rabbitmq service on one non-primary nodes
+  service:
+    name: docker-rabbitmq
+    state: started
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ groups['rabbitmq_all'][1] }}"
+
+- name: wait for sometime before checking rabbitmq service port to be in listening state
+  wait_for:
+    host: "{{ hostvars[groups['rabbitmq_all'][1]]['ansible_host'] }}"
+    port: "{{ RABBITMQ_PORT }}"
+    delay: 30
+    timeout: 120
+
+- name: rabbitmq restart | start docker-rabbitmq service on other non-primary nodes
+  service:
+    name: docker-rabbitmq
+    state: started
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ groups['rabbitmq_all'][2] }}"
+
+- name: wait for sometime before checking rabbitmq service port to be in listening state
+  wait_for:
+    host: "{{ hostvars[groups['rabbitmq_all'][2]]['ansible_host'] }}"
+    port: "{{ RABBITMQ_PORT }}"
+    delay: 30
+    timeout: 120

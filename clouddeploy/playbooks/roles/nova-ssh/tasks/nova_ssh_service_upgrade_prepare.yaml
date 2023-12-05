@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old nova ssh containers
+####################################################
+# Nova ssh.
+- name: Shut off nova ssh docker service
+  service:
+    name: docker-novassh
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove nova ssh service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novassh.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova ssh docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novassh_{{ NOVA_SSH_PREVIOUS_TAG }}" }
+
+- name: Remove nova ssh docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_SSH_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_SSH_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova ssh Directory
+  file:
+    path: "{{ docker.nova_ssh.host_data_dir }}"
+    state: absent

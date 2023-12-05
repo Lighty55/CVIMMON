@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes
+  labels:
+    app: {{ template "grafana.name" . }}
+    chart: {{ template "grafana.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+{{ (.Files.Glob "k8s-dashboards/*.json").AsConfig | indent 2 }}

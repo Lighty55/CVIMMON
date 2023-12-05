@@ -1,0 +1,13 @@
+- name: "{{ metro_name }} Uninstall | check if snmp manifest file exists"
+  stat:
+    path: "{{ SNMP_STACK_PATH }}/snmp_manifest.yaml"
+  register: snmp_manifest
+
+- name: "{{ metro_name }} Uninstall | Delete snmp components from manifest"
+  shell: kubectl delete -f "{{ SNMP_STACK_PATH }}"/snmp_manifest.yaml -n "{{ metro_name }}"
+  when: snmp_manifest.stat.exists
+
+- name: "{{ metro_name }} Uninstall | Remove staging for snmp container"
+  file:
+    path: "{{ SNMP_STACK_PATH }}"
+    state: absent

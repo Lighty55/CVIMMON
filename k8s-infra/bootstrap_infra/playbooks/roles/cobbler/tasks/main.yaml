@@ -1,0 +1,54 @@
+- include_vars: "{{ playbook_dir }}/../../../../openstack-configs/update.yaml"
+  when: ACTION is defined
+
+- include: deploy.yaml
+  when: ACTION is undefined
+
+- copy: src=check_repoupdate.py dest=/opt/cisco/scripts/check_repoupdate.py owner=root mode=0544
+  when: ACTION is defined and ACTION == "update"
+
+- copy: src=check_repoupdate.py dest=/opt/cisco/scripts/check_repoupdate.py owner=root mode=0544
+  when: ACTION is defined and ACTION == "update"
+
+- name: find whether management node repo has to be updated
+  command: python /opt/cisco/scripts/check_repoupdate.py {{ playbook_dir }}/../../../../openstack-configs/update_scope.yaml
+  register: update_repo
+  when: ACTION is defined and ACTION == "update"
+
+- include: repo_update.yaml
+  when: ACTION is defined and ACTION == "update" and update_repo is defined and update_repo.stdout != ""
+
+- name: Remove old repos files on update
+  file:
+    path: /etc/yum.repos.d/{{ item }}
+    state: absent
+  with_items:
+    - "mercury-common.repo"
+    - "mercury-rhel.repo"
+    - "mercury-buildnode.repo"
+    - "mercury-hotfixes.repo"
+    - "mercury-thirdparty-cvim-k8s.repo"
+    - "mercury-calipso-rpms.repo"
+  when: ACTION is defined and ACTION == "update"
+
+- include: local_yum_config.yaml
+  when: ACTION is defined and ACTION == "update"
+
+- name: Check if reboot is required
+  command: /usr/bin/needs-restarting -r
+  register: reboot_required
+  ignore_errors: true
+  failed_when: false
+
+- name: Touch the file for rebooting management node
+  file: path=/opt/cisco/reboot_required state=touch
+  when: reboot_required.rc == 1
+
+- name: Touch the file for httpd update
+  file: path=/opt/cisco/httpd_update state=touch
+
+## Helm install is needed for backup restore operation
+- name: "Install Helm RPM"
+  yum:
+    name: helm-{{helm_version}}
+    state: present

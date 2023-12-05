@@ -1,0 +1,19 @@
+{% for cluster in clusters %}
+{% for servers in cluster['servers'] %}
+{{ servers.name }}:
+  ansible_ssh_host: {{ servers.name }}
+  hostvars:
+    ansible_user: root
+    ansible_usehost: {{ servers.ip_address.management_1_v4.split('/')[0] }}
+{% if servers.ip_address.api_1_v6 is defined and servers.ip_address.api_1_v6 %}
+    ansible_use_api_v6: {{ servers.ip_address.api_1_v6.split('/')[0] }}
+{% endif %}
+  tags:
+    - all-servers
+{% if (('role' in servers) and (servers.role == "worker")) %}
+    - all-workers
+{% else %}
+    - all-masters
+{% endif %}
+{% endfor %}
+{% endfor %}

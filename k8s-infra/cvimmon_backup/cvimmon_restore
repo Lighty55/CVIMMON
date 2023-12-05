@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+####################################################################
+# Cisco VIM CVIM MON Restore Script
+####################################################################
+
+show_help () {
+    echo ""
+    echo " `basename $0`  : Cisco VIM CVIM MON Restore Script"
+    echo "----------------------------------------------------"
+    echo ""
+    echo " Usage: ./cvimmon_restore"
+    echo ""
+    echo ""
+    echo " -v          : Enable verbose mode"
+    echo ""
+    echo " -h          : To display this help message"
+    echo ""
+    exit 1
+}
+
+# Read argv[]
+while getopts ':hv' option
+do
+    case $option in
+        h) show_help;;
+        v) VERBOSE=true;;
+        *) echo "Error: invalid option \"-$OPTARG\""; show_help; exit 1;;
+    esac
+done
+
+
+if [ $VERBOSE ]; then
+    $COMMAND_ENABLE_VERBOSE
+    if [ $? -eq 0 ]; then
+        cd $PATH_TO_WS; /usr/bin/cp openstack-configs/setup_data.yaml /tmp/restore_setup_data.yaml; ./bootstrap/k8s-infra/k8s_runner.py --install -yp 1,2,3 --setupfile /tmp/restore_setup_data.yaml
+    fi
+else
+    $COMMAND_DISABLE_VERBOSE
+    if [ $? -eq 0 ]; then
+        cd $PATH_TO_WS; /usr/bin/cp openstack-configs/setup_data.yaml /tmp/restore_setup_data.yaml; ./bootstrap/k8s-infra/k8s_runner.py --install -yp 1,2,3 --setupfile /tmp/restore_setup_data.yaml
+    fi
+fi
+/usr/bin/rm -f /tmp/restore_setup_data.yaml

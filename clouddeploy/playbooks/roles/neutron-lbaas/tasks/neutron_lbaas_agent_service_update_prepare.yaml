@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron lbaas Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_lbaas_agent_{{ LBAAS_AGENT_PREVIOUS_TAG | default('') }}
+
+# Back up the neutron lbaas volume contents
+- name: back up the neutron lbaas volume contents
+  shell: cp /docker/neutron_lbaas_agent/* /docker/neutron_lbaas_agent_{{ LBAAS_AGENT_PREVIOUS_TAG | default('') }}/.
+
+# Backup the systemd file
+- name: back up the neutron lbaas systemd file
+  command: cp /usr/lib/systemd/system/docker-neutronlbaas.service /docker/neutron_lbaas_agent_{{ LBAAS_AGENT_PREVIOUS_TAG | default('')}}/docker-neutronlbaas.service
+
+#####################################################
+# Shut down the old neutron lbaas containers
+####################################################
+- name: Shut off neutron lbaas docker service
+  service:
+    name: docker-neutronlbaas
+    enabled: no
+    state: stopped
+
+- name: Remove neutron lbaas service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronlbaas.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove neutron lbaas volume contents
+- name: List neutron lbaas volume contents
+  shell: ls -A1 /docker/neutron_lbaas_agent/
+  register: contents
+
+- name: Remove neutron lbaas volume contents
+  file:
+    path: /docker/neutron_lbaas_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

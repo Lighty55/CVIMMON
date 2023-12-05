@@ -1,0 +1,46 @@
+- name: Uninstall | Get the ceilometer central tag
+  shell: docker ps -a | grep ceilometercentral | awk '{print $NF}' | cut -f2 -d '_'
+  register: ceilometer_central_tag
+
+- name: Uninstall | Get the ceilometer central name
+  shell: docker images | grep ceilometer-central | awk '{print $1}' | cut -f2,3 -d '/'
+  register: ceilometer_central_name
+
+- name: Uninstall | Shut off ceilometer central docker service
+  service:
+    name: docker-ceilometercentral
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Uninstall | Remove ceilometer central service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercentral.service"
+    state: absent
+
+- name: Uninstall | Get the ceilometer central name
+  shell: docker images | grep ceilometer-central | awk '{print $1}' | cut -f2,3 -d '/'
+  register: ceilometer_central_name
+
+- name: Uninstall | Stop and remove ceilometer central docker container
+  docker_container:
+    image: ""
+    name: "ceilometercentral_{{ item }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ ceilometer_central_tag.stdout_lines }}"
+
+- name: Uninstall | Remove ceilometer central docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ ceilometer_central_name.stdout }}"
+    tag: "{{ item }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ ceilometer_central_tag.stdout_lines }}"
+
+- name: Uninstall | Remove ceilometer central Directory
+  file:
+    path: /docker/ceilometer_central
+    state: absent

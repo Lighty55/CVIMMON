@@ -1,0 +1,26 @@
+- name: Create Ironic API Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - - "{{ docker.ironic_api.host_data_dir }}"
+
+###########################################
+## Copy and enable Service Manager Definition
+###########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-ironicapi.service",
+        dest: "/usr/lib/systemd/system/docker-ironicapi.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

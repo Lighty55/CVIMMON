@@ -1,0 +1,123 @@
+###############################################################################
+# Cluster failure recovery playbook
+#
+# This playbook will try to recover from cluster failure caused by network or
+# power outage.
+###############################################################################
+- name: check for network partition
+  hosts: host_control_mgmt_ip{{server|default('')}}
+  user: "{{ remote_user }}"
+  max_fail_percentage: 0
+  tasks:
+    - name: flush out all control neighbor's mac to clear out any old/stale entries
+      shell: ip neigh flush {{ item }}
+      when: inventory_hostname != item
+      with_items: "{{ groups['host_control_mgmt_ip'] + [ internal_lb_vip_address ] }}"
+
+    - name: cross ping check between control hosts using management interfaces
+      shell: ping -c 5 -I {{ inventory_hostname }} {{ item }}
+      register: ping_result
+      until: ping_result.stdout | search(', 0% packet loss')
+      retries: 5
+      delay: 2
+      when: inventory_hostname != item
+      with_items: "{{ groups['host_control_mgmt_ip'] + [ internal_lb_vip_address ] }}"
+
+# NOTE: Encountered some rare condition where container fail to start after
+#       node reboot.  The error message points to not able to find its
+#       container mount and this looks like a potential docker race condition
+#       with devicemapper or udev sync:
+#       https://github.com/docker/docker/issues/4036
+#
+#       Retriggering the device event seems to fix the missing devicemapper
+#       without the need for additional reboot.  Adding this workaround until
+#       the issue can be properly root cause with correct fix/solution.
+- name: retrigger device event from kernel in case any missing/delayed mount
+  hosts: host_power_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  tasks:
+    - name: running udevadm trigger && udevadm settle
+      shell: udevadm trigger && udevadm settle
+      register: udevadm_status
+      until: udevadm_status.rc == 0
+      retries: 5
+      delay: 3
+      ignore_errors: true
+      failed_when: false
+
+- include: galera-recovery.yaml
+- include: rabbitmq-recovery.yaml
+
+# Restore docker container services if needed
+- name: make sure all docker container services are started on controller
+  hosts: host_control_mgmt_ip{{server|default('')}}
+  user: "{{ remote_user }}"
+  tasks:
+    - name: get a list of docker container services
+      shell: systemctl list-unit-files | awk '! (match($1,/^docker-iptables.service$/) || match($1,/^docker-ovscleanup.service$/) || match($1,/^docker-storage-setup.service$/)) && match($1,/^docker-.*?\.service$/) && match($2,/enabled/) {print $1}'
+      register: container_services
+
+    - name: reset docker container services
+      shell: systemctl reset-failed {{ item }}
+      with_items: "{{ container_services.stdout_lines }}"
+      when: container_services | changed
+
+    # start order should not matter here since it should be handled by systemd
+    - name: start docker container services
+      service:
+        name: "{{ item }}"
+        state: started
+      with_items: "{{ container_services.stdout_lines }}"
+      when: container_services | changed
+
+    # NOTE: Currently there are no good way to check if the services are fully
+    #       functional so for now just make sure it is up for one minute.
+    #       Generally if the service have any complication, the container will
+    #       exit before the one minute mark.
+    #
+    #       Also note the check_count comparison, in case there are other none
+    #       related services which match the filter and getting counted.  The
+    #       workaround for now is to just make sure the value is equal or
+    #       greater expected but this may return false positive.
+    - name: make sure all docker container services are running for one minute
+      shell: 'systemctl status docker-*.service --all --state=active | grep -E "Active:\s+active\s+\(running\)" | grep -Ev ";\s+[0-9]+m?s\s+ago$" | wc -l'
+      register: check_count
+      until: check_count.stdout | int >= {{ container_services.stdout_lines | length }} and check_count.stderr == ""
+      retries: 60
+      delay: 5
+      when: container_services | changed
+
+# Restart Ceilometer Compute containers if needed
+- name: make sure ceilometer compute container is running on computes
+  hosts: ceilometer_compute_power_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  tasks:
+    - name: get ceilometer compute docker container services
+      shell: systemctl list-unit-files | awk '! (match($1,/^docker-iptables.service$/) || match($1,/^docker-ovscleanup.service$/) || match($1,/^docker-storage-setup.service$/)) && match($1,/^docker-ceilometercompute.service$/) && match($2,/enabled/) {print $1}'
+      register: container_services
+      changed_when: container_services.stdout != ""
+
+    - name: reset docker container services
+      shell: systemctl reset-failed {{ item }}
+      with_items: "{{ container_services.stdout_lines }}"
+      when: container_services | changed
+
+    - name: start ceilometer compute docker container services
+      service:
+        name: "{{ item }}"
+        state: started
+      with_items: "{{ container_services.stdout_lines }}"
+      when: container_services | changed
+
+    - name: make sure ceilometer compute container is running for one minute
+      shell: 'systemctl status docker-ceilometercompute.service --all --state=active | grep -E "Active:\s+active\s+\(running\)" | grep -Ev ";\s+[0-9]+m?s\s+ago$" | wc -l'
+      register: check_count
+      until: check_count.stdout | int >= {{ container_services.stdout_lines | length }} and check_count.stderr == ""
+      retries: 60
+      delay: 5
+      when: container_services | changed
+
+- include: ceph-osd-recovery.yaml
+- include: recover-vpp.yaml
+- include: cloud-check.yaml
+- include: cloud-sanity.yaml

@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and nova conductor
+- name: Shut off nova conductor docker service
+  service:
+    name: docker-novacond
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconduct_{{ docker.nova_conductor.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_conductor.name }}"
+    tag: "{{ docker.nova_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova conductor volume contents
+- name: List nova conductor volume contents
+  shell: ls -A1 /docker/nova_conductor/
+  register: contents
+
+- name: Remove nova conductor volume contents
+  file:
+    path: /docker/nova_conductor/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+
+#  Recover the nova conductor volume contents
+- name: recover nova conductor volume contents
+  shell: cp /docker/nova_conductor_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}/* /docker/nova_conductor/.
+
+# Now remove the backup volume
+- name: Remove back up nova conductor Directory
+  file:
+    path: "/docker/nova_conductor_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_conductor/docker-novacond.service /usr/lib/systemd/system/docker-novacond.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias conductor='in_container novaconduct_"
+    line: "{{ item }}"
+  with_items:
+    - alias conductor='in_container novaconduct_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova conductor service
+  service:
+    name: docker-novacond
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Nova condutor  Docker container has started running
+  shell: docker ps -a | grep Up | grep novaconduct_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova conductor Container does not seem to be running"
+  when: command_result.stdout == ""

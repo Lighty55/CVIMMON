@@ -1,0 +1,2 @@
+- include: etcd_service_install.yaml
+- include: etcd_skip_upgrade.yaml

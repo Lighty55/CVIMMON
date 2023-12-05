@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and cinder api
+- name: Shut off cinder api docker service
+  service:
+    name: docker-cinderapi
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove cinderapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cinderapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove cinder-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderapi_{{ docker.cinder_api.image_tag }}" }
+
+- name: Remove cinder docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_api.name }}"
+    tag: "{{ docker.cinder_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove cinder API volume contents
+- name: List cinder API volume contents
+  shell: ls -A1 /docker/cinder_api/
+  register: contents
+
+- name: Remove cinder API volume contents
+  file:
+    path: /docker/cinder_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the cinder api volume contents
+- name: recover the cinder api volume contents
+  shell: cp /docker/cinder_api_{{ CINDER_API_PREVIOUS_TAG }}/* /docker/cinder_api/.
+
+# Now remove the backup volume
+- name: Remove back up cinder API Directory
+  file:
+    path: "/docker/cinder_api_{{ CINDER_API_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/cinder_api/docker-cinderapi.service /usr/lib/systemd/system/docker-cinderapi.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderapi='in_container cinderapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderapi='in_container cinderapi_{{ CINDER_API_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the cinder api service
+  service:
+    name: docker-cinderapi
+    enabled: yes
+    state: started
+
+- name: Wait for Cinder API to be alive
+  wait_for: host={{ CINDER_HOST }} port={{ CINDER_API_PORT }}

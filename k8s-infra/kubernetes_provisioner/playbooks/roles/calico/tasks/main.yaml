@@ -1,0 +1,37 @@
+---
+- name: "Check if existing Calico stack running."
+  register: "calico_state"
+  command: "kubectl get daemonset calico-node --output=json --ignore-not-found=true --namespace=kube-system"
+
+- name: "Render Calico Deployment Manifest to Enable Calico"
+  become: true
+  template: { src: "calico.yaml", dest: "/tmp/kubeadm-ha/calico.yaml" }
+  register: "rendering"
+  when: calico_state.stdout == ""
+
+- name: "Create Calico Deployment"
+  kube:
+    kubectl: "kubectl"
+    filename: "/tmp/kubeadm-ha/calico.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+  when: calico_state.stdout == ""
+
+- name: "Ensure if Calico Daemonset Rolled out Properly."
+  register: "daemonset_state"
+  command: "kubectl get daemonset calico-node --output=json --ignore-not-found=true --namespace=kube-system"
+  changed_when: false
+  vars:
+    daemonset_state: { stdout: "{}" }
+    ready: "{{ daemonset_state.stdout|from_json|json_query(\"status.numberReady\") }}"
+    desired: "{{ daemonset_state.stdout|from_json|json_query(\"status.desiredNumberScheduled\") }}"
+  until: "ready >= 3"
+  retries: 10
+  delay: 5
+
+- name: "Ensure All Nodes Are Active and Running"
+  shell: "kubectl get nodes --no-headers | grep -v -w 'Ready' || true "
+  register: command_result
+  until: command_result.stdout == ""
+  retries: 40
+  delay: 3
+  changed_when: false

@@ -1,0 +1,55 @@
+# Playbook to perform disk locator action
+
+- name: Get hostname
+  shell: hostname
+  register: host_name
+
+- name: Determine if bad OSDs file exists
+  stat:
+    path: "{{ BAD_DISKS_FILE  }}_{{ host_name.stdout }}"
+  register: bad_osd
+  delegate_to: localhost
+
+- name: Get bad OSD details file name
+  set_fact:
+    bad_disk_file_name: "{{ BAD_DISKS_FILE  }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+  when: bad_osd.stat.exists == True
+
+- name: Get bad OSD details data
+  set_fact:
+    bad_disks: "{{ lookup('file', bad_disk_file_name ).split('\n') }}"
+  delegate_to: localhost
+  when: bad_osd.stat.exists == True
+
+- name: Get OSD details file name
+  set_fact:
+    file_name: "{{ OSD_DETAILS_FILE }}_{{ host_name.stdout }}"
+  delegate_to: localhost
+  when: bad_osd.stat.exists == True
+
+- name: Get OSD details data
+  include_vars:
+    file: "{{ file_name }}"
+    name: data
+  delegate_to: localhost
+  when: bad_osd.stat.exists == True
+
+- name: Generate list of bad disk slots
+  shell:
+    cmd: "cat /etc/fstab | grep -w ceph-{{ item['id_num'] }} | awk -F'Slot:' '{print $2}' | cut -d' ' -f1"
+  register: fstab_search
+  when: bad_osd.stat.exists == True and item['name'] in bad_disks
+  with_items: "{{ data.OSD }}"
+
+- name: Check if Raid or Passthrough
+  shell: "lsmod | grep megaraid"
+  register: raid_type_hw
+  ignore_errors: True
+  failed_when: false
+
+- name: Perform locator action
+  shell:
+    cmd: "/opt/MegaRAID/storcli/storcli64 /c{{ data.controller_num }}/e{{ data.Enclosure_ID }}/s{{ item.stdout }} {{ LOCATOR_ACTION }} locate"
+  when: bad_osd.stat.exists == True and fstab_search is defined and item.changed and raid_type_hw.stdout != ""
+  with_items: "{{ fstab_search.results }}"

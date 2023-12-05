@@ -1,0 +1,34 @@
+- name: Create a place holder directory for VM IDs
+  delegate_to: localhost
+  when: '"compute" in server_role'
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /docker/{{ ansible_nodename }}
+
+- name: Find the Active VMs on compute node
+  shell: "openstack server list -f value -c ID -c Status --host {{ ansible_nodename }} | grep ACTIVE | cut -d ' ' -f1 | xargs -n 1 echo"
+  delegate_to: localhost
+  ignore_errors: True
+  failed_when: False
+  register: active_vms
+  when: '"compute" in server_role'
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+
+- name: Create the marker files for active VMs
+  delegate_to: localhost
+  when: '"compute" in server_role'
+  file:
+    path: "/docker/{{ ansible_nodename }}/{{ item }}"
+    state: touch
+  with_items: "{{ active_vms.stdout_lines }}"

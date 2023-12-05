@@ -1,0 +1,11 @@
+##Certificate Specific
+validity_days: 365
+bits: 2048
+
+##File Paths
+cvimmon_key_out_path: /tmp/cvimmon-{{metro_name}}.key
+cvimmon_cert_out_path: /tmp/cvimmon-{{ metro_name }}.crt
+
+efk_key_out_path: /tmp/efk-{{metro_name}}.key
+efk_cert_out_path: /tmp/efk-{{metro_name}}.crt
+

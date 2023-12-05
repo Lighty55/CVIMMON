@@ -1,0 +1,36 @@
+####################################################
+# Shut down the old fluentd containers
+####################################################
+- name: Shut off fluentd docker service
+  service:
+    name: docker-fluentd
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove fluentd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-fluentd.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove fluentd docker container
+  docker_container:
+    image: ""
+    name: "fluentd_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove fluentd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ FLUENTD_PREVIOUS_NAME }}"
+    tag: "{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove fluentd directory
+  file:
+    path: "{{ docker.fluentd.host_data_dir }}"
+    state: absent

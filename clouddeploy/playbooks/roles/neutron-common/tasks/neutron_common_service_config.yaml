@@ -1,0 +1,39 @@
+- name: Create Neutron Common Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_common
+
+# Does not fail if there is no ironic network in setup-data.yaml.
+- set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+
+- name: Copy Neutron startup script.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+        dest: "{{ docker.neutron_common.host_data_dir }}/neutron_config" }
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutroncommon.service",
+        dest: "/usr/lib/systemd/system/docker-neutroncommon.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload to avoid access denied issue.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

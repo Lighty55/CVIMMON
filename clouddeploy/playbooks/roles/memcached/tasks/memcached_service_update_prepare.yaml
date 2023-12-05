@@ -1,0 +1,49 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Memcached Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}
+
+# Backup the systemd file
+- name: back up the memcached systemd file
+  command: cp /usr/lib/systemd/system/docker-memcached.service /docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}/docker-memcached.service
+
+# Back up the memcached volume contents
+- name: back up the memcached volume contents
+  shell: cp /docker/memcached/* /docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}/.
+
+
+#####################################################
+# Shut down the old memcached containers
+####################################################
+# Memcached API.
+- name: Shut off memcached docker service
+  service:
+    name: docker-memcached
+    enabled: no
+    state: stopped
+
+- name: Remove memcached service file
+  file:
+    path: "/usr/lib/systemd/system/docker-memcached.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now List and remove the contents of memcached volume contents
+- name: List the contents of memcached volume contents
+  shell: ls -A1 /docker/memcached/
+  register: contents
+
+- name: Remove the contents of memcached volume contents
+  file:
+    path: /docker/memcached/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

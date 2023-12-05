@@ -1,0 +1,450 @@
+# Check if this is a skip level Upgrade
+- stat: path=/opt/cisco/skip_upgrade
+  register: skip_upgrade
+  delegate_to: localhost
+
+- name: Check if docker file is already upgraded
+  shell: cat /etc/sysconfig/docker | grep enable-secrets
+  register: check_docker
+  ignore_errors: true
+  failed_when: false
+
+- include: prepare_skip_upgrade.yaml
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade") and (check_docker is defined and check_docker.stdout == "")
+
+# List and Clean the yum repos
+- name: List the yum repos
+  shell: ls -A1 /etc/yum.repos.d/
+  register: contents
+
+- name: Clean the yum repos
+  file:
+    path: /etc/yum.repos.d/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+- name: Download repofiles from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-common.repo
+    - mercury-rhel.repo
+    - mercury-osp.repo
+    - mercury-hotfixes.repo
+    - mercury-thirdparty-hw-binary-utilities.repo
+
+- name: Download repofiles from management node for Real Time repo for edge POD and compute Role
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-rhel-rt.repo
+  when: ENABLE_RT_KERNEL
+
+- name: Download telegraf repofile from management node
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-telegraf.repo
+  when: CVIM_MON is defined and CVIM_MON.enabled
+
+
+# Accepting 304 until Ansible fixes issue
+- name: Download repofiles from management node
+  uri:
+    url: "http://{{ build_node_ip | ipwrap }}/repofiles/{{ item }}"
+    dest: /etc/yum.repos.d/
+    return_content: yes
+    status_code: 200,304
+  with_items:
+    - mercury-ceph-osd.repo
+  when: '"block_storage" in server_role'
+
+- name: Install yum utilities
+  yum:
+    name: "{{ item }}"
+    state: latest
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items:
+    - yum-utils
+    - yum-plugin-priorities
+
+- name: Disable all repos (start clean)
+  command: yum-config-manager --disable \*
+  register: validation_status
+  until: validation_status.rc == 0
+  retries: 5
+  delay: 5
+
+- name: Enable all provided repos
+  command: yum-config-manager --enable {{item}}
+  with_items: "{{ REDHAT_REPOS.repos }}"
+  register: validation_status
+  until: validation_status.rc == 0
+  retries: 5
+  delay: 5
+
+- name: Enable telegraf repo
+  command: yum-config-manager --enable mercury-telegraf-rhel7-osp10-rpms
+  register: telegraf_validation_status
+  until: telegraf_validation_status.rc == 0
+  retries: 5
+  delay: 5
+  when: CVIM_MON is defined and CVIM_MON.enabled
+
+- name: Enable the rhel rt repo for edge POD
+  command: yum-config-manager --enable rhel-7-server-rt-rpms
+  register: rt_validation_status
+  until: rt_validation_status.rc == 0
+  retries: 5
+  delay: 5
+  when: ENABLE_RT_KERNEL
+
+- name: Enable RH Ceph OSD Repo
+  command: yum-config-manager --enable {{item}}
+  with_items: "{{ REDHAT_REPOS.ceph_osd_repos }}"
+  register: validation_status
+  until: validation_status.rc == 0
+  retries: 5
+  delay: 5
+  when: '"block_storage" in server_role'
+
+- name: Clean yum cache
+  shell: yum clean all
+  register: version
+
+# Install python-docker-py older version
+- name: install python docker py from hotfix
+  shell: yum --setopt=obsoletes=0 -y install python-docker-py
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade")
+
+- name: Remove exclude package on update
+  lineinfile:
+    dest: /etc/yum.conf
+    regexp: '^exclude='
+    state: absent
+
+- name: Exclude python docker package
+  lineinfile:
+    dest: /etc/yum.conf
+    line: "exclude=python-docker* docker-python* python-websocket-client"
+    state: present
+
+- name: Get all the installed packages
+  shell: yum list installed
+
+- name: Get the old version of i40e
+  shell: rpm -qa | grep -w i40e > /tmp/old_i40e
+  ignore_errors: true
+  failed_when: false
+
+# Update systemd first to avoid race condition
+- name: Update systemd
+  yum:
+    name: systemd
+    state: latest
+
+- name: yum update all the packages
+  yum: name=* state=latest
+
+# Install any new packages if needed
+#################################
+- name: Install base packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ redhat_packages }}"
+
+- name: Install control packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ control_redhat_packages }}"
+  when: '"control" in server_role'
+
+- name: Install compute packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ compute_redhat_packages }}"
+  when: '"compute" in server_role'
+
+- name: Install storage packages.
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  register: check_pkg_install
+  until: check_pkg_install|success
+  retries: 5
+  delay: 3
+  with_items: "{{ storage_redhat_packages }}"
+  when: '"block_storage" in server_role'
+
+# NOTE: Handle upgrade from CVIM 3.0 where it's running RHEL7.5's i40e driver
+#       which will never upgrade to CVIM compiled version.  This is a temporary
+#       task and should be remove later, post CVIM 3.2.x.
+- name: Install CVIM compiled version of i40e driver
+  yum:
+    name: i40e
+    state: present
+    update_cache: yes
+
+- name: Get the new version of i40e
+  shell: rpm -qa | grep i40e > /tmp/new_i40e
+  ignore_errors: true
+  failed_when: false
+
+- name: Check whether i40e version changed
+  shell:  grep -Fxvf /tmp/old_i40e /tmp/new_i40e
+  register: i40e_version_changed
+  ignore_errors: True
+  failed_when: false
+
+# NOTE: Workaround if RT kernel not packaged correctly and cause weak-modules
+#       not to work.  This will only apply to CVIM build drivers.
+- name: Check for RT kernel
+  shell: rpm -q kernel-rt
+  ignore_errors: true
+  failed_when: false
+  register: kernel_rt_installed
+
+- name: Perform weak-update workaround for RT kernel
+  script: rt_kernel_weak_update.sh
+  register: rt_kernel_weak_update_result
+  when: kernel_rt_installed.rc == 0
+
+- name: Print rt_kernel_weak_update.sh script execution result
+  debug:
+    msg: '{{ rt_kernel_weak_update_result.stdout_lines }}'
+  when: rt_kernel_weak_update_result.stdout_lines is defined
+
+- name: Get all the updated installed packages
+  shell: yum list installed
+
+- name: Check if restart is required after a yum update
+  command: /usr/bin/needs-restarting -r
+  register: reboot_required
+  ignore_errors: true
+  failed_when: false
+
+
+# Disable kexec reboot as it does not work on M5 and Quanta
+#- include: kexec.yaml
+
+- name: Empty the compute node vms file for a skip upgrade
+  shell: echo > "{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms"
+  delegate_to: localhost
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade")
+
+- name: check for reboot required nodes
+  shell: cat "{{ playbook_dir }}/../../openstack-configs/compute_nodes_vms" | grep {{ ansible_nodename }}
+  ignore_errors: True
+  failed_when: false
+  register: no_reboot_required
+  delegate_to: localhost
+
+# Restart only if this is an i40e is loaded
+- name: Check to see if i40e driver is loaded
+  shell: lsmod | grep -w ^i40e
+  register: i40e_loaded
+  ignore_errors: true
+  failed_when: false
+
+- name: Shut off docker service
+  service:
+    name: docker
+    state: stopped
+    enabled: no
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade") and (check_docker is defined and check_docker.stdout == "")
+
+- name: Update mgmt node entry in /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    state: present
+    regexp: '[0-9A-Fa-f\.:]+\s+{{ groups["mgmt"]|join("") }}\s+{{ groups["mgmt"]|join("") }}$'
+    line: "{{ item }} {{ groups['mgmt']|join('') }} {{ groups['mgmt']|join('') }}"
+  when: item != "" and item != "0.0.0.0" and item != "::"
+  with_items:
+    - "{{ build_node_ip }}"
+
+# For configs to take effect docker service needs to be
+# restarted.  In the event that a restart was not required
+# the config will take effect during the next restart
+# of docker service.
+- name: Generate docker registries configuration
+  template:
+    src: "{{ playbook_dir }}/shared/templates/docker-registries.conf.j2"
+    dest: "/etc/containers/registries.conf"
+    mode: "0644"
+  register: status_registries
+  ignore_errors: true
+  failed_when: false
+
+# Ensure that the task above succeeded before removing
+# the entry from the old reference in /etc/sysconfig/docker
+- name: Remove old references to registry in sysconfig
+  lineinfile:
+    dest: /etc/sysconfig/docker
+    line: "ADD_REGISTRY='--add-registry {{ registry }}'"
+    state: absent
+  ignore_errors: true
+  failed_when: false
+  when: status_registries is defined and status_registries.changed
+
+- name: Restart docker when there is a change
+  shell: systemctl restart docker
+  when: (reboot_required.rc == 0 or no_reboot_required.stdout != "") and status_registries is defined and status_registries.changed
+  ignore_errors: True
+  failed_when: False
+
+- name: Restart server
+  shell: sleep 2 && /sbin/reboot
+  async: 1
+  poll: 0
+  ignore_errors: true
+  failed_when: false
+  when: (reboot_required.rc == 1 and no_reboot_required.stdout =="") or ((nic_sriov is defined and nic_sriov == true) and (i40e_version_changed is defined and i40e_version_changed.rc == 0) and (no_reboot_required.stdout == "") and (i40e_loaded is defined and i40e_loaded.rc == 0))
+
+- name: Wait for the server to boot up first try
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      port=22
+      delay=70
+      timeout=1200
+  register: reboot_wait
+  ignore_errors: true
+  failed_when: false
+  when: (reboot_required.rc == 1 and no_reboot_required.stdout =="") or ((nic_sriov is defined and nic_sriov == true) and (i40e_version_changed is defined and i40e_version_changed.rc == 0) and (no_reboot_required.stdout == "") and (i40e_loaded is defined and i40e_loaded.rc == 0))
+
+# NOTE: Workaround hack for UCS boot order issue with Intel NIC where HBA ROM
+#       failed to load (CSCve34328) or potential OS hang during reboot.  Force
+#       a one time power cycle if the system does not boot up after first wait.
+- name: Power cycle if server did not boot up within first try
+  environment:
+    PYTHONPATH: "{{ install_dir }}"
+  local_action: script power-cycle-ucs.py --reboot_list "{{ ansible_nodename }}"
+  when: reboot_wait.skipped is not defined and reboot_wait.state is not defined
+
+- name: Wait for the server to boot up second try
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      port=22
+      delay=70
+      timeout=1200
+  when: reboot_wait.skipped is not defined and reboot_wait.state is not defined
+
+- name: Check connectivity again
+  ping:
+
+- include: docker_translate.yaml
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade") and (check_docker is defined and check_docker.stdout == "")
+
+- name: Clean all /tmp/old_i40e files
+  shell: path=/tmp/old_i40e state=absent
+  ignore_errors: True
+  failed_when: false
+
+- name: Clean all /tmp/new_i40e files
+  shell: path=/tmp/new_i40e state=absent
+  ignore_errors: True
+  failed_when: false
+
+# Remove the tmp socket file for VPP upgrade as permission is different
+- name: Remove the temporary socket file for vpp
+  shell: find /tmp -type s -name "*" | xargs rm -f
+  ignore_errors: true
+  failed_when: false
+  when: (skip_upgrade.stat.exists) and (ACTION is defined and ACTION == "upgrade") and (MECHANISM_DRIVERS == "vpp")
+
+
+# Add a check to make sure ceph mon and mgr are up when docker is restarted
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cephmon
+    - docker-cephmgr
+  when: '(not skip_upgrade.stat.exists) and  (ROLES.block_storage is defined and ROLES.block_storage) and ("control" in server_role)'
+
+# Check if vpp service is active else we need to restart it
+- name: Check if vpp service is active
+  shell: "systemctl status docker-neutron_vpp | grep -Pi 'Active: ' | awk '{print $3}'"
+  register: vpp_status
+  ignore_errors: true
+  failed_when: false
+  when: (not skip_upgrade.stat.exists)  and (MECHANISM_DRIVERS == "vpp") and (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")
+
+# If vpp is in exited state the grep will return nothing hence force kill the VPP process if it exists
+# Make sure to kill VPP is it does not shut off
+- name: Kill VPP if it does not shut off
+  shell:  ps -ef | grep vpp | grep - v grep | awk '{print $2}' | xargs kill -KILL
+  ignore_errors: true
+  failed_when: false
+  when: (not skip_upgrade.stat.exists)  and (MECHANISM_DRIVERS == "vpp") and (inventory_hostname in "{{ groups['neutron_vpp_all'] }}") and (vpp_status is defined and vpp_status.stdout.find("running") == -1)
+
+# Also reset the failures for neutron vpp in this case
+- name: reset vpp systemd service
+  shell: systemctl reset-failed docker-neutron_vpp
+  when: (not skip_upgrade.stat.exists)  and (MECHANISM_DRIVERS == "vpp") and (inventory_hostname in "{{ groups['neutron_vpp_all'] }}") and (vpp_status is defined and vpp_status.stdout.find("running") == -1)
+
+# Add a check to make sure neutron vpp is started when docker is restarted
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_vpp
+  when: (not skip_upgrade.stat.exists)  and (MECHANISM_DRIVERS == "vpp") and (inventory_hostname in "{{ groups['neutron_vpp_all'] }}")
+
+# Add a check to make sure ovs_vswitch is started when docker is restarted
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ovs_vswitch
+  when: (not skip_upgrade.stat.exists) and (MECHANISM_DRIVERS == "openvswitch") and (inventory_hostname in "{{ groups['ovs_all'] }}")
+
+# Add a check to make sure etcd is started when docker is restarted
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-etcd
+  when: '(not skip_upgrade.stat.exists)  and (MECHANISM_DRIVERS == "vpp") and ("control" in server_role)'

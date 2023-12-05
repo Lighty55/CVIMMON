@@ -1,0 +1,103 @@
+# First remove the new container and artifacts and nova compute
+- name: Shut off nova compute docker service
+  service:
+    name: docker-novacpu
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove nova compute service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacpu.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-compute docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacompute_{{ docker.nova_compute.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_compute.name }}"
+    tag: "{{ docker.nova_compute.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova compute volume contents
+- name: List nova compute volume contents
+  shell: ls -A1 /docker/nova_compute/
+  register: contents
+
+- name: Remove nova compute volume contents
+  file:
+    path: /docker/nova_compute/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the nova compute volume contents
+- name: recover nova compute volume contents
+  shell: cp /docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}/* /docker/nova_compute/.
+
+
+# Now remove the backup volume
+- name: Remove back up nova compute Directory
+  file:
+    path: "/docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_compute/docker-novacpu.service /usr/lib/systemd/system/docker-novacpu.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias compute='in_container novacompute_"
+    line: "{{ item }}"
+  with_items:
+    - alias compute='in_container novacompute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}'
+
+# Start the nova compute docker service
+- name: Start the nova compute docker service
+  service:
+    name: docker-novacpu
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Nova compute  Docker container has started running
+  shell: docker ps | egrep ' novacompute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}$' | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova compute Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Reset systemctl failures
+  shell: systemctl reset-failed
+
+- name: Make sure nova ssh is started again after rollback
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novassh

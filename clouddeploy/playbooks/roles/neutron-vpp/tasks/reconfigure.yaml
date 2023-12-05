@@ -1,0 +1,92 @@
+- name: Copy Neutron VPP Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "vpp_config.j2",
+        dest: "{{ docker.neutron_vpp.host_data_dir }}/vpp_config_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: "diff {{ docker.neutron_vpp.host_data_dir }}/vpp_config {{ docker.neutron_vpp.host_data_dir }}/vpp_config_reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Move the new render config
+  command: "mv {{ docker.neutron_vpp.host_data_dir }}/vpp_config_reconfigure {{ docker.neutron_vpp.host_data_dir }}/vpp_config"
+  when: command_result.stdout != ""
+
+# Now delete the template file inside the container
+- name: Delete the neutron vpp config file inside container to force a reconfigure
+  command: "docker cp {{ docker.neutron_vpp.host_data_dir }}/vpp_config neutron_vpp_{{ docker.neutron_vpp.image_tag }}:/opt/kolla/vpp_config"
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec neutron_vpp_{{ docker.neutron_vpp.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec neutron_vpp_{{ docker.neutron_vpp.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec neutron_vpp_{{ docker.neutron_vpp.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart neutron vpp service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-neutron_vpp
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the VPP_ETCD_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep VPP_ETCD_PASSWORD
+  register: vpp_etcd_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^VPP_ETCD_PASSWORD" line="VPP_ETCD_PASSWORD{{ ":" }} {{ VPP_ETCD_PASSWORD }}"
+  when: staging_exists.stat.exists == True and vpp_etcd_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- set_fact:
+    VPP_ETCD_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/VPP_ETCD_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/VPP_ETCD_PASSWORD value={{ VPP_ETCD_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['neutron_vpp_all'][0] }}"
+    - secrets_result|changed and 'VPP_ETCD_PASSWORD' in secrets_result.stdout

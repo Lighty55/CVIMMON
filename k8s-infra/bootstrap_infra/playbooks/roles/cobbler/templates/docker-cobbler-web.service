@@ -1,0 +1,17 @@
+[Unit]
+Description=Cobbler Web container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+StartLimitInterval=10m
+StartLimitBurst=10
+KillMode=none
+ExecStart=/usr/bin/docker start -a repo_mirror_{{ docker.repo_mirror.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 repo_mirror_{{ docker.repo_mirror.image_tag }}
+
+[Install]
+WantedBy=multi-user.target
+

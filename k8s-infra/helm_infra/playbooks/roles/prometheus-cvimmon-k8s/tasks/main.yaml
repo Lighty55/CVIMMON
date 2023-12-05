@@ -1,0 +1,17 @@
+- include: create-certs.yaml
+  when: ACTION is undefined
+- include: create-password.yaml
+  when: ACTION is undefined or (ACTION is defined and ACTION == "reconfigure-stack")
+- include: check-helm.yaml
+- include: prometheus-deploy.yaml
+  when: ACTION is undefined
+- include: regenerate-certs.yaml
+  when: ACTION is defined and ACTION == "regenerate-certs"
+- include: regenerate-password.yaml
+  when: ACTION is defined and ACTION == "regenerate-password"
+- include: prometheus-update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: prometheus-rollback.yaml
+  with_fileglob: "{{ prometheus_helm_upgrade_path }}/prometheus-cvim-old-version"
+  loop_control: { loop_var: "old_version_file" }
+  when: ACTION is defined and ACTION == "rollback"

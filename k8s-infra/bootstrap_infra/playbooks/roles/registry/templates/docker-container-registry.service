@@ -1,0 +1,16 @@
+[Unit]
+Description=container registry container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+StartLimitInterval=10m
+StartLimitBurst=10
+KillMode=none
+ExecStart=/usr/bin/docker start -a container_registry
+ExecStop=/usr/bin/docker stop -t 8 container_registry
+
+[Install]
+WantedBy=multi-user.target

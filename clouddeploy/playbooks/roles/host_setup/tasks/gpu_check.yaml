@@ -1,0 +1,8 @@
+- name: Check the number of GPU cards match
+  shell: lspci -d {{ GPU_VENDOR_ID }}:{{ GPU_PRODUCT_ID }} | wc -l
+  register: gpu_num
+  when: "gpu_count >0"
+
+- fail:
+    msg: "Required GPU cards not found"
+  when: "gpu_num is defined and gpu_count >0 and gpu_num.stdout|int  != gpu_count"

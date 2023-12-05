@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old nova api containers
+####################################################
+# Nova API.
+- name: Shut off nova api docker service
+  service:
+    name: docker-novaapi
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove novaapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaapi_{{ NOVA_API_PREVIOUS_TAG }}" }
+
+- name: Remove nova api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_API_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova api Directory
+  file:
+    path: "{{ docker.nova_api.host_data_dir }}"
+    state: absent

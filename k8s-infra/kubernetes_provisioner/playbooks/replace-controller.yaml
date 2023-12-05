@@ -1,0 +1,6 @@
+- include: prepare-hosts.yaml
+- include: prepare-disks.yaml
+- include: get-master-vip-hostname.yaml
+- include: keepalived-replace-controller.yaml
+- include: kubeadm-replace-master.yaml
+- include: replace-controller-post-tasks.yaml

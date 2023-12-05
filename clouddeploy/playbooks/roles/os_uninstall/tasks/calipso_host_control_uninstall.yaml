@@ -1,0 +1,63 @@
+- name: Cleanup calipso containers
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "{{ docker.calipso_scan.image_tag }}", name: "calipso_scan_{{ docker.calipso_scan.image_tag }}" }
+    - { image: "{{ docker.calipso_api.image_tag }}", name: "calipso_api_{{ docker.calipso_api.image_tag }}" }
+    - { image: "{{ docker.calipso_mongo.image_tag }}", name: "calipso_mongo_{{ docker.calipso_mongo.image_tag }}" }
+
+- name: Remove calipso images
+  docker_image:
+    name: "{{ item.name }}"
+    tag: "{{ item.tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { name: "{{ docker.common.registry }}/{{ docker.calipso_mongo.name }}", tag: "{{ docker.calipso_mongo.image_tag }}" }
+    - { name: "{{ docker.common.registry }}/{{ docker.calipso_api.name }}", tag: "{{ docker.calipso_api.image_tag }}" }
+    - { name: "{{ docker.common.registry }}/{{ docker.calipso_scan.name }}", tag: "{{ docker.calipso_scan.image_tag }}" }
+
+- name: Remove calipso log directory
+  file:
+    path: "/var/log/calipso/"
+    state: absent
+
+- name: Remove calipso lib directory
+  file:
+    path: "/var/lib/calipso/"
+    state: absent
+
+- name: Uninstall calipso API and replication clients
+  yum:
+    name: calipso
+    state: absent
+
+- name: Uninstall python-elasticsearch rpm
+  yum:
+    name: python-elasticsearch
+    state: absent
+
+- name: Stop calipso services
+  service:
+    name: "{{ item }}"
+    state: stopped
+  ignore_errors: yes
+  with_items:
+    - docker-calipso-mongo
+    - docker-calipso-scan
+    - docker-calipso-api
+
+- name: Removing calipso service files.
+  file:
+    state: absent
+    path: /usr/lib/systemd/system/{{ item }}.service
+  with_items:
+    - docker-calipso-mongo
+    - docker-calipso-scan
+    - docker-calipso-api
+
+- name: Daemon Reload
+  command: systemctl daemon-reload

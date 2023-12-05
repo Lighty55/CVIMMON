@@ -1,0 +1,7 @@
+- name:
+  hosts: localhost
+  connection: local
+  max_fail_percentage: 0
+  roles:
+    - { role: "backup-cvimmon" }
+  serial: 1

@@ -1,0 +1,16 @@
+- hosts: all-masters[0]
+  tasks:
+    - name: "Ensure WeaveScope deployment and pods are up and running."
+      command: "/usr/bin/kubectl get deployments,pods,svc,daemonset --namespace=weave"
+      register: "weave_state"
+
+    - shell: /usr/bin/kubectl delete --all  deployments,pods,svc,daemonset  --namespace=weave
+      when: weave_state != None
+
+    - command: "/usr/bin/kubectl get ns weave -o json"
+      register: "weave_ns"
+      ignore_errors: true
+      failed_when: false
+
+    - shell: /usr/bin/kubectl delete ns weave
+      when: weave_ns|succeeded

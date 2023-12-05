@@ -1,0 +1,43 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Cinder API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/cinder_api_{{ CINDER_API_PREVIOUS_TAG }}
+
+# Back up the cinder api volume contents
+- name: back up cinder api volume contents
+  shell: cp /docker/cinder_api/* /docker/cinder_api_{{ CINDER_API_PREVIOUS_TAG}}/.
+
+#####################################################
+# Shut down the old cinder api containers
+####################################################
+# Cinder API.
+- name: Shut off cinder api docker service
+  service:
+    name: docker-cinderapi
+    enabled: no
+    state: stopped
+
+- name: Remove cinderapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cinderapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove cinder API volume contents
+- name: List cinder API volume contents
+  shell: ls -A1 /docker/cinder_api/
+  register: contents
+
+- name: Remove cinder API volume contents
+  file:
+    path: /docker/cinder_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

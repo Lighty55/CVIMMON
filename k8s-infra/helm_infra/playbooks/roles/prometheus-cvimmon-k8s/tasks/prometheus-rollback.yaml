@@ -1,0 +1,56 @@
+- name: "CVIMMON-Kubernetes-Monitor->Get the old version number from the saved file"
+  slurp: { src: "{{ prometheus_helm_upgrade_path }}/prometheus-cvim-old-version" }
+  register: prometheus_cvim_revision_file
+
+- name: "CVIMMON-Kubernetes-Monitor->Get the old version"
+  set_fact:
+    prometheus_cvim_old_version="{{ prometheus_cvim_revision_file['content'] | b64decode | regex_findall('PROMETHEUS-CVIM-OLD-REVISION=(.+)') | first }}"
+
+- name: "CVIMMON-Kubernetes-Monitor->Helm rollback to old version"
+  command: >
+    /usr/bin/helm rollback "{{ prometheus_deployment_name }}" {{ prometheus_cvim_old_version }}
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-server Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-server"
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-alertmanager Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-alertmanager"
+
+- name: "CVIMMON-Kubernetes-Monitor->Check Rollout Status of Prometheus-k8s-cluster-monitor-kube-state-metrics Deployment"
+  command: kubectl -n "{{ prometheus_namespace }}" rollout status --timeout=1800s deployment "{{ prometheus_deployment_name }}-kube-state-metrics"
+
+- name: "CVIMMON-Kubernetes-Monitor->Check the status of Prometheus--k8s-cluster-monitor Deployment once rolled-out"
+  shell: |
+    # Loop until the deployment exists
+    until kubectl -n "{{ prometheus_namespace }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ prometheus_deployment_name }}-server"
+    - "{{ prometheus_deployment_name }}-alertmanager"
+    - "{{ prometheus_deployment_name }}-kube-state-metrics"
+
+- name: "CVIMMON-Kubernetes-Monitor->Ensure Prometheus--k8s-cluster-monitor Deployment and pods are up and running."
+  changed_when: false
+  register: "prometheus_state"
+  vars:
+    prometheus_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=prometheus --output=json --namespace={{ prometheus_namespace }}"
+  until:
+      - "prometheus_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "prometheus_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+
+- name: "CVIMMON-Kubernetes-Monitor->Clear the old-version file"
+  file:
+    state: absent
+    path: "{{ prometheus_helm_upgrade_path }}/prometheus-cvim-old-version"
+
+- name: "CVIMMON-Kubernetes-Monitor->Fail the update if rollback was due to update failure"
+  fail:
+    msg: "The {{ prometheus_deployment_name }} update failed and it was rollbacked to the old version"
+  when: prometheus_cvim_update_status is failed

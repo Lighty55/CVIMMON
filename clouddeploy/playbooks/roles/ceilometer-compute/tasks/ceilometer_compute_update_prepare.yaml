@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ceilometer compute docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/ceilometer_compute_{{ CEILOMETER_COMPUTE_PREVIOUS_TAG }}
+
+# Backup the ceilometer compute volume
+- name: backup the ceilometer compute volume
+  shell: cp /docker/ceilometer_compute/* /docker/ceilometer_compute_{{ CEILOMETER_COMPUTE_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the ceilometer compute systemd file
+  command: cp /usr/lib/systemd/system/docker-ceilometercompute.service /docker/ceilometer_compute_{{ CEILOMETER_COMPUTE_PREVIOUS_TAG }}/docker-ceilometercompute.service
+
+#####################################################
+# Shut down the old ceilometer compute containers
+####################################################
+# ceilometer compute.
+- name: Shut off ceilometer compute docker service
+  service:
+    name: docker-ceilometercompute
+    enabled: no
+    state: stopped
+
+- name: Remove ceilometer compute service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercompute.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of ceilometer compute volume
+- name: List contents of ceilometer compute file
+  shell: ls -A1 /docker/ceilometer_compute/
+  register: contents
+
+- name: Remove content of ceilometer compute volume
+  file:
+    path: /docker/ceilometer_compute/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

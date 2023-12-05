@@ -1,0 +1,50 @@
+# Uninstall NFVIMON root user
+- name: Uninstall | Get current date stamp
+  set_fact: nfvimon_ts="{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+  delegate_to: localhost
+  run_once: True
+
+- debug: msg={{ nfvimon_ts }}
+
+- name: Uninstall | Remove nfvimon public key from the PoD hosts authorized_keys file
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=absent
+  when: pub_file.stat.exists
+
+- name: Uninstall | Remove nfvimon public key from the mgmt node authorized_keys file
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=absent
+  delegate_to: localhost
+  run_once: True
+  when: pub_file.stat.exists
+
+- name: Uninstall | Check if nfvimon keys exists locally
+  stat: path="/root/.ssh/{{ item }}"
+  register: keys_stat
+  delegate_to: localhost
+  run_once: True
+  with_items:
+    - zenoss_id_rsa
+    - zenoss_id_rsa.pub
+
+- name: Uninstall | Backup and remove any existing nfvimon ssh keys
+  command: mv {{ item.stat.path }} {{ item.stat.path }}.{{ nfvimon_ts }}
+  with_items: "{{ keys_stat.results }}"
+  delegate_to: localhost
+  run_once: True
+  when: item.stat.exists
+
+#- name: Uninstall | Remove any existing nfvimon ssh keys
+#  file: path={{ item.path }} state=absent
+#  with_items: "{{ keys_stat.files }}"
+#  delegate_to: localhost
+#  run_once: True
+
+- name: Uninstall | Remove the nfvimon_setup_ssh_keys script
+  file: path=/opt/cisco/scripts/nfvimon_setup_ssh_keys.sh state=absent
+  delegate_to: localhost
+  run_once: True

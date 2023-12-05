@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+  name: {{ metro_name }}-snmp
+spec:
+  # This is only for kubectl 1.15
+  #securityContext:
+  # privileged: true
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: {{ metro_name }}-snmp
+        version: v1
+    spec:
+      volumes:
+      - name: config
+        configMap:
+          name: {{ metro_name }}-snmp-cm
+      - name: logs
+        hostPath:
+          path: /var/log/snmp
+          type: DirectoryOrCreate
+      - name: time
+        hostPath:
+          path: /etc/localtime
+      terminationGracePeriodSeconds: 0
+      containers:
+      - name: snmp
+        command:
+        - /usr/bin/python
+        - -u
+        - /usr/bin/my_init
+        - /start.sh
+        image: {{ management_node_ip }}:5000/{{ docker.snmp.name }}:{{ docker.snmp.image_tag }}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: {{ SNMP_HTTP_PORT }}
+        - name: snmp-trap
+          containerPort: {{ SNMP_TRAP_PORT }}
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: config
+          mountPath: /docker/snmp/
+          readOnly: true
+        - name: logs
+          mountPath: /var/log/snmp
+        - name: time
+          mountPath: /etc/localtime
+        livenessProbe:
+          httpGet:
+            path: /alive
+            port: {{ SNMP_HTTP_PORT }}
+            scheme: HTTP
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /alive
+            port: {{ SNMP_HTTP_PORT }}
+            scheme: HTTP
+          initialDelaySeconds: 3
+          timeoutSeconds: 5
+      tolerations:
+      - effect: NoExecute
+        key: node.kubernetes.io/unreachable
+        operator: Exists
+        tolerationSeconds: 2
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+        tolerationSeconds: 2
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ metro_name }}-snmp-cm
+data:
+  snmp_config: |
+    CENTRAL_CVIM_MON: True
+    SNMP_ENABLED: True
+    SNMP_TRAP_PORT: "{{ SNMP_TRAP_PORT }}"
+    SNMP_HTTP_HOST: "{{ SNMP_HTTP_HOST }}"
+    SNMP_HTTP_PORT: "{{ SNMP_HTTP_PORT }}"
+    SNMP_LOG_FILENAME: {{ metro_name }}_snmp.log
+    PREFIX: {{ metro_name }}
+  snmp_mgrs.yaml: |
+    SNMP_MANAGERS: {{ SNMP.managers | to_json }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ metro_name }}-snmp-svc
+spec:
+  #externalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    #nodePort: 30003
+    port: 1161
+    protocol: TCP
+    targetPort: 1161
+  selector:
+    component: {{ metro_name }}-snmp
+  sessionAffinity: None
+  #type: NodePort
+  type: ClusterIP
+status:
+  loadBalancer: {}

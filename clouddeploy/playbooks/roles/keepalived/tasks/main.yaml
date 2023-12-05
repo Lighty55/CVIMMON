@@ -1,0 +1,99 @@
+- name: "Get br_mgmt IPv6 addresses of the host"
+  shell: ip addr show dev br_mgmt | grep global | grep -v nodad | sed -e's/^.*inet \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv4_mgmt_address
+  failed_when: false
+  when: IPV4_VIP_ENABLED
+
+- name: "Get br_mgmt IPv6 addresses of the host"
+  shell: ip addr show dev br_mgmt | grep global | grep -v nodad | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv6_mgmt_address
+  failed_when: false
+  when: IPV6_VIP_ENABLED
+
+- name: "Set Br_Mgmt IPV6 Addresses"
+  set_fact: ipv6_mgmt_address={{ local_ipv6_mgmt_address.stdout }}
+  when: IPV6_VIP_ENABLED
+
+- name: "Get Br_Mgmt IPV6 Addresses of the Other Hosts"
+  shell: ip addr show dev br_mgmt | grep global | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d' > /tmp/ipv6-mgmt-{{ ansible_hostname }}
+  register: remote_ipv6_mgmt_address
+  failed_when: false
+  when: IPV6_VIP_ENABLED
+
+- name: "Copy Temporary files to localhost"
+  fetch: src=/tmp/ipv6-mgmt-{{ ansible_hostname }} dest=/tmp/ipv6-mgmt-{{ ansible_hostname }} flat=true
+  when: IPV6_VIP_ENABLED
+
+- name: "Generate List of all IP Addresses on the Host"
+  shell: "cat /tmp/ipv6-mgmt-* > /tmp/ipv6_mgmt_all"
+  run_once: true
+  delegate_to: localhost
+  when: IPV6_VIP_ENABLED
+
+- name: "Copy all ipv6 addresses to all the nodes"
+  copy: src=/tmp/ipv6_mgmt_all dest=/tmp
+  when: IPV6_VIP_ENABLED
+
+- name: "Get the IPv6 addresses"
+  shell: "cat /tmp/ipv6_mgmt_all"
+  register: all_ipv6_mgmt_addrs
+  when: IPV6_VIP_ENABLED
+
+- name: "Remove temporary files"
+  shell: rm -rf /tmp/ipv6*
+  delegate_to: localhost
+  when: IPV6_VIP_ENABLED
+
+- set_fact:
+    ipv6_mgmt_peers="{{ all_ipv6_mgmt_addrs.stdout_lines | difference(ipv6_mgmt_address) | difference (IPV6_VIP_ADDRESS) | to_json }}"
+  when: IPV6_VIP_ENABLED
+
+- name: "Install Keepalived"
+  become: yes
+  yum:
+    name: keepalived
+
+- name: "Allow non-local bind"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    state: present
+    line: "{{ item }}"
+  with_items:
+    - net.ipv4.ip_nonlocal_bind=1
+
+- name: "Propagate sysctl changes"
+  command: sysctl -p
+
+- name: Copy TLS Certificate
+  template:
+    src: "{{ VIP_TLS_CERT }}"
+    dest: "/etc/ssl/certs/cvim_proxy.crt"
+    mode: "0400"
+
+- name: Copy TLS Key
+  template:
+    src: "{{ VIP_TLS_KEY }}"
+    dest: "/etc/ssl/certs/cvim_proxy.key"
+    mode: "0400"
+
+- name: "Deploy keepalived script"
+  become: yes
+  template:
+    src: check_apiserver.sh
+    dest: /usr/libexec/keepalived/check_apiserver.sh
+    mode: "a+x"
+  when: (IPV6_VIP_ENABLED is defined and IPV6_VIP_ENABLED == True) or (IPV4_VIP_ENABLED is defined and IPV4_VIP_ENABLED == True)
+
+- name: "Deploy keepalived config"
+  become: yes
+  template:
+    src: keepalived.conf
+    dest: /etc/keepalived/keepalived.conf
+  when: (IPV6_VIP_ENABLED is defined and IPV6_VIP_ENABLED == True) or (IPV4_VIP_ENABLED is defined and IPV4_VIP_ENABLED == True)
+
+- name: "Restart keepalived"
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: keepalived
+    enabled: yes

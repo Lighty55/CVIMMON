@@ -1,0 +1,46 @@
+- name: Enable pam_tty_audit module in sshd conf if not configured
+  lineinfile:
+    dest: /etc/pam.d/sshd
+    insertafter: "^session.*pam_loginuid.so.*"
+    regexp: "^session.*pam_tty_audit.so.*"
+    line: "session     required     pam_tty_audit.so enable=*"
+  register: pam_sshd_config
+
+- name: Enable pam_tty_audit module for all users if not configured
+  lineinfile:
+    dest: /etc/pam.d/system-auth
+    insertbefore: "^session.*"
+    regexp: "^session.*pam_tty_audit.so.*"
+    line: "session     required     pam_tty_audit.so enable=*"
+  register: pam_auth_config
+
+- name: Configure auditd to log session data to syslog
+  lineinfile:
+    dest: /etc/audisp/plugins.d/syslog.conf
+    regexp: "^{{ item.key }} =.*"
+    line: "{{ item.key }} = {{ item.value }}"
+  with_dict:
+    'active': 'yes'
+    'args': 'LOG_AUTHPRIV'
+  when: pam_sshd_config | changed or pam_auth_config | changed
+
+- name: Restart server post pamd.d updates if not configured
+  command: shutdown -r +1 "Ansible Forcing a Reboot on Server."
+  async: 0
+  poll: 0
+  ignore_errors: true
+  register: server_reboot
+  when: >
+    inventory_hostname != "localhost" and
+    (pam_sshd_config | changed or pam_auth_config | changed)
+
+- name: Wait for the server to boot up
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      port=22
+      delay=70
+      timeout=800
+  when: >
+    server_reboot | changed and
+    (inventory_hostname != "localhost" and (pam_sshd_config | changed or pam_auth_config | changed))

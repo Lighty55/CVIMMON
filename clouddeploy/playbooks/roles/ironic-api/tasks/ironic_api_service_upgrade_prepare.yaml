@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old ironic api containers
+####################################################
+# Ironic API.
+- name: Shut off ironic api docker service
+  service:
+    name: docker-ironicapi
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ironic api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ironic api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_api_{{ IRONIC_API_PREVIOUS_TAG }}" }
+
+- name: Remove ironic api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ IRONIC_API_PREVIOUS_NAME }}"
+    tag: "{{ IRONIC_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ironic api Directory
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}"
+    state: absent

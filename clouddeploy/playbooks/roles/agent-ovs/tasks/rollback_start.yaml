@@ -1,0 +1,92 @@
+# First remove the new container and artifacts
+- name: Shut off agent ovs docker service
+  service:
+    name: docker-agentovs
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove agent ovs service file
+  file:
+    path: "/usr/lib/systemd/system/docker-agentovs.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove agent ovs docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "agent_ovs_{{ docker.agent_ovs.image_tag }}" }
+
+- name: Remove agent ovs docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.agent_ovs.name }}"
+    tag: "{{ docker.agent_ovs.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove agent ovs volume contents
+- name: List agent ovs volume contents
+  shell: ls -A1 /docker/agent_ovs/
+  register: contents
+
+- name: Remove agent ovs volume contents
+  file:
+    path: /docker/agent_ovs/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the agent ovs volume contents
+- name: recover agent ovs volume contents
+  shell: cp /docker/agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}/* /docker/agent_ovs/.
+
+
+# Now remove the backup volume
+- name: Remove back up agent ovs Directory
+  file:
+    path: "/docker/agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/agent_ovs/docker-agentovs.service /usr/lib/systemd/system/docker-agentovs.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias agentovs='in_container agent_ovs_"
+    line: "{{ item }}"
+  with_items:
+    - alias agentovs='in_container agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }}'
+
+- name: Start agent ovs container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-agentovs
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if agent ovs Docker container has started running
+  shell: docker ps -a | grep Up | grep agent_ovs_{{ AGENT_OVS_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="agent ovs Container does not seem to be running"
+  when: command_result.stdout == ""

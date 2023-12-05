@@ -1,0 +1,111 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- set_fact:
+    IPMI_COMMON: "{{ IRONIC_INVENTORY['IPMI-COMMON'] | default({}) }}"
+
+- set_fact:
+    IRONIC_NODE_DOES_NOT_EXISTS: "{{ item.key not in EXISTING_IRONIC_NODES_STATE }}"
+    IRONIC_NODE_BMC_REACHABLE: True
+    IRONIC_NODE_IPMI_WORKS: True
+    IRONIC_NODE_IPMI_ENCRYPTION_KEY: "{{ item.value | json_query('IPMI_INFO.hardware_info.ipmi_encryption_key') }}"
+
+- block:
+      - name: Check if BMC IPv4 address reachable from ironic controller nodes
+        command: ping -c 5 -w 60 -W 10 {{ item.value['IPMI_INFO']['ipmi_address'] }}
+        delegate_to: "{{ ironic_controller }}"
+        register: bmc_validation_tasks
+        async: 61
+        poll: 0
+        with_items: "{{ groups['ironic_all'] }}"
+        loop_control:
+          loop_var: ironic_controller
+
+      - name: Fail if BMC is not reachable from controllers
+        async_status:
+          jid: "{{ bmc_validation.ansible_job_id }}"
+        delegate_to: "{{ bmc_validation.ironic_controller }}"
+        register: _tasks
+        until: _tasks.finished
+        delay: 1
+        retries: 61
+        with_items: "{{ bmc_validation_tasks.results }}"
+        loop_control:
+          loop_var: bmc_validation
+
+  when: "{{ IRONIC_NODE_DOES_NOT_EXISTS and (item.value['IPMI_INFO']['ipmi_address'] | ipv4) != False }}"
+  rescue:
+    - set_fact:
+        IRONIC_INVENTORY_ERRORS: "{{ IRONIC_INVENTORY_ERRORS + ['Server ' +  item.key + ' BMC address ' + item.value['IPMI_INFO']['ipmi_address'] + ' is not reachable from controllers'] }}"
+        IRONIC_NODE_BMC_REACHABLE: False
+
+- block:
+      - name: Check if BMC IPv6 address reachable from ironic controller nodes
+        command: ping6 -c 5 -w 60 -W 10 {{ item.value['IPMI_INFO']['ipmi_address'] }}
+        delegate_to: "{{ ironic_controller }}"
+        register: bmc_validation_tasks
+        async: 61
+        poll: 0
+        with_items: "{{ groups['ironic_all'] }}"
+        loop_control:
+          loop_var: ironic_controller
+
+      - name: Fail if BMC is not reachable from controllers
+        async_status:
+          jid: "{{ bmc_validation.ansible_job_id }}"
+        delegate_to: "{{ bmc_validation.ironic_controller }}"
+        register: _tasks
+        until: _tasks.finished
+        delay: 1
+        retries: 61
+        with_items: "{{ bmc_validation_tasks.results }}"
+        loop_control:
+          loop_var: bmc_validation
+
+  when: "{{ IRONIC_NODE_DOES_NOT_EXISTS and (item.value['IPMI_INFO']['ipmi_address'] | ipv6) != False }}"
+  rescue:
+    - set_fact:
+        IRONIC_INVENTORY_ERRORS: "{{ IRONIC_INVENTORY_ERRORS + ['Server ' +  item.key + ' BMC address ' + item.value['IPMI_INFO']['ipmi_address'] + ' is not reachable from controllers'] }}"
+        IRONIC_NODE_BMC_REACHABLE: False
+
+- block:
+      - name: Check if IPMI reachable from ironic controller nodes. Try to get power status of the server.
+        command: >
+                  ipmitool -I lanplus
+                  -H {{ item.value['IPMI_INFO']['ipmi_address'] }}
+                  -L ADMINISTRATOR -U {{ item.value['IPMI_INFO']['ipmi_username'] | default(IPMI_COMMON['ipmi_username']) }}
+                  -R 12 -N 5 -E
+                  {% if IRONIC_NODE_IPMI_ENCRYPTION_KEY %}-y {{ IRONIC_NODE_IPMI_ENCRYPTION_KEY }}{% endif %}
+                  power status
+        environment:
+          IPMI_PASSWORD: "{{ item.value['IPMI_INFO']['ipmi_password'] | default(IPMI_COMMON['ipmi_password']) }}"
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        delegate_to: "{{ ironic_controller }}"
+        register: bmc_validation_tasks
+        async: 10
+        poll: 0
+        with_items: "{{ groups['ironic_all'] }}"
+        loop_control:
+          loop_var: ironic_controller
+
+      - name: Fail if IPMI is not reachable from controllers
+        async_status:
+          jid: "{{ bmc_validation.ansible_job_id }}"
+        delegate_to: "{{ bmc_validation.ironic_controller }}"
+        register: _tasks
+        until: _tasks.finished
+        failed_when: _tasks.rc is defined and ( _tasks.rc != 0 or _tasks.stderr )
+        delay: 1
+        retries: 11
+        with_items: "{{ bmc_validation_tasks.results }}"
+        loop_control:
+          loop_var: bmc_validation
+
+  when: "{{ IRONIC_NODE_DOES_NOT_EXISTS and IRONIC_NODE_BMC_REACHABLE }}"
+  rescue:
+    - set_fact:
+        IRONIC_INVENTORY_ERRORS: "{{ IRONIC_INVENTORY_ERRORS + ['Server ' +  item.key + ' IPMI ' + item.value['IPMI_INFO']['ipmi_address'] + ' is not reachable from controllers. Cannot get power status of server'] }}"
+        IRONIC_NODE_IPMI_WORKS: False

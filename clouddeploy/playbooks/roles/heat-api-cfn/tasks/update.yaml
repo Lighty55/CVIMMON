@@ -1,0 +1,5 @@
+- include: heat_api_cfn_update_prepare.yaml
+- include: heat_api_cfn_install.yaml
+- include: heat_api_cfn_config.yaml
+- include: heat_api_cfn_start.yaml
+

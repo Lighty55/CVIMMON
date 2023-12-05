@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova scheduler Directory
+  file:
+    path: "/docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novascheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_scheduler.name }}"
+    tag: "{{ NOVA_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

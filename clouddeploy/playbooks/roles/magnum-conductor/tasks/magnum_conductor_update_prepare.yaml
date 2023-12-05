@@ -1,0 +1,35 @@
+- name: Create Magnum Conductor Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/magnum_conductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}
+
+- name: Back-up Magnum Conductor volume contents
+  shell: cp /docker/magnum_conductor/*  /docker/magnum_conductor_{{ MAGNUM_CONDUCTOR_PREVIOUS_TAG }}/.
+
+- name: Shut off Magnum Conductor docker service
+  service:
+    name: docker-magnumconductor
+    enabled: no
+    state: stopped
+
+- name: Remove magnumconductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumconductor.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: List Magnum Conductor configs to regenerate
+  shell: ls -A1 /docker/magnum_conductor/
+  register: contents
+
+- name: Remove Magnum Conductor configs to regenerate
+  file:
+    path: /docker/magnum_conductor/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

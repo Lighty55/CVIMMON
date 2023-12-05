@@ -1,0 +1,28 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove cinder volume Directory
+  file:
+    path: "/docker/cinder_volume_{{ CINDER_VOLUME_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old cinder-volume docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cindervolume_{{ CINDER_VOLUME_PREVIOUS_TAG }}" }
+
+- name: Remove cinder volume docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_volume.name }}"
+    tag: "{{ CINDER_VOLUME_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Now update the host field for existing volumes
+  command: docker exec cindervolume_{{ docker.cinder_volume.image_tag }} cinder-manage volume update_host --currenthost {{ item }}@{{ VOLUME_DRIVER }}#{{ VOLUME_DRIVER }} --newhost {{ VOLUME_DRIVER }}@{{ VOLUME_DRIVER }}#{{ VOLUME_DRIVER }}
+  with_items: "{{ groups['controllers'] }}"
+  when: ACTION is defined and ACTION == "commit"

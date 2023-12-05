@@ -1,0 +1,42 @@
+---
+- name: "Check if Kubelet Configuration is already in place"
+  command: grep "{{ external_loadbalancer_ip }}" /etc/kubernetes/kubelet.conf
+  register: elb_ip
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Check if Kubelet Configuration is already in place"
+  command: grep "{{ internal_loadbalancer_ip }}" /etc/kubernetes/kubelet.conf
+  register: ilb_ip
+  ignore_errors: yes
+  failed_when: false
+
+- replace:
+    dest: /etc/kubernetes/kubelet.conf
+    regexp: 'server:.*'
+    replace: "server: https://{{ internal_loadbalancer_ip }}:6443"
+    backup: no
+  when: ('{{ internal_loadbalancer_ip }}' not in ilb_ip.stdout) and DHCP_MODE != "v6"
+
+- replace:
+    dest: /etc/kubernetes/kubelet.conf
+    regexp: 'server:.*'
+    replace: "server: https://[{{ external_loadbalancer_ip }}]:6443"
+    backup: no
+  when: ('{{ external_loadbalancer_ip }}' not in elb_ip.stdout) and DHCP_MODE == "v6"
+
+- name: "Restart Kubelet if Change is Required"
+  systemd:
+    name: kubelet
+    daemon_reload: yes
+    state: restarted
+    enabled: yes
+  when: ('{{ external_loadbalancer_ip }}' not in elb_ip.stdout and DHCP_MODE == 'v6')
+
+- name: "Restart Kubelet if Change is Required"
+  systemd:
+    name: kubelet
+    daemon_reload: yes
+    state: restarted
+    enabled: yes
+  when: ('{{ internal_loadbalancer_ip }}' not in ilb_ip.stdout and DHCP_MODE != 'v6')

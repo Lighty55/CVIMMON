@@ -1,0 +1,24 @@
+#### HW RAID Defaults ####
+RAID_STATUS: Success
+RAID_HEALTH_ALL_OK: Opt
+RAID_HEALTH_NEED_CHECK: NdAtn
+CONTROLLER_STATUS: Success
+CONTROLLER_VD_VALID_STATE: Optl
+CONTROLLER_VD_REPLACE_STATE: Dgrd
+PDISK_VALID_STATES: ["Onln", "DHS", "UGood", "Rbld", "JBOD"]
+PDISK_VALID_MED: ["HDD", "SSD"]
+PDISK_ONLINE_STATE: Onln
+PDISK_TO_REPLACE_STATES: ["UGood"]
+PDISK_POST_REPLACE_STATE: DHS
+PDISK_SPARE_STATE: DHS
+PDISK_RBLD_STATE: Rbld
+RAID_STATUS_FILE: /tmp/disk-maintenance/raid_status.yaml
+RAID_TYPE_FILE: /tmp/disk-maintenance/raid_type.yaml
+BAD_DISKS_FILE: /tmp/disk-maintenance/bad_disks.txt
+SPARE_DISKS_FILE: /tmp/disk-maintenance/spare_disks.txt
+RBLD_DISKS_FILE: /tmp/disk-maintenance/rebuild_disks.txt
+FCFG_DISKS_FILE: /tmp/disk-maintenance/fcfg_disks.txt
+ADD_AS_SPARES_FILE: /tmp/disk-maintenance/add_as_spares_disks.txt
+NON_UCS_HOSTS_FILE: /tmp/disk-maintenance/non_ucs_hosts.txt
+
+##########################

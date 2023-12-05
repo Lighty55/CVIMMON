@@ -1,0 +1,9 @@
+- name: Update packages on all the Compute nodes
+  hosts: nova_compute_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "host-packages", tags: ["update", "host-packages"] }
+  serial: "{% if SKIP_UPGRADE is defined %}{{ skip_undefined | default('100%') }}{% else %}{{ skip_undefined | default('30%') }}{% endif %}"
+

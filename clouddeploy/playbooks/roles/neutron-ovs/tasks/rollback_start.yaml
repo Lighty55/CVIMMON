@@ -1,0 +1,109 @@
+# First remove the new container and artifacts
+- name: Shut off neutron ovsagent docker service
+  service:
+    name: docker-neutron_ovsagent
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron ovsagent service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_ovsagent.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron ovsagent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_ovsagent_{{ docker.neutron_ovsagent.image_tag }}" }
+
+- name: Remove neutron ovsagent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_ovsagent.name }}"
+    tag: "{{ docker.neutron_ovsagent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron ovsagent volume contents
+- name: List neutron ovsagent volume contents
+  shell: ls -A1 /docker/neutron_ovsagent/
+  register: contents
+
+- name: Remove neutron ovsagent volume contents
+  file:
+    path: /docker/neutron_ovsagent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron ovsagent volume contents
+- name: recover neutron ovsagent volume contents
+  shell: cp /docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}/* /docker/neutron_ovsagent/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron ovsagent Directory
+  file:
+    path: "/docker/neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_ovsagent/docker-neutron_ovsagent.service /usr/lib/systemd/system/docker-neutron_ovsagent.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ovsagent='in_container neutron_ovsagent_"
+    line: "{{ item }}"
+  with_items:
+    - alias ovsagent='in_container neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }}'
+
+- name: Start Neutron ovsagent container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_ovsagent
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if neutron ovsagent  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_ovsagent_{{ OVS_AGENT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron ovsagent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Reset systemctl failures
+  shell: systemctl reset-failed
+  when: '"compute" in server_role'
+
+- name: Make sure nova ssh is started again after rollback
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novassh
+  when: '"compute" in server_role'
+

@@ -1,0 +1,5 @@
+- include: swift_api_config.yaml
+  when: ACTION is undefined and swift_service|bool
+
+- include: swift_api_reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure" and swift_service|bool

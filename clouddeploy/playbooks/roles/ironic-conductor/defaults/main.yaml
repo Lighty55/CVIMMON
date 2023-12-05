@@ -1,0 +1,12 @@
+IRONIC_HOST: "{{ control_bond }}"
+IRONIC_VOLUME: "/var/lib/ironic"
+
+ENABLED_NETWORK_INTERFACES: "flat,noop,neutron"
+DEFAULT_NETWORK_INTERFACE: "neutron"
+CLEANING_NETWORK_UUID: "None"
+PROVISIONING_NETWORK_UUID: "None"
+
+# TODO: Revert to default value 30 if port-create operation takes less time.
+# Now it takes up to 40 seconds. neworking-generic-switch driver slows down it.
+NEUTRON_URL_TIMEOUT: 120
+PASSWORD_VARS: IRONIC_DB_PASSWORD,IRONIC_KEYSTONE_PASSWORD,RABBITMQ_PASSWORD

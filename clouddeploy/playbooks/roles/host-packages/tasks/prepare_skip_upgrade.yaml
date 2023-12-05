@@ -1,0 +1,41 @@
+# Now remove the old kexec in 2.4
+- name: disable kexec prepare
+  service:
+    name: kexec-prepare
+    enabled: no
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove kexec-prepare service file
+  file:
+    path: /usr/lib/systemd/system/kexec-prepare.service
+    state: absent
+
+- name: Remove kexec-prepare binary
+  file:
+    path: /usr/sbin/kexec-prepare
+    state: absent
+
+- name: reload systemd
+  command: systemctl daemon-reload
+
+# Now that we have backed up everything stop all services
+- name: Stop all docker services
+  shell: systemctl list-unit-files | awk '! (match($1,/^docker-storage-setup.service$/) || match($1,/^docker-iptables.service$/)) && match($1,/^docker-.*?\.service$/) && match($2,/enabled/) {print $1}'
+  ignore_errors: yes
+  register: results_svc
+  failed_when: results_svc and results_svc.rc != 255 and results_svc.rc != 0
+
+- set_fact:
+   all_services: "{{ results_svc }}"
+  when: results_svc is defined
+
+- debug:
+    var: all_services
+
+- name: Shutdown and disable all services
+  shell: systemctl disable {{ item }}; systemctl stop {{ item }}
+  with_items:
+    - "{{ all_services.stdout_lines }}"
+  ignore_errors: yes
+  when: all_services is defined

@@ -1,0 +1,45 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Cinder Scheduler Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/cinder_scheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}
+
+# Back up the cinder scheduler volume contents
+- name: backup the cinder scheduler volume contents
+  shell: cp /docker/cinder_scheduler/* /docker/cinder_scheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}/.
+
+
+#####################################################
+# Shut down the old cinder scheduler containers
+####################################################
+# Cinder Scheduler.
+- name: Shut off cinder scheduler docker service
+  service:
+    name: docker-cindersch
+    enabled: no
+    state: stopped
+
+- name: Remove cinderscheduler service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindersch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of cinder scheduler volume
+- name: List old cinder scheduler volume contents
+  shell: ls -A1 /docker/cinder_scheduler/
+  register: contents
+
+- name: Remove old cinder scheduler volume contents
+  file:
+    path: /docker/cinder_scheduler/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

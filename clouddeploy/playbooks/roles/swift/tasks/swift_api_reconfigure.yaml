@@ -1,0 +1,100 @@
+- name: Check if Keystone is already running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if Keystone is not up
+  fail: msg="Keystone service is not available"
+  when: command_result.stdout == ""
+
+- name: Get swift user project role details
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=tenant_user_role
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ SWIFTSTACK_ADMIN_USER }}
+           project={{ SWIFTSTACK_ADMIN_TENANT }}"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: user_project_roles
+
+- name: Get Keystone Endpoint for object-store service_type
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_show
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_type={{ SWIFTSTACK_SERVICE_NAME }}"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: objectstore_endpoint
+
+- set_fact:
+    SWIFTSTACK_CONFIG_EXISTS: True
+  when: '("\"roles_exist\": true" in user_project_roles.stdout)
+          or ("\"endpoint_exist\": true" in objectstore_endpoint.stdout)'
+  delegate_to: localhost
+
+- name: Configure swift if service endpoint and admin user tenant are not configured
+  include: swift_api_config.yaml
+  when: not SWIFTSTACK_CONFIG_EXISTS
+
+- name: Configure the object-store service if it does not exist
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=service_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name={{ SWIFTSTACK_SERVICE_NAME }}
+           service_type={{ SWIFTSTACK_SERVICE_NAME }}
+           service_description={{ SWIFTSTACK_SERVICE_NAME }}"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: SWIFTSTACK_CONFIG_EXISTS
+
+- name: Reconfigure object-store endpoint
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=object-store
+           endpoint_region=RegionOne
+           endpoint_admin={{ SWIFTSTACK_PROTOCOL }}://{{ SWIFTSTACK_API_ENDPOINT }}
+           endpoint_internal={{ SWIFTSTACK_PROTOCOL }}://{{ SWIFTSTACK_API_ENDPOINT }}/{{ SWIFTSTACK_RESELLER_PREFIX }}$(tenant_id)s
+           endpoint_public={{ SWIFTSTACK_PROTOCOL }}://{{ SWIFTSTACK_API_ENDPOINT }}/{{ SWIFTSTACK_RESELLER_PREFIX }}$(tenant_id)s"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: SWIFTSTACK_CONFIG_EXISTS
+
+- name: Reconfigure swift user password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ SWIFTSTACK_ADMIN_USER }}
+           password={{ SWIFTSTACK_ADMIN_PASSWORD }}"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: SWIFTSTACK_CONFIG_EXISTS

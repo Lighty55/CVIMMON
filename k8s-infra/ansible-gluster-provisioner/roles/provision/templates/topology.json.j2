@@ -1,0 +1,32 @@
+{
+  "clusters": [
+    {
+      "nodes": [
+{% set nodeblocks = [] %}
+{% for node in nodes %}
+{% set nodeblock %}
+        {
+          "node": {
+            "hostnames": {
+              "manage": [
+                "{{ node }}"
+              ],
+              "storage": [{% if storage_network_interface == 'br_mgmt' %} "{{ hostvars[node]['ansible_facts']['br_mgmt']['ipv4']['address'] }}" {% else %} "{{ hostvars[node]['ansible_facts']['default_ipv4']['address'] }}" {% endif %}]
+            },
+            "zone": 1
+          },
+          "devices": [
+            {
+              "name": "{{ hostvars[node]['disk_volume_device_1'] }}",
+              "destroydata": false
+            }
+          ]
+        }
+{% endset %}
+{% if nodeblocks.append(nodeblock) %}{% endif %}
+{% endfor %}
+{{ nodeblocks|join(',') }}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+- name: Check if Aim aid container is already running
+  shell: docker ps -a | grep Up | grep aimaid_{{ docker.aim_aid.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias aimaid='in_container aimaid_"
+    line: "{{ item }}"
+  with_items:
+    - alias aimaid='in_container aimaid_{{ docker.aim_aid.image_tag }}'
+
+- name: Start the aim aid Docker
+  docker_container:
+    name: "aimaid_{{ docker.aim_aid.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.aim_aid.name }}:{{ docker.aim_aid.image_tag }}"
+    volumes:
+      - "{{ docker.aim_aid.host_data_dir }}:{{ docker.aim_aid.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/aim:/var/log/aim:z
+      - aid:/var/lib/aid:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if aim aid container has started running
+  shell: docker ps -a | grep Up | grep aimaid_{{ docker.aim_aid.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="aim aid Container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-aimaid
+  tags:
+    - reboot-on-failure
+
+# Finally associate the already created VMM domain with AEP
+- name: Configure apic
+  apic_interface:
+      action: associate_vmm_aep
+      apic_ip: "{{ APICINFO['apic_hosts'] }}"
+      apic_username: "{{ APICINFO['apic_username'] }}"
+      apic_password: "{{ APICINFO['apic_password'] }}"
+      vmm_domain: "{{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}"
+      aep_name: "{{ APICINFO['apic_resource_prefix'] }}-{{ APIC_RESOURCES['AEP'] }}"
+  delegate_to: 127.0.0.1
+  run_once: True
+
+# CSCvf87851: Workaround until AIM plugin provides fix to support multiple segments
+- name: Add additional vlan segments if defined for tenant vlan pool
+  apic_interface:
+      action: configure_tenant_vlan_pools
+      apic_ip: "{{ APICINFO['apic_hosts'] }}"
+      apic_username: "{{ APICINFO['apic_username'] }}"
+      apic_password: "{{ APICINFO['apic_password'] }}"
+      vlan_name: "{{ APICINFO['apic_resource_prefix']}}-{{ APICINFO['apic_system_id']}}_vlan_ns"
+      vlan_ranges: "{{ ALL_VLAN_TUPLES|default('') }}"
+  delegate_to: 127.0.0.1
+  run_once: True
+
+- include: setup_sriov_hostlinks.yaml
+  when: INTEL_SRIOV is defined and INTEL_SRIOV == true and ACTION is undefined

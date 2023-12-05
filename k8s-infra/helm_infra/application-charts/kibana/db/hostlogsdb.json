@@ -1,0 +1,108 @@
+{
+  "version": "6.0.0",
+  "objects": [
+    {
+      "id": "4f7181e0-1444-11e7-a84a-037c0b776ae6",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Hostlogs - Events By Host",
+        "visState": "{\"title\":\"Hostlogs - Events By Host\",\"type\":\"table\",\"params\":{\"perPage\":15,\"showPartialRows\":true,\"showMeticsAtAllLevels\":true,\"sort\":{\"columnIndex\":null,\"direction\":null},\"showTotal\":true,\"totalFunc\":\"sum\"},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"bucket\",\"params\":{\"field\":\"host.keyword\",\"size\":80,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"Program\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":null,\"direction\":null}}}}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"47cc21f0-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"query\":\"*\",\"analyze_wildcard\":true}},\"language\":\"lucene\"},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "ff828e40-1443-11e7-a84a-037c0b776ae6",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Hostlogs - Events By Time",
+        "visState": "{\"title\":\"Hostlogs - Events By Time\",\"type\":\"histogram\",\"params\":{\"addTooltip\":true,\"addLegend\":true,\"legendPosition\":\"top\",\"scale\":\"linear\",\"mode\":\"stacked\",\"times\":[],\"addTimeMarker\":true,\"defaultYExtents\":false,\"setYExtents\":false},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"date_histogram\",\"schema\":\"segment\",\"params\":{\"field\":\"@timestamp\",\"interval\":\"auto\",\"customInterval\":\"2h\",\"min_doc_count\":1,\"extended_bounds\":{},\"customLabel\":\"Time\"}},{\"id\":\"3\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"group\",\"params\":{\"field\":\"program.keyword\",\"size\":5,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"Program\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"47cc21f0-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"query\":\"*\",\"analyze_wildcard\":true}},\"language\":\"lucene\"},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "946c0bd0-1444-11e7-a84a-037c0b776ae6",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Hostlogs - Events By Service",
+        "visState": "{\"title\":\"Hostlogs - Events By Service\",\"type\":\"pie\",\"params\":{\"addTooltip\":true,\"addLegend\":true,\"legendPosition\":\"top\",\"isDonut\":false},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"program.keyword\",\"size\":10,\"order\":\"desc\",\"orderBy\":\"1\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"47cc21f0-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"query\":\"*\",\"analyze_wildcard\":true}},\"language\":\"lucene\"},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "6980bb80-1446-11e7-a84a-037c0b776ae6",
+      "type": "search",
+      "version": 1,
+      "attributes": {
+        "title": "Hostlogs - All Events",
+        "description": "",
+        "hits": 0,
+        "columns": [
+          "host",
+          "loglevel",
+          "@timestamp",
+          "message",
+          "module",
+          "runlogdate",
+          "_type",
+          "path",
+          "program",
+          "logdate"
+        ],
+        "sort": [
+          "@timestamp",
+          "desc"
+        ],
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"47cc21f0-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"language\":\"lucene\"},\"filter\":[],\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647}}"
+        }
+      }
+    },
+    {
+      "id": "47cc21f0-cfda-11e7-a5ef-9f5ab64be49e",
+      "type": "index-pattern",
+      "version": 2,
+      "attributes": {
+        "title": "hostlogs-*",
+        "timeFieldName": "@timestamp",
+        "fields": "[{\"name\":\"@timestamp\",\"type\":\"date\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"_id\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"_index\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"_score\",\"type\":\"number\",\"count\":0,\"scripted\":false,\"searchable\":false,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"_source\",\"type\":\"_source\",\"count\":0,\"scripted\":false,\"searchable\":false,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"_type\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"file\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"file.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"host\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"host.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"message\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"message.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"path\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"path.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"pid\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"pid.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"program\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"program.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true}]"
+      }
+    },
+    {
+      "id": "185d7120-1447-11e7-a84a-037c0b776ae6",
+      "type": "dashboard",
+      "version": 3,
+      "attributes": {
+        "title": "Hostlogs Dashboard",
+        "hits": 0,
+        "description": "",
+        "panelsJSON": "[{\"col\":1,\"id\":\"4f7181e0-1444-11e7-a84a-037c0b776ae6\",\"panelIndex\":1,\"row\":5,\"size_x\":5,\"size_y\":5,\"type\":\"visualization\"},{\"col\":1,\"id\":\"ff828e40-1443-11e7-a84a-037c0b776ae6\",\"panelIndex\":2,\"row\":1,\"size_x\":12,\"size_y\":4,\"type\":\"visualization\"},{\"col\":6,\"id\":\"946c0bd0-1444-11e7-a84a-037c0b776ae6\",\"panelIndex\":3,\"row\":5,\"size_x\":7,\"size_y\":5,\"type\":\"visualization\"},{\"col\":1,\"columns\":[\"logdate\",\"host\",\"program\",\"message\"],\"id\":\"6980bb80-1446-11e7-a84a-037c0b776ae6\",\"panelIndex\":4,\"row\":10,\"size_x\":12,\"size_y\":7,\"sort\":[\"@timestamp\",\"desc\"],\"type\":\"search\"}]",
+        "optionsJSON": "{\"darkTheme\":true}",
+        "uiStateJSON": "{\"P-1\":{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":null,\"direction\":null}}}}}",
+        "version": 1,
+        "timeRestore": false,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"filter\":[{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}}}],\"highlightAll\":true,\"version\":true}"
+        }
+      }
+    }
+  ]
+}

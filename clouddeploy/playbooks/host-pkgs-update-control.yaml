@@ -1,0 +1,88 @@
+# Bring down galera in preparation for Upgrade when docker upgrade is involved
+- include: galera_upgrade_prepare.yaml
+  when: SKIP_UPGRADE is not defined
+
+- hosts: mariadb_all
+  tasks:
+    - stat: path=/opt/cisco/skip_upgrade
+      register: skip_upgrade
+      delegate_to: localhost
+
+    - name: Get a list of DBs to be exported
+      shell: docker exec mariadb_{{ MARIADB_PREVIOUS_TAG }} mysql -N -u root -p{{ DB_ROOT_PASSWORD }} -e \
+          "show databases;" | grep -v "mysql\|information_schema\|performance_schema" | tr '\n' ' '
+      register: db_list
+      run_once: True
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists
+
+    - name: Remove any old DB export files
+      file: path="{{ item }}" state=absent
+      with_items:
+        - /var/os_dbs.sql
+        - /var/os_dbs.err
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists
+
+    - name: Export databases
+      shell: mysqldump --databases {{ db_list.stdout }} --single-transaction -uroot -p{{ DB_ROOT_PASSWORD }} \
+          -h {{ internal_lb_vip_address }} --log-error=/var/os_dbs.err --dump-date > /var/os_dbs.sql
+      run_once: True
+      register: mysqldump_out
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists
+
+    - name: Copy DB dump files into management Node
+      fetch:
+        src: "{{ item }}"
+        dest: "{{ item }}"
+        flat: yes
+      with_items:
+        - /var/os_dbs.sql
+        - /var/os_dbs.err
+      run_once: True
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists
+
+    - name: Check status of mysqldump
+      fail: msg="Failed attempting to backup mysql database. Please check errors in /var/os_dbs.err"
+      run_once: True
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists and mysqldumpout.rc !=0
+
+    - name: Check if ceph mon directory exists
+      stat:
+        path: /var/lib/docker/volumes/ceph_mon
+      register: ceph_mon_check
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists
+
+    - name: Backup the ceph mon docker volumes
+      shell: cp -aR /var/lib/docker/volumes/ceph_mon /var
+      when: ACTION is defined and ACTION == "upgrade" and skip_upgrade.stat.exists and ceph_mon_check is defined and ceph_mon_check.stat.exists
+  tags:
+    - update
+    - host-packages
+
+- name: Update packages on all the Controller nodes
+  hosts: mariadb_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  serial: "{% if SKIP_UPGRADE is defined %}{{ skip_undefined | default('100%') }}{% else %}1{% endif %}"
+  roles:
+    - { role: "host-packages", tags: ["update", "host-packages"] }
+
+# Renable galera backend
+- hosts: mariadb_all
+  tasks:
+  - name: Renable galera backend
+    file:
+      path: "/var/tmp/clustercheck.disabled"
+      state: absent
+  tags:
+    - update
+    - host-packages
+
+- name: galera cluster failure recovery
+  hosts: mariadb_all
+  user: "{{ remote_user }}"
+  max_fail_percentage: 0
+  roles:
+    - { role: "galera_recovery", tags: ["update", "host-packages"], when: "SKIP_UPGRADE is not defined" }

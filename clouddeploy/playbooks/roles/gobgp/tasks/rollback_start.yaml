@@ -1,0 +1,96 @@
+# First remove the new container and artifacts
+- name: Shut off gobgp docker service
+  service:
+    name: docker-gobgp
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove gobgp service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gobgp.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove gobgp docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "gobgp_{{ docker.gobgp.image_tag }}" }
+
+- name: Remove gobgp docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gobgp.name }}"
+    tag: "{{ docker.gobgp.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove gobgp volume contents
+- name: List gobgp volume contents
+  shell: ls -A1 /docker/gobgp/
+  register: contents
+
+- name: Remove gobgp volume contents
+  file:
+    path: /docker/gobgp/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the gobgp volume contents
+- name: recover gobgp volume contents
+  shell: cp /docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}/* /docker/gobgp/.
+
+# Now remove the backup volume
+- name: Remove back up gobgp Directory
+  file:
+    path: "/docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/gobgp/docker-gobgp.service /usr/lib/systemd/system/docker-gobgp.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gobgp='in_container gobgp_"
+    line: "{{ item }}"
+  with_items:
+    - alias gobgp='in_container gobgp_{{ GOBGP_PREVIOUS_TAG }}'
+
+- name: Start gobgp container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-gobgp
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if gobgp Docker container has started running
+  shell: docker ps -a | grep Up | grep gobgp_{{ GOBGP_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="gobgp Container does not seem to be running"
+  when: command_result.stdout == ""
+
+

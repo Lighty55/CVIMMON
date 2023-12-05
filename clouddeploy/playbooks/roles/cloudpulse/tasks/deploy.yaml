@@ -1,0 +1,5 @@
+- include: cloudpulse_server_install.yaml
+- include: cloudpulse_server_config.yaml
+- include: cloudpulse_bootstrap.yaml
+  when: server is undefined
+- include: cloudpulse_server_start.yaml

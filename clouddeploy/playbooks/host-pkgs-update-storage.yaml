@@ -1,0 +1,9 @@
+- name: Update packages on all the Storage nodes
+  hosts: ceph_osd_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "host-packages", tags: ["central-ceph", "update_storage", "host-packages"] }
+  serial: "{% if SKIP_UPGRADE is defined %}{{ skip_undefined | default('100%') }}{% else %}1{% endif %}"
+

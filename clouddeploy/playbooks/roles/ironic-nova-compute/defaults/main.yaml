@@ -1,0 +1,26 @@
+# Neutron Configuration
+NETWORK_MANAGER: neutron
+NEUTRON_URL: "{{ internal_lb_vip_address }}"
+# public and flat are needed only for nova
+# kolla checks for these
+PUBLIC_INTERFACE: dummy
+FLAT_INTERFACE: dummy
+NEUTRON_SHARED_SECRET: password
+
+# Metadata Configuration
+METADATA_SHARED_SECRET: password
+
+NOVA_HOST: "{{ control_bond }}"
+NOVA_EC2_API_SERVICE_HOST: "{{ internal_lb_vip_address }}"
+IRONIC_NOVA_COMPUTE_PREVIOUS_TAG:
+
+SECRET_UUID: "{{ cinder_ceph_secret }}"
+
+# NOTE: This can be set per-compute, or if set to 0.0, the value
+# set on the scheduler node(s) or compute node(s) will be used
+# and defaulted to <see help for a certain option>'.
+IRONIC_NOVA_CPU_ALLOCATION_RATIO: 1.0
+IRONIC_NOVA_RAM_ALLOCATION_RATIO: 1.0
+
+COMPUTE_DRIVER: "ironic.IronicDriver"
+PASSWORD_VARS: ADMIN_USER_PASSWORD,DB_ROOT_PASSWORD,NOVA_DB_PASSWORD,NOVA_KEYSTONE_PASSWORD,NEUTRON_KEYSTONE_PASSWORD,IRONIC_KEYSTONE_PASSWORD,RABBITMQ_PASSWORD

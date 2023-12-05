@@ -1,0 +1,12 @@
+- include: uninstall.yaml
+  when: (ACTION is defined and ACTION == "delete-stack") or (ACTION is defined and ACTION == 'uninstall')
+- include: deploy.yaml
+  when: ACTION is undefined or (ACTION is defined and ACTION == "add-stack")
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == 'reconfigure'
+- include: update.yaml
+  when:  ACTION is defined and ACTION == 'update'
+- include: rollback.yaml
+  when:  ACTION is defined and ACTION == 'rollback'
+- include: commit.yaml
+  when:  ACTION is defined and ACTION == 'commit'

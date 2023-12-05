@@ -1,0 +1,11 @@
+name: prometheus
+version: 8.10.0
+appVersion: 2.16.0
+sources:
+  - https://github.com/prometheus/alertmanager
+  - https://github.com/prometheus/prometheus
+  - https://github.com/prometheus/pushgateway
+  - https://github.com/prometheus/node_exporter
+  - https://github.com/kubernetes/kube-state-metrics
+engine: gotpl
+tillerVersion: ">=2.8.0"

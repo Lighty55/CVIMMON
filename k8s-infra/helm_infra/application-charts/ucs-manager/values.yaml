@@ -1,0 +1,14 @@
+hostvolumes:
+  logs:
+    enabled: true
+    path: /var/log/ucs-monitor
+  time:
+    enabled: true
+    path: /etc/localtime
+ucsmonitor:
+  namespace: kube-system
+  replicas: 1
+  ucsmcvim:
+    image: cloud-docker.cisco.com/cvim34-rhel7-osp13/ucs-monitor
+    imagePullPolicy: IfNotPresent
+    imageTag: "17254"

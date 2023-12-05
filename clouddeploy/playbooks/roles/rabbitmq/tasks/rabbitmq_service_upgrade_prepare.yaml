@@ -1,0 +1,45 @@
+#####################################################
+# Shut down the old rabbitmq containers
+####################################################
+# Rabbitmq.
+- name: Shut off rabbitmq docker service
+  service:
+    name: docker-rabbitmq
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove rabbitmq service file
+  file:
+    path: "/usr/lib/systemd/system/docker-rabbitmq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove rabbitmq docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "rabbitmq_{{ RABBITMQ_PREVIOUS_TAG }}" }
+
+- name: Remove rabbitmq docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ RABBITMQ_PREVIOUS_NAME }}"
+    tag: "{{ RABBITMQ_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Rabbitmq Directory
+  file:
+    path: "{{ docker.rabbitmq.host_data_dir }}"
+    state: absent
+
+# Remove mnesia file
+- name: Remove rabbitmq mnesia file
+  file:
+    path: "/var/lib/docker/volumes/rabbitmq/_data/mnesia"
+    state: absent

@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova ssh Directory
+  file:
+    path: "/docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-ssh docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novassh_{{ NOVA_SSH_PREVIOUS_TAG }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_ssh.name }}"
+    tag: "{{ NOVA_SSH_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

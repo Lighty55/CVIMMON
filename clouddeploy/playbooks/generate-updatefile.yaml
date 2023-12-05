@@ -1,0 +1,34 @@
+- name: Set Upgrade file location
+  hosts: host_all
+  tasks:
+    - include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/upgrade.yaml"
+      when: ACTION == "upgrade"
+  tags: base
+
+# Upgrade to Liberty requires ebtables module to be loaded
+- name: Load ebtables kernel module
+  hosts: host_all
+  tasks:
+    - modprobe: name=ebtables state=present
+      when: ACTION == "upgrade"
+  tags: base
+
+- name: Set docker aliases.
+  hosts: host_all
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  max_fail_percentage: 0
+  roles:
+  - { role: set_aliases, tags: [ "base" , "update", "upgrade", "rollback", "central-ceph" ] }
+
+# Gather inventory of server type
+- name: Gather inventory of servers
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Gather POD inventory
+      shell: "python {{ install_dir }}/tools/fetch_pod_inventory.py -c > /tmp/pod_inventory.output"
+  tags:
+    - update
+    - host-packages

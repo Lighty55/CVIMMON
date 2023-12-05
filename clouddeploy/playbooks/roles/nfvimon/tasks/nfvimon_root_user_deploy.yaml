@@ -1,0 +1,25 @@
+- name: "Copy the nfvimon setup script to working directory"
+  copy: src=nfvimon_setup_ssh_keys.sh dest=/opt/cisco/scripts/nfvimon_setup_ssh_keys.sh
+  delegate_to: localhost
+  run_once: True
+  when: nfvimon_ssh_key is not defined
+
+- name: "Create nfvimon ssh keys"
+  command: sh /opt/cisco/scripts/nfvimon_setup_ssh_keys.sh
+  delegate_to: localhost
+  run_once: True
+  when: nfvimon_ssh_key is not defined
+
+- name: "Add the nfvimon public key to authorized keys file"
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=present
+
+- name: "Add the nfvimon public key to Mgmt node authorized keys file"
+  authorized_key:
+    user=root
+    key="{{ lookup('file', '/root/.ssh/zenoss_id_rsa.pub') }}"
+    state=present
+  delegate_to: localhost
+  run_once: True

@@ -1,0 +1,16 @@
+- include: deploy-horizon.yaml
+  when: service == "horizon"
+- include: deploy-cinder.yaml
+  when: service == "cinder"
+- include: deploy-nova.yaml
+  when: service == "nova"
+- include: deploy-glance.yaml
+  when: service == "glance"
+- include: deploy-keystone.yaml
+  when: service == "keystone"
+- include: deploy-neutron.yaml
+  when: service == "neutron"
+- include: deploy-heat.yaml
+  when: service == "heat"
+- include: deploy-gnocchi.yaml
+  when: service == "gnocchi"

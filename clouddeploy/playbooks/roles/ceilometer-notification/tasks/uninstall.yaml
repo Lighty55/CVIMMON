@@ -1,0 +1,45 @@
+- name: Uninstall | Get the ceilometer notification tag
+  shell: docker ps -a | grep ceilometernotification | awk '{print $NF}' | cut -f2 -d '_'
+  register: ceilometer_notification_tag
+
+- name: Uninstall | Get the ceilometer notification name
+  shell: docker images | grep ceilometer-notification | awk '{print $1}' | cut -f2,3 -d '/'
+  register: ceilometer_notification_name
+
+- name: Uninstall | Shut off ceilometer notification docker service
+  service:
+    name: docker-ceilometernotification
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Uninstall | Remove ceilometer notification service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometernotification.service"
+    state: absent
+
+- name: Uninstall | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Uninstall | Stop and remove ceilometer notification docker container
+  docker_container:
+    image: ""
+    name: "ceilometernotification_{{ item }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ ceilometer_notification_tag.stdout_lines }}"
+
+- name: Uninstall | Remove ceilometer notification docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ ceilometer_notification_name.stdout }}"
+    tag: "{{ item }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ ceilometer_notification_tag.stdout_lines }}"
+
+- name: Uninstall | Remove ceilometer notification directory
+  file:
+    path: /docker/ceilometer_notification
+    state: absent

@@ -1,0 +1,265 @@
+- name:  Check the connectivity to the hosts.
+  ping:
+
+- name: Dummy.j2
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0600"
+  when: DEBUG is defined
+  with_items:
+    - { src: "dummy.j2", dest: "/tmp/dummy.j2" }
+  tags:
+    - mercury_test
+
+# NOTE: LVM filter to prevent system lockup during package update or any LVM
+#       related operation.  This is very important for storage that is iSCSI
+#       based due to potential duplicate VG naming from the VMs.
+- include: lvm_filter.yaml
+
+##################################
+# Redhat Subscription Management
+###################################
+- include: redhat_repos_manage.yaml
+  when: ansible_distribution == 'RedHat'
+  tags:
+    - redhat_subscription
+###################################
+# Redhat packages.
+###################################
+- include: redhat_package_manage.yaml
+  when: ansible_distribution == 'RedHat'
+  tags:
+    - redhat_package_install
+
+###################################
+# Crash dumps configuration
+###################################
+- name: Define project quota for /var/crash
+  command: xfs_quota -x -c 'project -s -p /var/crash 42' /var
+  when: '"block_storage" not in server_role or server_role | length > 1'
+
+- name: Enable /var/crash quota soft=800GB hard=1TB
+  command: xfs_quota -x -c 'limit -p bsoft=800g bhard=1t 42' /var
+  when: '"block_storage" not in server_role or server_role | length > 1'
+
+- name: Copy the script to compress core dumps
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0755"
+  with_items:
+    - { src: "coredump.sh",
+        dest: "/usr/bin/coredump.sh" }
+
+- name: Enable automatic coredump compression
+  sysctl: >
+    name=kernel.core_pattern
+    value="|/usr/bin/coredump.sh %e %t %P"
+
+# Disable kexec as it does not work on M5 and Quanta
+#- include: kexec.yaml
+
+##################################
+# Turn off firewallD. We will use iptables
+##################################
+- name : Disable Firewalld service
+  service:
+    name: firewalld
+    state: stopped
+    enabled: no
+
+##################################
+# Setup specific iptable rules for
+# openstack services.
+##################################
+- name: Set IPTable Rules
+  iptables:
+    ip_version: "{{ item[0] }}"
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item[1] }}"
+    jump: ACCEPT
+  when: item[0] == "ipv4" or management_ipv6 is defined
+  with_nested:
+    - ["ipv4", "ipv6"]
+    - "{{ iptable_ports }}"
+
+- name: Save IPTable Rules
+  shell: "/usr/sbin/{{ item }}-save | /usr/bin/grep -v neutron > /etc/sysconfig/{{ item }}-saved"
+  when: item == "iptables" or management_ipv6 is defined
+  with_items:
+    - iptables
+    - ip6tables
+
+- name: Create openvswitch module start script
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0755"
+  with_items:
+    - { src: "openvswitch.modules",
+        dest: "/etc/sysconfig/modules/openvswitch.modules" }
+  tags:
+    - reboot-on-failure
+  when: MECHANISM_DRIVERS == "openvswitch" or MECHANISM_DRIVERS == "aci"
+
+- name: Enable openvswitch kernel module
+  command: modprobe openvswitch
+  when: MECHANISM_DRIVERS == "openvswitch" or MECHANISM_DRIVERS == "aci"
+
+
+##################################
+# sysctl changes.
+##################################
+- name: "Network configurations"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ network_params }}"
+
+- name: "Cache configurations"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ cache_params }}"
+
+- name: "Control node network configurations"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ control_node_network_params }}"
+  when: '"control" in server_role'
+
+- name: "Compute node sysctl parameters"
+  sysctl: >
+    name={{ item.name }}
+    value={{ item.value }}
+  with_items: "{{ compute_node_params }}"
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+- name: Adjust the hash size accordingly
+  lineinfile:
+    dest: /etc/modprobe.d/conntrack.conf
+    state: present
+    create: yes
+    regexp: '^'
+    line: 'options nf_conntrack hashsize=512000'
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+# For ipv6 autoconf turn off by default on all interfaces
+- name: Get the interface list
+  shell: ls /sys/class/net | grep -vw usb0 | grep -vw bonding_masters
+  register: interface_list
+
+# Now set it for reboot setting all and default is already done to make
+# this persistent
+- name: Now set the sysctl parameter for this
+  shell: echo 0 > /proc/sys/net/ipv6/conf/{{ item }}/autoconf
+  with_items: "{{ interface_list.stdout_lines }}"
+
+- name: Set existing interfaces to match net.ipv4.conf.default.rp_filter value
+  shell: cat /proc/sys/net/ipv4/conf/default/rp_filter > /proc/sys/net/ipv4/conf/{{ item }}/rp_filter
+  ignore_errors: true
+  failed_when: false
+  with_items: "{{ interface_list.stdout_lines }}"
+
+- name: Take immediate effect
+  shell: echo 512000 > /sys/module/nf_conntrack/parameters/hashsize
+  when: '"compute" in server_role and MECHANISM_DRIVERS == "openvswitch"'
+
+- name: "Increase filesystem inotify user watches limits in control nodes"
+  sysctl:
+    name: fs.inotify.max_user_watches
+    value: "{{ FS_INOTIFY_MAX_USER_WATCHES }}"
+    state: present
+  when: '"control" in server_role'
+
+- name: "Increase filesystem inotify user instances limits in control nodes"
+  sysctl:
+    name: fs.inotify.max_user_instances
+    value: "{{ FS_INOTIFY_MAX_USER_INSTANCES }}"
+    state: present
+  when: '"control" in server_role'
+
+- name: "Set sudoers not to require TTY"
+  replace:
+    dest: /etc/sudoers
+    regexp: '^Defaults\s+requiretty'
+    replace: 'Defaults !requiretty'
+
+- name: Fix IPv4 /etc/hosts
+  delegate_to: 127.0.0.1
+  lineinfile:
+    dest: /etc/hosts
+    state: present
+    regexp: '.*\..*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+    line: "{{ item }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+  with_items: "{{ groups['host_power_all'] }}"
+  tags:
+    - hostname
+
+- name: Fix IPv6 /etc/hosts
+  delegate_to: 127.0.0.1
+  lineinfile:
+    dest: /etc/hosts
+    state: present
+    regexp: '.*:.*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+    line: "{{ hostvars[item]['management_ipv6'] }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+  when: hostvars[item]['management_ipv6'] is defined
+  with_items: "{{ groups['host_power_all'] }}"
+  tags:
+    - hostname
+
+- name: Add external vip name to /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    state: present
+    line: "{{ item }} {{ external_lb_vip_fqdn }}"
+  when: external_lb_vip_fqdn is defined and item != ""
+  with_items:
+    - '{{ external_lb_vip_address }}'
+    - '{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}{{ external_lb_vip_ipv6_address }}{% endif %}'
+  tags:
+    - hostname
+
+- name: Restorecon on selinux labels
+  command: restorecon /etc/hosts
+  delegate_to: 127.0.0.1
+  tags:
+    - hostname
+
+- name: Get the hostname of the management server
+  command: hostname
+  register: MGMT_HOSTNAME
+  failed_when: not MGMT_HOSTNAME.stdout
+
+# Make sure /var/log/messages can handle dots in hostname
+- name: Check for /var/log/messages handles dots on hostname
+  command: "grep '^$LocalHostName {{ MGMT_HOSTNAME.stdout }}' /etc/rsyslog.conf"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: exists
+
+- name: Make sure /var/log/messages handles dots on hostname
+  lineinfile:
+    dest: "/etc/rsyslog.conf"
+    state: present
+    regexp: "^[$]LocalHostName *."
+    line: "$LocalHostName {{ MGMT_HOSTNAME.stdout }}"
+    insertafter: "^[#]+ GLOBAL DIRECTIVES.*"
+  when: not exists.stdout and (not exists.rc or exists.rc == 1)
+
+# Update the hostname on /var/log/messages
+- name: Restart rsyslog service if hostname changed
+  service:
+    name: rsyslog
+    enabled: yes
+    state: restarted
+  when: not exists.stdout and (not exists.rc or exists.rc == 1)
+
+- include: ceph_osd_cgroup_setup.yaml
+  when: '"block_storage" in server_role'
+  tags:
+    - ceph_osd_cgroup

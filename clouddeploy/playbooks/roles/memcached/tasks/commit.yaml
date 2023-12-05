@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove memcached Directory
+  file:
+    path: "/docker/memcached_{{ MEMCACHED_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old memcached docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "memcached_{{ MEMCACHED_PREVIOUS_TAG }}" }
+
+- name: Remove old memcached docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.memcached.name }}"
+    tag: "{{ MEMCACHED_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

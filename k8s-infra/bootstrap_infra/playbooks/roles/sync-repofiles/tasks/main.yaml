@@ -1,0 +1,19 @@
+---
+- name: "Remove existing Yum Repos"
+  file: path=/etc/yum.repos.d state=absent recurse=no
+
+- name: "Remove any Previous Docker Packages"
+  yum:
+    name: "{{ item }}"
+    state: absent
+  with_items:
+    - docker
+    - docker-common
+    - docker-rhel-push-plugin
+
+- name: "Copy Repo-Files from Management Node for Kubernetes RPM's"
+  synchronize:
+    src: /etc/yum.repos.d
+    dest: /etc
+  delegate_to: ::1
+

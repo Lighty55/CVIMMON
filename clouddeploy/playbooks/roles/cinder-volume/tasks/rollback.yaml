@@ -1,0 +1,6 @@
+# Execute the rollback play only if the preinstall of update began
+- stat: path=/docker/cinder_volume_{{ CINDER_VOLUME_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists

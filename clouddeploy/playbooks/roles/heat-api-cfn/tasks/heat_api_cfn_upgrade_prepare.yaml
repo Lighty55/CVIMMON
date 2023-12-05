@@ -1,0 +1,38 @@
+#####################################################
+# Shut down the old heat api cfn containers
+####################################################
+# Heat API CFN.
+- name: Shut off heat api cfn docker service
+  service:
+    name: docker-heatapicfn
+    enabled: no
+    state: stopped
+
+- name: Remove heatapicfn service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapicfn.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove heat api cfn docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapicfn_{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}" }
+
+- name: Remove heat api cfn docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ HEAT_API_CFN_PREVIOUS_NAME | default('') }}"
+    tag: "{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Heat api cfn Directory
+  file:
+    path: "{{ docker.heat_api_cfn.host_data_dir }}"
+    state: absent

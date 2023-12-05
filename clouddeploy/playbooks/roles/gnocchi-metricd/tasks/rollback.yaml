@@ -1,0 +1,6 @@
+# Execute the rollback play only if the preinstall of update began
+- stat: path=/docker/gnocchi_metricd_{{ GNOCCHI_METRICD_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists

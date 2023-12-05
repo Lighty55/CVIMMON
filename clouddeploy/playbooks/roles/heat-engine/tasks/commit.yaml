@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove heat Engine Directory
+  file:
+    path: "/docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+- name: Stop and remove old heat-engine docker container.
+  docker_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - {  image: "", name: "heatengine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}" }
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_engine.name }}"
+    tag: "{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

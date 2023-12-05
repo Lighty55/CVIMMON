@@ -1,0 +1,79 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep cinderbackup_{{ docker.cinder_backup.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderbackup='in_container cinderbackup_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderbackup='in_container cinderbackup_{{ docker.cinder_backup.image_tag }}'
+
+# Note: This container is required to be run in privileged mode since the
+# oslo_privsep.Daemon module attempts to create and write to a unix socket
+# within the container
+- name: Start the Cinder Backup Docker Service
+  docker_container:
+    name: "cinderbackup_{{ docker.cinder_backup.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.cinder_backup.name }}:{{ docker.cinder_backup.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+        - "{{ docker.cinder_backup.host_data_dir }}:{{ docker.cinder_backup.host_data_dir }}:ro,z"
+        - /dev:/dev
+        - /etc/iscsi/:/etc/iscsi/
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/cinder:/var/log/cinder:z
+        - cinder:/var/lib/cinder
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Cinder Backup Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderbackup_{{ docker.cinder_backup.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start cinderbackup_{{ docker.cinder_backup.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Cinder Backup Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderbackup_{{ docker.cinder_backup.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Cinder Backup Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cinderbackup
+  tags:
+    - reboot-on-failure
+
+- include: configure_cacert.yaml
+  when: swift_service is defined and swift_service|bool and SWIFTSTACK_PROTOCOL == 'https'
+
+- name: Restart cinder backup service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-cinderbackup
+  when: push_cacert is defined
+
+- pause: seconds=5 prompt="Pause for 5 seconds for container to start"
+  when: push_cacert is defined

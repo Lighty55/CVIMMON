@@ -1,0 +1,17 @@
+- name: Ceph IO | Get current docker tag
+  shell: docker ps -a | grep cephmon | grep Up | awk '{print $NF}' | cut -f2 -d '_'
+  register: cephmon_tag
+
+- name: Ceph IO | Get a list of rbd pools
+  command: docker exec cephmon_{{ cephmon_tag.stdout }} rados lspools
+  register: rados_pools
+  run_once:  True
+  when: cephmon_tag.stdout != ""
+  failed_when: rados_pools.rc != 0
+               or rados_pools.stdout_lines is not defined
+               or rados_pools.stdout_lines|length == 0
+
+- include: cephio.yaml rados_pool={{ item }}
+  with_items: "{{ rados_pools.stdout_lines }}"
+  run_once:  True
+  when: cephmon_tag.stdout != ""

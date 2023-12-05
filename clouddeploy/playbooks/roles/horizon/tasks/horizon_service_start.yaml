@@ -1,0 +1,58 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep horizon_{{ docker.horizon.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias horizon='in_container horizon_"
+    line: "{{ item }}"
+  with_items:
+    - alias horizon='in_container horizon_{{ docker.horizon.image_tag }}'
+
+- name: Start the Horizon Docker Service
+  docker_container:
+    name: "horizon_{{ docker.horizon.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.horizon.name }}:{{ docker.horizon.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.horizon.host_data_dir }}:{{ docker.horizon.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/httpd:/var/log/httpd:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    ports: "80:80,443:443"
+  when: command_result.stdout == ""
+
+- name: Wait for horizon to be alive
+  wait_for: host={{ HORIZON_HOST }} port={{ HORIZON_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-horizon
+  tags:
+    - reboot-on-failure
+
+- include: configure_cacert.yaml
+  when: swift_service|bool and SWIFTSTACK_PROTOCOL is defined and SWIFTSTACK_PROTOCOL == 'https'
+
+- include: configure_lbaas_panel.yaml
+
+- name: Restart horizon service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-horizon
+  when: push_cacert is defined or horizon_lbaas is defined
+
+- name: Wait for horizon to be alive
+  wait_for: host={{ HORIZON_HOST }} port={{ HORIZON_PORT }}
+  when: push_cacert is defined or horizon_lbaas is defined

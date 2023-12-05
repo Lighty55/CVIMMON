@@ -1,0 +1,53 @@
+port: {{ GOBGP_PORT_BASE }}
+etcd_dial_timeout: {{ ETCD_DIAL_TIMEOUT }}
+etcd_request_timeout: {{ ETCD_REQUEST_TIMEOUT }}
+etcd_endpoints: [{% for host in groups['etcd_all'] %}"{{ INTERNAL_PROTOCOL }}://{{ host }}:{{ ETCD_LISTEN_PORT }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+{# overlay is vxlan #}
+{% if 'vxlan' in item.1 %}
+{% set overlay_type = 'vxlan' %}
+local_as: {{ NETWORK_OPTIONS[overlay_type][item.1]['bgp_as_num'] }}
+{% set local_as = NETWORK_OPTIONS[overlay_type][item.1]['bgp_as_num'] %}
+{% endif %}
+
+{# overlay is sr-mpls #}
+{% if 'sr-mpls' in item.1 %}
+{% set overlay_type = 'sr-mpls' %}
+local_as: {{ MULTI_SEGMENT_ROUTING_INFO['bgp_as_num'] }}
+{% set local_as = MULTI_SEGMENT_ROUTING_INFO['bgp_as_num'] %}
+{{ overlay_type }}:
+{% for server in SERVERS.keys() %}
+{% if SERVERS[server]['sr_global_block'] is defined %}
+- { tep_ip: {{ SERVERS[server]['vtep_ips'][item.1] }}, prefix_sid_index: {{ SERVERS[server]['sr_global_block']['prefix_sid_index'] }}, base: {{ SERVERS[server]['sr_global_block']['base'] }}, ecmp: [{% for ecmp in hostvars[hostvars[server]['ansible_host']]['srmpls']['ecmp'] %}{{ ecmp['vpp_ip'] }}{% if not loop.last %}, {% endif %}{%endfor %}] }
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if overlay_type is not none %}
+neighbors:
+{% for host in NETWORK_OPTIONS[overlay_type][item.1]['bgp_peers'] %}
+{% if local_as == NETWORK_OPTIONS[overlay_type][item.1]['bgp_as_num'] %}
+- {ip: {{ host }}, remote_as: {{ NETWORK_OPTIONS[overlay_type][item.1]['bgp_as_num'] }}}
+{% else %}
+- {ip: {{ host }}, remote_as: {{ NETWORK_OPTIONS[overlay_type][item.1]['bgp_as_num'] }}, ebgp_multihop: {enabled: true, ttl: 64}}
+{% endif %}
+{% endfor %}
+{% if overlay_type == 'sr-mpls' %}
+{% for sr_gw in srmpls['gateway'] %}
+{% for tors in sr_gw %}
+{% if local_as == MULTI_SEGMENT_ROUTING_INFO['bgp_as_num'] %}
+- {ip: {{ sr_gw[tors]['isis_loopback_addr'] }}, remote_as: {{ MULTI_SEGMENT_ROUTING_INFO['bgp_as_num'] }}}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endif %}
+router_id: {{ NETWORK_OPTIONS[overlay_type][item.1]['bgp_router_id'] }}
+physnet_name: {{ NETWORK_OPTIONS[overlay_type][item.1]['physnet_name'] }}
+{% if 'head_end_replication' in NETWORK_OPTIONS[overlay_type][item.1] %}
+head_end_replication:
+{% for vtep, vnis in NETWORK_OPTIONS[overlay_type][item.1]['head_end_replication'].items() %}
+- {vtep_ip: {{ vtep }}, vnis: "{{ vnis }}"}
+{% endfor %}
+{% endif %}
+{% endif %}
+

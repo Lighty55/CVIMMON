@@ -1,0 +1,8 @@
+- name: Copy memcached config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "memcached_config.j2",
+        dest: "{{ docker.memcached.host_data_dir }}/memcached_config" }

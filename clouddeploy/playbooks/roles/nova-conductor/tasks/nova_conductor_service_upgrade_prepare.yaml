@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old nova conductor containers
+####################################################
+# Nova conductor.
+- name: Shut off nova conductor docker service
+  service:
+    name: docker-novacond
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove novaconductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconduct_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}" }
+
+- name: Remove nova conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_CONDUCTOR_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova conductor Directory
+  file:
+    path: "{{ docker.nova_conductor.host_data_dir }}"
+    state: absent

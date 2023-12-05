@@ -1,0 +1,12 @@
+- include: deploy.yaml
+  when: ACTION is undefined and optional_service_lbaas is defined
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update" and optional_service_lbaas is defined
+- include: commit.yaml
+  when: ACTION is defined and ACTION == "commit" and optional_service_lbaas is defined
+- include: rollback.yaml
+  when: ACTION is defined and ACTION == "rollback" and optional_service_lbaas is defined
+- include: upgrade.yaml
+  when: ACTION is defined and ACTION == "upgrade" and optional_service_lbaas is defined
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure" and optional_service_lbaas is defined

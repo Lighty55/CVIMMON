@@ -1,0 +1,2 @@
+IRONIC_HOST: "{{ control_bond }}"
+IRONIC_VOLUME: "/var/lib/ironic"

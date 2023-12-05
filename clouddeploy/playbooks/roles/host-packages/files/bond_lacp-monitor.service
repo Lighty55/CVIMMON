@@ -1,0 +1,12 @@
+[Unit]
+Description=Monitor bond_lacp port's LACP status and update vNIC ports accordingly
+After=network.target teamd@bond_lacp.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bond_lacp-monitor.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

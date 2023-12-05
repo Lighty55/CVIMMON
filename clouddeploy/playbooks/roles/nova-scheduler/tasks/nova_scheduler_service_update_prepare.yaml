@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova scheduler Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}
+
+# Back up the nova scheduler  volume contents
+- name: back up the nova scheduler volume contents
+  shell: cp /docker/nova_scheduler/* /docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova scheduler systemd file
+  command: cp /usr/lib/systemd/system/docker-novasch.service /docker/nova_scheduler_{{ NOVA_SCHEDULER_PREVIOUS_TAG }}/docker-novasch.service
+
+#####################################################
+# Shut down the old nova scheduler containers
+####################################################
+# Nova scheduler.
+- name: Shut off nova scheduler docker service
+  service:
+    name: docker-novasch
+    enabled: no
+    state: stopped
+
+- name: Remove nova-scheduler service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novasch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove nova scheduler volume contents
+- name: List nova scheduler volume contents
+  shell: ls -A1 /docker/nova_scheduler/
+  register: contents
+
+- name: Remove nova scheduler volume contents
+  file:
+    path: /docker/nova_scheduler/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

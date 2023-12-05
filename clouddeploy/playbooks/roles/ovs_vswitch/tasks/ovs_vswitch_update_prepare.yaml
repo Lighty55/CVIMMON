@@ -1,0 +1,31 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create ovs_vswitch Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}
+
+# Backup the systemd file
+- name: back up the ovs_vswitch systemd file
+  command: cp /usr/lib/systemd/system/docker-ovs_vswitch.service /docker/ovs_vswitch_{{ OVS_VSWITCH_PREVIOUS_TAG }}/docker-ovs_vswitch.service
+
+#####################################################
+# Shut down the old ovs_vswitch containers
+####################################################
+- name: Shut off ovs_vswitch docker service
+  service:
+    name: docker-ovs_vswitch
+    enabled: no
+    state: stopped
+
+- name: Remove ovs_vswitch service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_vswitch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload

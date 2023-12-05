@@ -1,0 +1,16 @@
+[Unit]
+Description=Neutron VPP Docker
+Requires=docker-iptables.service
+After=docker-iptables.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a neutron_vpp_{{ docker.neutron_vpp.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 neutron_vpp_{{ docker.neutron_vpp.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,72 @@
+- set_fact:
+    ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments, 'ironic')] | [0]\") }}"
+
+- name: Looking for the ironic provision network
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           network show {{ IRONIC_PROVISION_NETWORK_NAME }} -c id -f value
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: IRONIC_PROVISION_NETWORK_ID
+  run_once: True
+
+- name: Looking for the ironic DHCP ports
+  shell: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           port list --device-owner network:dhcp --network {{ IRONIC_PROVISION_NETWORK_ID.stdout }} -f value -c ID
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  register: IRONIC_INSPECTOR_NETWORK_DHCP_PORT_IDS
+  run_once: True
+
+- set_fact:
+    IRONIC_AGENT_KERNEL: "{{ docker.ironic_dnsmasq.host_data_dir }}/{{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }}"
+    IRONIC_AGENT_INITRAMFS: "{{ docker.ironic_dnsmasq.host_data_dir }}/{{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }}"
+    IRONIC_INSPECTOR_NETWORK_SUBNET: "{{ ironic_network.subnet }}"
+    IRONIC_INSPECTOR_NETWORK_DHCP_RANGE: "{{ ironic_network.inspector_pool[ironic_host_index | int] | regex_replace('\\s*to\\s*', ',') }}"
+    IRONIC_INSPECTOR_NETWORK_GATEWAY: "{{ ironic_network.gateway }}"
+    IRONIC_INSPECTOR_NETWORK_VLAN: "{{ ironic_network.vlan_id }}"
+    IRONIC_DNSMASQ_OVS_BRIDGE: "br-prov"
+    IRONIC_INSPECTOR_NETWORK_ID: "{{ IRONIC_PROVISION_NETWORK_ID.stdout }}"
+    IRONIC_INSPECTOR_NETWORK_DHCP_PORT_IDS: "{{ IRONIC_INSPECTOR_NETWORK_DHCP_PORT_IDS.stdout_lines }}"
+
+- set_fact:
+    IRONIC_DNSMASQ_OVS_BRIDGE: "br-inst"
+  when: "{{ INTEL_NIC_SUPPORT }} is defined"
+
+- name: Copy ironic-agent.kernel file
+  copy:
+    src: "{{ IRONIC_DEPLOY_IMAGE_KERNEL }}"
+    dest: "{{ IRONIC_AGENT_KERNEL }}"
+
+- name: Copy ironic-agent.initramfs file
+  copy:
+    src: "{{ IRONIC_DEPLOY_IMAGE_INITRAMFS }}"
+    dest: "{{ IRONIC_AGENT_INITRAMFS }}"
+
+- name: Copy Ironic DNSMASQ config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ironic_dnsmasq_config.j2",
+        dest: "{{ docker.ironic_dnsmasq.host_data_dir }}/{{ IRONIC_DNSMASQ_CONFIG_FILE | default('ironic_dnsmasq_config') }}" }

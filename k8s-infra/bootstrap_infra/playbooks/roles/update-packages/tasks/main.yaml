@@ -1,0 +1,26 @@
+- name: "Remove existing Yum Repos"
+  file: path=/etc/yum.repos.d state=absent recurse=no
+
+- name: "Copy Repo-Files from Management Node for Kubernetes RPM's"
+  synchronize:
+    src: /etc/yum.repos.d
+    dest: /etc
+  delegate_to: ::1
+
+- name: "Clean yum cache"
+  shell: yum clean all
+  register: version
+
+- name: Remove exclude package on update
+  lineinfile:
+    dest: /etc/yum.conf
+    regexp: '^exclude='
+    state: absent
+
+- name: Exclude few packages including httpd on update
+  lineinfile:
+    dest: /etc/yum.conf
+    line: 'exclude=httpd* mod_ssl* mod_wsgi* python-docker* docker* python-websocket-client kube* etcd* keepalived* telegraf*'
+
+- name: "Update all packages"
+  yum: name=* state=latest

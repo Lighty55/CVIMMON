@@ -1,0 +1,3 @@
+#DNS Entry for Kubelet Calico IPV6
+#Must be in the same subnet range in "calico_ipv6_service_cidr"
+calico_ipv6_dns_prefix: fd00:1234::a

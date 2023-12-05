@@ -1,0 +1,24 @@
+Calipso clients can be found under /var/lib/calipso after a successful install
+
+To get the password for Calipso API (user: {{ .Values.calipsoApiConfig.user }}), execute the following command:
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ .Values.calipsoApiConfig.secretName }} -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+To get the password for Calipso Mongo (user: {{ .Values.calipsoMongoConfig.user }}), execute the following command:
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ .Values.calipsoMongoConfig.secretName }} -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+To remove all the Calipso deployments and services just run "helm delete --purge calipso"
+
+
+To access Calipso API use this url:
+{{- if .Values.calipsoApi.ingress.enabled }}
+{{- range .Values.calipsoApi.ingress.hosts }}
+  http{{ if $.Values.calipsoApi.ingress.tls }}s{{ end }}://{{ . }}{{ $.Values.calipsoApi.ingress.path }}
+{{- end }}
+{{- end }}
+
+To access Calipso Mongo database use your preferred MongoDB client and connect to:
+{{- if .Values.calipsoMongo.ingress.enabled }}
+{{- range .Values.calipsoMongo.ingress.hosts }}
+  mongodb://{{ $.Values.calipsoMongoConfig.user }}:[admin_password]@{{ . }}:{{ $.Values.calipsoMongoConfig.port }}/{{ $.Values.calipsoMongoConfig.authDb }}
+{{- end }}
+{{- end }}

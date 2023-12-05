@@ -1,0 +1,136 @@
+docker_bip: 169.254.99.99/24
+redhat_packages:
+  - bind-utils
+  - bridge-utils
+  - docker
+  - hwloc
+  - iotop
+  - ipmitool
+  - iscsi-initiator-utils
+  - kexec-tools
+  - libcap-devel
+  - lsof
+  - mcelog
+  - mtr
+  - net-tools
+  - ntp
+  - ntpdate
+  - numactl
+  - pciutils
+  - python-backports-ssl_match_hostname
+  - python-ipaddr
+  - python-setuptools
+  - psmisc
+  - PyYAML
+  - quota
+  - rsync
+  - setroubleshoot-server
+  - sos
+  - storcli
+  - strace
+  - sysstat
+  - tcpdump
+  - traceroute
+  - vim-enhanced
+  - wget
+  - yum-plugin-priorities
+  - yum-utils
+
+control_redhat_packages:
+  - mariadb
+  - xinetd
+
+compute_redhat_packages:
+  - tuna
+
+storage_redhat_packages:
+  - libcgroup-tools
+  - psmisc
+
+iptable_ports:
+  - 80
+  - 179
+  - 443
+  - 1936
+  - 2235
+  - 3260
+  - 3306
+  - 4369
+  - 4444
+  - 4567
+  - 4568
+  - 5000
+  - 5050
+  - 5672
+  - 5900
+  - 6080
+  - 6385
+  - 8000
+  - 8004
+  - 8041
+  - 8747
+  - 8773
+  - 8774
+  - 8775
+  - 8777
+  - 8778
+  - 9191
+  - 9292
+  - 9511
+  - 9696
+  - 11211
+  - 15672
+  - 27017
+  - 35197
+  - 35357
+  - 35672
+
+# For sysctl changes
+network_params:
+  - { name: net.ipv4.conf.all.rp_filter, value: 1 }
+  - { name: net.ipv4.conf.default.rp_filter, value: 1 }
+  - { name: net.ipv6.conf.all.disable_ipv6, value: 0 }
+  - { name: net.ipv6.conf.default.disable_ipv6, value: 0 }
+  - { name: net.bridge.bridge-nf-call-arptables, value: 1 }
+  - { name: net.bridge.bridge-nf-call-ip6tables, value: 1 }
+  - { name: net.bridge.bridge-nf-call-iptables, value: 1 }
+  - { name: net.ipv6.conf.all.autoconf, value: 0 }
+  - { name: net.ipv6.conf.default.autoconf, value: 0 }
+
+# cache settings on all nodes
+cache_params:
+  - { name: vm.dirty_ratio, value: 15 }
+  - { name: vm.dirty_background_ratio, value: 3 }
+  - { name: vm.dirty_expire_centisecs, value: 2000 }
+  - { name: vm.dirty_writeback_centisecs, value: 350 }
+  - { name: vm.min_free_kbytes, value: 2097152 }
+  - { name: vm.vfs_cache_pressure, value: 60 }
+
+control_node_network_params:
+  - { name: net.ipv4.ip_forward, value: 1 }
+  - { name: net.ipv4.ip_nonlocal_bind, value: 1 }
+
+compute_node_params:
+  - { name: net.netfilter.nf_conntrack_max, value: 4096000 }
+  - { name: net.nf_conntrack_max, value: 4096000 }
+
+cpu_isolation_service: /usr/lib/systemd/system/cpu_isolation.service
+cpu_isolation_sh: /usr/local/bin/cpu_isolation.sh
+
+# DNS configuration.
+# Kubernetes cluster name, also will be used as DNS domain
+cluster_name: cluster.local
+# Subdomains of DNS domain to be resolved via /etc/resolv.conf for hostnet pods
+# Kubernetes internal network for services, unused block of space.
+kube_service_addresses: 10.233.0.0/18
+ndots: 2
+# Can be dnsmasq_kubedns, kubedns or none
+dns_mode: kubedns
+# Can be docker_dns, host_resolvconf or none
+resolvconf_mode: docker_dns
+# Deploy netchecker app to verify DNS resolve as an HTTP service
+deploy_netchecker: false
+# Ip address of the kubernetes skydns service
+skydns_server: "{{ kube_service_addresses|ipaddr('net')|ipaddr(3)|ipaddr('address') }}"
+dns_server: "{{ kube_service_addresses|ipaddr('net')|ipaddr(2)|ipaddr('address') }}"
+dns_domain: "{{ cluster_name }}"

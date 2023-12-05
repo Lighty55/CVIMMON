@@ -1,0 +1,64 @@
+###############################################################################
+# RabbitMQ cluster failure recovery ansible role
+#
+# Check to see if any node in the cluster thinks the overall cluster's health
+# is bad.  If any detected, restart the entire RabbitMQ cluster.
+###############################################################################
+- set_fact:
+    RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: check rabbitmq cluster status via rest api
+  environment:
+    PYTHONPATH: "{{ install_dir }}"
+  script: ../../tools/rabbit_api.py --hostname {{ RABBITMQ_SERVICE_HOST | ipwrap }} --username {{ RABBITMQ_USER }} --password {{ RABBITMQ_PASSWORD }}
+  register: cluster_status
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  retries: 3
+  delay: 5
+  until: cluster_status.rc == 0 and 'OVERALL RESULT:' in cluster_status.stdout
+  failed_when: "'Unauthorized' in cluster_status.stdout"
+  delegate_to: localhost
+
+- debug: msg={{ cluster_status.stdout_lines }}
+
+- name: call rabbitmq cluster restart if any rabbitmq node thinks cluster's health is bad
+  include: rabbitmq_restart.yaml
+  when: "'OVERALL RESULT: PASS' not in cluster_status.stdout"
+
+# Check exchanges and queues status also but only for debugging purpose, will
+# implement recovery for client side in the future.
+- name: create temporary rabbitmq nodes yaml file
+  template:
+    src: rabbit_nodes.yaml.j2
+    dest: /tmp/rabbit_nodes.yaml
+  delegate_to: localhost
+  run_once: True
+
+- name: check rabbitmq exchanges and queues status via rest api
+  environment:
+    PYTHONPATH: "{{ install_dir }}"
+  script: ../../tools/rabbit_api.py --hostname {{ RABBITMQ_SERVICE_HOST | ipwrap }} --username {{ RABBITMQ_USER }} --password {{ RABBITMQ_PASSWORD }}
+  register: exchanges_and_queues_status
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  retries: 3
+  delay: 5
+  until: exchanges_and_queues_status.rc == 0 and 'OVERALL RESULT:' in exchanges_and_queues_status.stdout
+  failed_when: "'Unauthorized' in exchanges_and_queues_status.stdout"
+  delegate_to: localhost
+
+- debug: msg={{ exchanges_and_queues_status.stdout_lines }}
+
+# Now restart the nova conductor and nova novncproxy service whenever rabbit was recovered
+- name: Restart nova conductor service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-novacond
+    - docker-novanovncproxy
+    - docker-novaapi
+  when: "'OVERALL RESULT: PASS' not in cluster_status.stdout"

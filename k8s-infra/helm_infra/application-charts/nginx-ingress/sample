@@ -1,0 +1,26 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS"
+  name: prometheus-server-ingress
+spec:
+  rules:
+  - host: master.cisco.com
+    http:
+      paths:
+      - backend:
+          serviceName: prometheus-server
+          servicePort: 80
+        path: /*
+      - backend:
+          serviceName: prometheus-alertmanager
+          servicePort: 80
+        path: /alert/*
+      - backend:
+          serviceName: grafana
+          servicePort: 80
+        path: /grafana/*

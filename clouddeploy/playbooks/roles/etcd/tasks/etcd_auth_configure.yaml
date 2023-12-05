@@ -1,0 +1,95 @@
+- set_fact:
+    ETCD_ROOT_OLD_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ETCD_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    ETCD_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ETCD_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    VPP_ETCD_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/VPP_ETCD_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- set_fact:
+    ETCD_ROOT_OLD_PASSWORD: "{{ etcd_config['ETCD_ROOT_PASSWORD'] | default(None) }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is not defined or (VAULT is defined and VAULT.enabled == False)
+
+# Change(or set) root password
+# Statuses 200,201 - password changed
+# Status 401 -  Unauthorized. Old password does not work anymore.
+#               it might be changed already.
+- include: etcd_request.yaml
+  vars:
+    name: "Set root password"
+    url: "auth/users/root"
+    password: "{{ ETCD_ROOT_OLD_PASSWORD }}"
+    status_code: [200, 201, 401]
+    body:
+      user: root
+      password: "{{ ETCD_ROOT_PASSWORD }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+# If new password does not work either we get 401 error and fail here.
+# status 409: 'auth: already enabled'
+# BUG WARNING!!!:
+# When authentication is enabled for accessing etcd cluster, we are seeing very
+# high CPU usage on one or all members of the clusters, which will put the etcd
+# cluster into an unusable state. Bug is observed on etcd 3.1.7 and 3.1.9, and
+# may be fixed in later releases. As a workaround, turning the feature off.
+#- include: etcd_request.yaml
+#  vars:
+#    name: "Enable auth"
+#    url: "auth/enable"
+#    status_code: [200, 409]
+
+# status 404: guest may already be deleted
+- include: etcd_request.yaml
+  vars:
+    name: "Remove guest role"
+    url: "auth/roles/guest"
+    method: "DELETE"
+    status_code: [200, 404]
+
+##########################################
+# Create VPP user
+##########################################
+# status 409: Role vpp already exists.
+- include: etcd_request.yaml
+  vars:
+    name: "Create {{ VPP_ETCD_USER }} role"
+    url: "auth/roles/{{ VPP_ETCD_USER }}"
+    status_code: [200, 201, 409]
+    body:
+      role: "{{ VPP_ETCD_USER }}"
+      permissions:
+        kv:
+          read:
+            - '/networking-vpp'
+            - '/networking-vpp/*'
+          write:
+            - '/networking-vpp'
+            - '/networking-vpp/*'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+# status 409: User vpp already exists.
+- include: etcd_request.yaml
+  vars:
+    name: "Create {{ VPP_ETCD_USER }} user"
+    url: "auth/users/{{ VPP_ETCD_USER }}"
+    status_code: [200, 201, 409]
+    body:
+      user: "{{ VPP_ETCD_USER }}"
+      password: "{{ VPP_ETCD_PASSWORD }}"
+      roles:
+        - "{{ VPP_ETCD_USER }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+# Update password in case it changed.
+- include: etcd_request.yaml
+  vars:
+    name: "Update {{ VPP_ETCD_USER }} user password"
+    url: "auth/users/{{ VPP_ETCD_USER }}"
+    status_code: [200, 201, 409]
+    body:
+      user: "{{ VPP_ETCD_USER }}"
+      password: "{{ VPP_ETCD_PASSWORD }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"

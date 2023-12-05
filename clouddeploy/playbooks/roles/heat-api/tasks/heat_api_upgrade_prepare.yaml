@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old heat api containers
+####################################################
+# Heat API.
+- name: Shut off heat api docker service
+  service:
+    name: docker-heatapi
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove heatapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove heat api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapi_{{ HEAT_API_PREVIOUS_TAG | default('') }}" }
+
+- name: Remove heat api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ HEAT_API_PREVIOUS_NAME | default('') }}"
+    tag: "{{ HEAT_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Heat api Directory
+  file:
+    path: "{{ docker.heat_api.host_data_dir }}"
+    state: absent

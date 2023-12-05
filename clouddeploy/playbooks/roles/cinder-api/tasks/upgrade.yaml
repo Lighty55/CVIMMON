@@ -1,0 +1,6 @@
+- include: cinder_api_service_upgrade_prepare.yaml
+- include: cinder_api_service_install.yaml
+- include: cinder_api_service_config.yaml
+- include: cinder_api_service_bootstrap.yaml
+  when: SKIP_UPGRADE is defined and inventory_hostname == groups['cinder_api_all'][0]
+- include: cinder_api_service_start.yaml

@@ -1,0 +1,57 @@
+---
+- name: "Install Keepalived"
+  become: yes
+  yum:
+    name: keepalived
+
+- name: "Check if Keepalived Configuration is already in place"
+  command: grep "{{ internal_loadbalancer_ip }}" /etc/keepalived/check_apiserver.sh
+  register: ilbcheck_ip
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Check if Keepalived Configuration is already in place"
+  command: grep "{{ external_loadbalancer_ip }}" /etc/keepalived/keepalived.conf
+  register: elb_ip
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Check if Keepalived Configuration is already in place"
+  command: grep "{{ internal_loadbalancer_ip }}" /etc/keepalived/keepalived.conf
+  register: ilb_ip
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Deploy keepalived script"
+  become: yes
+  template:
+    src: check_apiserver.sh
+    dest: /usr/libexec/keepalived/check_apiserver.sh
+    mode: "a+x"
+  when: ('{{ internal_loadbalancer_ip }}' not in ilbcheck_ip.stdout)
+
+- name: "Deploy keepalived config"
+  become: yes
+  template:
+    src: keepalived.conf
+    dest: /etc/keepalived/keepalived.conf
+  when: ('{{ internal_loadbalancer_ip }}' not in ilb_ip.stdout) and ('{{ external_loadbalancer_ip }}' not in elb_ip.stdout)
+
+- name: "Check if Keepalived Service is Running"
+  shell: systemctl status keepalived
+  register: _svc_keepalived
+  ignore_errors: true
+  failed_when: false
+
+- name: "Restart keepalived"
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: keepalived
+    enabled: yes
+  when: ('inactive (dead)' in _svc_keepalived.stdout)
+
+- name: "Install Etcd binary for etcdctl client"
+  become: yes
+  yum:
+    name: etcd

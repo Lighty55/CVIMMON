@@ -1,0 +1,55 @@
+- name: "Check for existing Admin Config"
+  local_action: stat path=~/.kube/config
+  register: admin_config
+
+- name: Fetch the file from kubernetes master
+  run_once: yes
+  fetch: src=/etc/kubernetes/admin.conf dest=~/.kube/config flat=yes
+  when: admin_config.stat.exists == false
+
+- name: Fetch all files from /etc/kubernetes directory
+  run_once: yes
+  fetch: src=/etc/kubernetes/pki/{{ item }} dest=/opt/cvimmon-kubernetes/pki/ flat=yes
+  with_items:
+     - apiserver.crt
+     - apiserver.key
+     - apiserver-kubelet-client.crt
+     - apiserver-kubelet-client.key
+     - ca.crt
+     - ca.key
+     - front-proxy-ca.crt
+     - front-proxy-ca.key
+     - front-proxy-client.crt
+     - front-proxy-client.key
+     - sa.key
+     - sa.pub
+
+- name: Fetch all files from /etc/kubernetes directory
+  run_once: yes
+  fetch: src=/etc/kubernetes/pki/etcd/{{ item }} dest=/opt/cvimmon-kubernetes/pki/etcd/ flat=yes
+  with_items:
+     - ca-config.json
+     - ca.csr
+     - ca-csr.json
+     - ca-key.pem
+     - ca.pem
+     - client.csr
+     - client.json
+     - client-key.pem
+     - client.pem
+     - config.json
+     - peer.csr
+     - peer-key.pem
+     - peer.pem
+     - server.csr
+     - server-key.pem
+     - server.pem
+
+- name: "Check for existing Admin Config"
+  local_action: stat path=/opt/cvimmon-kubernetes/kubeadm-config.yaml
+  register: admin_pki
+
+- name: Fetch Kubeadm-Config directory
+  run_once: yes
+  fetch: src=/tmp/kubeadm-ha/kubeadm-config.yaml dest=/opt/cvimmon-kubernetes/kubeadm-config.yaml flat=yes
+  when: admin_pki.stat.exists == false

@@ -1,0 +1,8 @@
+- include: neutron_linuxbridge_agent_service_upgrade_prepare.yaml
+  when: MECHANISM_DRIVERS == "linuxbridge"
+
+- include: neutron_linuxbridge_agent_service_install.yaml
+  when: MECHANISM_DRIVERS == "linuxbridge"
+
+- include: neutron_linuxbridge_agent_service_start.yaml
+  when: MECHANISM_DRIVERS == "linuxbridge"

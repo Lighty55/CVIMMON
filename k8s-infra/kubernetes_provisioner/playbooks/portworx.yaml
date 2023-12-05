@@ -1,0 +1,15 @@
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - portworx
+
+- hosts: all-masters[0]
+  tasks:
+    - set_fact:
+        portworx_nodes: "{{ groups['all-servers'] }}"
+    - name: Wait for portworx cluster status
+      shell: pxctl status | grep 'Nodes:'
+      register: pxctl_status
+      until: pxctl_status.stdout.find("{{ portworx_nodes | length }} online") >= 0
+      retries: 60
+      delay: 20

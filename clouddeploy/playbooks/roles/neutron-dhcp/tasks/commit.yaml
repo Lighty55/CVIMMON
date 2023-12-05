@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron dhcp directory
+  file:
+    path: "/docker/neutron_dhcp_agent_{{ DHCP_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron dhcp_agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_dhcp_agent_{{ DHCP_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron dhcp_agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_dhcp_agent.name }}"
+    tag: "{{ DHCP_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

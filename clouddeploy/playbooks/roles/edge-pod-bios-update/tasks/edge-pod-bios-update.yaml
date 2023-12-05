@@ -1,0 +1,74 @@
+- set_fact:
+    _tmp_bin: '/run/{{ ami_bios_utilities.bin_filename }}'
+  run_once: true
+
+- name: Get BIOS configuration utility zip file stats
+  stat:
+    path: '{{ ami_bios_utilities.zipfile }}'
+    get_checksum: yes
+  register: utility_file
+  delegate_to: localhost
+  run_once: true
+
+- name: Check if BIOS configuration utility zip file exist and valid
+  fail:
+    msg: '{{ ami_bios_utilities.zipfile }} not found or invalid'
+  when: utility_file.stat.exists == false or utility_file.stat.checksum != ami_bios_utilities.sha1sum
+  delegate_to: localhost
+  run_once: true
+
+- name: Unzip BIOS configuration utility zip file
+  shell: unzip -p {{ ami_bios_utilities.zipfile }} {{ (ami_bios_utilities.zipfile.split("/")[-1] | splitext)[0] }}/{{ ami_bios_utilities.bin_filename }} > {{ _tmp_bin }}
+  args:
+    warn: false
+  delegate_to: localhost
+  run_once: true
+
+- name: Copy BIOS configuration utility to remote
+  copy:
+    src: '{{ _tmp_bin }}'
+    dest: '{{ _tmp_bin }}'
+    mode: 0700
+
+- name: Remove local BIOS configuration utility after copied to remote
+  file:
+    path: '{{ _tmp_bin }}'
+    state: absent
+  delegate_to: localhost
+  run_once: true
+
+- name: Execute BIOS configuration script
+  script: edge-pod-bios-update.sh {{ _tmp_bin }} '{{ ami_bios_utilities.hardware_supported }}'
+  # Restore script to bring the modified options back to BIOS default
+  #script: edge-pod-bios-restore.sh {{ _tmp_bin }} '{{ ami_bios_utilities.hardware_supported }}'
+  register: bios_script_result
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove remote BIOS configuration utility after script execution
+  file:
+    path: '{{ _tmp_bin }}'
+    state: absent
+
+- name: Print script execution result
+  debug:
+    msg: '{{ bios_script_result.stdout_lines }}'
+
+- name: Reboot server after BIOS configuration
+  shell: sleep 2 && reboot
+  async: 1
+  poll: 0
+  ignore_errors: true
+  failed_when: false
+  when: '"Reboot require" in bios_script_result.stdout'
+
+- name: Waiting for server to come back
+  local_action: wait_for host={{ ansible_host }}
+                state=started delay=30 timeout=1200
+                connect_timeout=10 port=22
+  when: '"Reboot require" in bios_script_result.stdout'
+
+- name: Check BIOS configuration result
+  fail:
+    msg: "Failed to update BIOS"
+  when: bios_script_result.rc != 0

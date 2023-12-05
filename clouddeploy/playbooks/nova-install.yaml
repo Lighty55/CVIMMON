@@ -1,0 +1,99 @@
+- name: Install Nova Common Containerized service.
+  hosts: nova_common_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-common", tags: [ "base", "nova-common", "nova-install" ] }
+
+- name: Install Nova Libvirt Containerized service.
+  hosts: nova_libvirt_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-libvirt", tags: [ "base", "nova-libvirt", "nova-install" ] }
+
+- name: Install Nova Conductor Containerized service.
+  hosts: nova_conductor_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-conductor", tags: [ "base", "nova-conductor", "nova-install" ] }
+
+- name: Install Nova Scheduler Containerized service.
+  hosts: nova_scheduler_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-scheduler", tags: [ "base", "nova-scheduler", "nova-install" ] }
+
+- name: Install Nova API Containerized service.
+  hosts: nova_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-api", tags: [ "base", "nova-api", "nova-install" ] }
+
+- name: Install Nova Placement API Containerized service.
+  hosts: nova_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-placement-api", tags: [ "base", "nova-placement-api", "nova-install" ] }
+
+- name: Install Nova Compute Containerized service.
+  hosts: nova_compute_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-compute", tags: [ "base", "nova-compute", "nova-install" ] }
+
+- name: Install Nova SSH Containerized service.
+  hosts: nova_ssh_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-ssh", tags: [ "base", "nova-ssh", "nova-install" ] }
+
+- name: Install Nova ConsoleAuth Containerized service.
+  hosts: nova_consoleauth_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-consoleauth", tags: [ "base", "nova-consoleauth", "nova-install" ] }
+
+- name: Install Nova NOVNCproxy Containerized service.
+  hosts: nova_novncproxy_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nova-novncproxy", tags: [ "base", "nova-novncproxy", "nova-install" ] }
+
+- name: Discover the compute hosts
+  hosts: nova_conductor_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Discover the hosts
+      command: docker exec -t novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 discover_hosts
+      run_once: True
+
+- name: Simple cells setup
+  hosts: nova_conductor_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Discover the hosts
+      command: docker exec -t novaconduct_{{ docker.nova_conductor.image_tag }} nova-manage cell_v2 simple_cell_setup
+      run_once: True

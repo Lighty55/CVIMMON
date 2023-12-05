@@ -1,0 +1,158 @@
+# Heat API.
+- name: Shut off heat api docker service
+  service:
+    name: docker-heatapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - heatapi_shutdown
+
+- name: Remove heatapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapi.service"
+    state: absent
+  tags:
+    - heatapi_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - heatapi_shutdown
+
+- name: Stop and remove heat-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapi_{{ docker.heat_api.image_tag }}" }
+  tags:
+    - heatapi_shutdown
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_api.name }}"
+    tag: "{{ docker.heat_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - heatapi_shutdown
+
+- name: Remove heat API Directory
+  file:
+    path: "{{ docker.heat_api.host_data_dir }}"
+    state: absent
+  tags:
+    - heatapi_shutdown
+
+# Heat API CFN.
+- name: Shut off heat api cfn docker service
+  service:
+    name: docker-heatapicfn
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - heatapicfn_shutdown
+
+- name: Remove heatapicfn service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapicfn.service"
+    state: absent
+  tags:
+    - heatapicfn_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - heatapicfn_shutdown
+
+- name: Stop and remove heat-api-cfn docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapicfn_{{ docker.heat_api_cfn.image_tag }}" }
+  tags:
+    - heatapicfn_shutdown
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_api_cfn.name }}"
+    tag: "{{ docker.heat_api_cfn.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - heatapicfn_shutdown
+
+- name: Remove heat API CFN Directory
+  file:
+    path: "{{ docker.heat_api_cfn.host_data_dir }}"
+    state: absent
+  tags:
+    - heatapicfn_shutdown
+
+# Heat Engine.
+- name: Shut off heat engine docker service
+  service:
+    name: docker-heatengine
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - heatengine_shutdown
+
+- name: Remove heatengine service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatengine.service"
+    state: absent
+  tags:
+    - heatengine_shutdown
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - heatengine_shutdown
+
+- name: Remove heat bootstrap container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatengine_bootstrap" }
+  tags:
+    - heatenginebootstrap_shutdown
+
+
+- name: Stop and remove heat engine docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatengine_{{ docker.heat_engine.image_tag }}" }
+  tags:
+    - heatengine_shutdown
+
+- name: Remove heat engine docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_engine.name }}"
+    tag: "{{ docker.heat_engine.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - heatengine_shutdown
+
+- name: Remove Heat engine Directory
+  file:
+    path: "{{ docker.heat_engine.host_data_dir }}"
+    state: absent
+  tags:
+    - heatengine_shutdown

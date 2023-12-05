@@ -1,0 +1,103 @@
+- name: Copy fluentd config templates to docker staging folder
+  template:
+    src: "fluentd_config.j2"
+    dest: "{{ docker.fluentd.host_data_dir }}/fluentd_config"
+    mode: "0644"
+
+- name: Create logrotate directory
+  file: path=/docker/logrotate state=directory mode=0755
+
+- name: Copy logrotate files
+  copy:
+    src: 'logrotate.cfg'
+    dest: '/docker/logrotate/docker-{{ item }}'
+    mode: "0644"
+  with_items:
+    - fluentd
+    - rabbitmq
+    - mariadb
+    - haproxy
+    - keystone
+    - glance
+    - nova
+    - neutron
+    - neutron-vtf
+    - neutron-vpp
+    - cinder
+    - httpd
+    - memcached
+    - cloudpulse
+    - heat
+    - ceph
+    - ceilometer
+    - gnocchi
+    - openvswitch
+    - magnum
+    - aim
+    - agent-ovs
+    - ironic
+
+- name: Modify Config files
+  lineinfile:
+    dest: /docker/logrotate/docker-{{ item }}
+    state: present
+    regexp: 'service'
+    line: "/var/log/{{ item }}/*.log {"
+  with_items:
+    - fluentd
+    - rabbitmq
+    - mariadb
+    - haproxy
+    - keystone
+    - glance
+    - nova
+    - neutron
+    - neutron-vtf
+    - neutron-vpp
+    - cinder
+    - httpd
+    - memcached
+    - cloudpulse
+    - heat
+    - ceph
+    - ceilometer
+    - gnocchi
+    - openvswitch
+    - magnum
+    - aim
+    - agent-ovs
+    - ironic
+
+- name: Create log directories
+  file: path=/var/log/{{ item }} state=directory group=500 mode=0770 recurse=yes
+  with_items:
+    - fluentd
+    - rabbitmq
+    - mariadb
+    - haproxy
+    - keystone
+    - glance
+    - nova
+    - neutron
+    - neutron-vtf
+    - neutron-vpp
+    - cinder
+    - httpd
+    - memcached
+    - cloudpulse
+    - heat
+    - ceph
+    - ceilometer
+    - gnocchi
+    - openvswitch
+    - magnum
+    - aim
+    - agent-ovs
+    - ironic
+
+- name: Change permissions for /var/log/messages
+  file:
+    path: /var/log/messages
+    state: file
+    mode: 0644
+

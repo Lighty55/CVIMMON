@@ -1,0 +1,118 @@
+##########################################
+# Install Gnocchi API
+##########################################
+- name: Install | Create Gnocchi api Docker staging folder
+  file:
+    path: "/docker/gnocchi_api"
+    state: directory
+    mode: "0755"
+
+- name: Install | Copy Containers restart-on-boot files
+  template:
+     src: "docker-gnocchi-api.service"
+     dest: "/usr/lib/systemd/system/docker-gnocchi-api.service"
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+
+- name: Install | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+##########################################
+# Configure Gnocchi API
+##########################################
+- name: Install | Copy gnocchi api systemd template
+  template:
+    src: "docker-gnocchi-api.service"
+    dest: "{{ docker.gnocchi_api.host_data_dir }}/docker-gnocchi-api.service"
+    mode: "0644"
+
+- name: Install | Copy gnocchi api config
+  template:
+     src: "gnocchi_api_config.j2"
+     dest: "{{ docker.gnocchi_api.host_data_dir }}/gnocchi_api_config.j2"
+     mode: "0644"
+
+- name: Install | Copy gnocchi ceph conf
+  template:
+     src: "{{ playbook_dir }}/roles/gnocchi-common/files/ceph.conf"
+     dest: "{{ docker.gnocchi_api.host_data_dir }}/ceph.conf"
+     mode: "0644"
+     owner: gnocchi
+     group: mercury
+
+- name: Copy gnocchi policy file
+  template:
+     src: "{{ playbook_dir }}/roles/gnocchi-api/templates/{{ item }}"
+     dest: "{{ docker.gnocchi_api.host_data_dir }}/{{ item }}"
+  with_items:
+     - "gnocchi_policy.json"
+
+##########################################
+# Bootstrap API
+##########################################
+- include: gnocchi_api_bootstrap.yaml
+  when: server is undefined
+
+##########################################
+# Start Gnocchi API
+##########################################
+- name: Install | Check if Gnocchi api is already running
+  shell: docker ps -a | grep Up | grep gnocchiapi_{{ docker.gnocchi_api.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Install | Add aliases to bashrc
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gnocchiapi='in_container gnocchiapi_"
+    line: "alias gnocchiapi='in_container gnocchiapi_{{ docker.gnocchi_api.image_tag }}'"
+
+- name: Install | Start the Gnocchi api Docker
+  docker_container:
+    name: "gnocchiapi_{{ docker.gnocchi_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.gnocchi_api.name }}:{{ docker.gnocchi_api.image_tag }}"
+    volumes:
+      - "{{ docker.gnocchi_api.host_data_dir }}:{{ docker.gnocchi_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/gnocchi:/var/log/gnocchi:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Install | Wait for Gnocchi API to be alive
+  wait_for: host={{ GNOCCHI_API_HOST }} port={{ GNOCCHI_API_PORT }}
+
+- name: Check if we have our archive policy
+  shell: >
+     source ~/openstack-configs/openrc ; openstack metric archive-policy show {{ GNOCCHI_ARCHIVE_POLICY_TAG }}
+  register: check_ap
+  delegate_to: localhost
+  run_once: True
+  until: (check_ap.rc == 1) or (check_ap.rc == 0)
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: False
+  when: ACTION is undefined
+
+- name: Create customized gnocchi archive policy
+  shell: >
+     source ~/openstack-configs/openrc ; openstack metric archive-policy create {{ GNOCCHI_ARCHIVE_POLICY_TAG }}  -d {{ GNOCCHI_ARCHIVE_POLICY_INTERVAL }}
+  register: arc
+  delegate_to: localhost
+  run_once: True
+  until: (arc.rc == 0)
+  retries: 5
+  delay: 10
+  when: ACTION is undefined and check_ap.rc
+
+- name: Install | Enable docker-gnocchi-api service
+  service:
+    name: "docker-gnocchi-api"
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure

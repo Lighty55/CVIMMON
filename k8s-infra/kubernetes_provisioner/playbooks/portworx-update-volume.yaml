@@ -1,0 +1,4 @@
+- hosts: all-servers,!{{ node_operation_host }}
+  become: yes
+  roles:
+    - { role: "portworx-volume-update", run_once: true}

@@ -1,0 +1,40 @@
+---
+- name: "{{ metro_name }}->Get portworx volume information for grafana-{{ metro_name }}"
+  shell: >
+    kubectl get pv | grep {{ metro_name }}/grafana-{{ metro_name }} | head -n1 | awk '{print $1;}' | cat
+  register: grafana_server
+
+- name: "{{ metro_name }}->Delete Grafana-{{ metro_name }} with Helm."
+  command: >
+    /usr/bin/helm delete --purge "{{ grafana_deployment_name }}-{{ metro_name }}"
+  when: "'{{ grafana_deployment_name }}-{{ metro_name }}' in helm_list_results.stdout_lines"
+
+- name: "{{ metro_name }}->Check the status of Grafana-{{ metro_name }} Deletion"
+  command: >
+    /usr/bin/helm list
+  register: "grafana_state"
+  until: "'{{ grafana_deployment_name }}-{{ metro_name }}' not in grafana_state.stdout_lines"
+  retries: 50
+  delay: 5
+
+- name: "{{ metro_name}}->Check if grafana-{{ metro_name }} has been removed from portworx volume list"
+  shell: >
+    pxctl volume list
+  register: pxctl_delete
+  until: grafana_server.stdout not in pxctl_delete.stdout
+  retries: 50
+  delay: 5
+  delegate_to: "{{ groups['all-masters'][0] }}"
+  when: grafana_server.stdout != ""
+
+- name: "{{ metro_name }}->Remove Grafana Password for stack {{ metro_name }} in secrets"
+  lineinfile:
+    dest: "{{ password_file_path }}"
+    state: absent
+    regexp: '^(.*)Grafana-Password-{{ metro_name }}\((.*)$'
+
+- name: Remove Grafana Url endpoint from /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    state: absent
+    regexp: "{{ ingress_host_grafana }}"

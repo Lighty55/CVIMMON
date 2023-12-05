@@ -1,0 +1,94 @@
+---
+- name: "Remove swapfile from /etc/fstab"
+  mount:
+    name: swap
+    fstype: swap
+    state: absent
+
+- name: "Turn swap off"
+  shell: swapoff -a
+
+- name: "Enable SELinux"
+  selinux:
+    policy: targeted
+    state: enforcing
+
+- name: "Install kubeadm packages"
+  become: yes
+  yum:
+    name: "{{item}}"
+    #allow_downgrade: yes
+  with_items:
+    - kubernetes-cni-{{kubernetes_cni_version}}
+    - kubelet-{{kubelet_version}}
+    - kubeadm-{{kubeadm_version}}
+    - kubectl-{{kubectl_version}}
+
+- name: "Modprobe NetFilter Package"
+  command: modprobe br_netfilter
+
+- name: "Set net.bridge.bridge-nf-call-ip6tables=1"
+  command: sysctl net.bridge.bridge-nf-call-ip6tables=1
+
+- name: "Set sysctl net.bridge.bridge-nf-call-iptables=1"
+  command: sysctl net.bridge.bridge-nf-call-iptables=1
+
+- name: "Add IPV6 Specific Sysctl Parameters"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    line: 'net.ipv6.conf.all.forwarding=1'
+
+- name: "Add IPV6 Specific Sysctl Parameters"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    line: 'net.ipv6.conf.default.forwarding=1'
+
+- name: "Add IPV6 Specific Sysctl Parameters"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    line: 'net.bridge.bridge-nf-call-ip6tables=1'
+
+- name: "Add IPV6 Specific Sysctl Parameters for IPV6 Bind-Keepalived"
+  lineinfile:
+    dest: /etc/sysctl.conf
+    line: 'net.ipv4.ip_nonlocal_bind = 1'
+
+- name: "Refresh Sysctl with IPV6 forwarding Enabled"
+  command: sysctl -p /etc/sysctl.conf
+
+- name: "Get Br_api IPV6 Addresses of the Host"
+  shell: ip addr show dev br_api | grep global | grep -v dad | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv6_api_address
+  failed_when: false
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- replace:
+    dest: /etc/sysconfig/kubelet
+    regexp: 'KUBELET_EXTRA_ARGS=.*'
+    replace: 'KUBELET_EXTRA_ARGS=--fail-swap-on=false --cluster-dns={{ calico_ipv6_dns_prefix }} --node-ip={{ local_ipv6_api_address.stdout }}'
+    backup: no
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- replace:
+    dest: /etc/sysconfig/kubelet
+    regexp: 'KUBELET_EXTRA_ARGS=.*'
+    replace: 'KUBELET_EXTRA_ARGS=--fail-swap-on=false'
+    backup: no
+  when: DHCP_MODE is defined and DHCP_MODE != "v6"
+
+- name: "Check for existing Kubernetes Manifests"
+  stat:
+   path: "{{item}}"
+  register: manifest_results
+  with_items:
+  - ["/etc/kubernetes/manifests/kube-apiserver.yaml", "/etc/kubernetes/manifests/kube-controller-manager.yaml", "/etc/kubernetes/manifests/kube-scheduler.yaml"]
+
+- name: "Restart kubelet"
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: kubelet
+    enabled: yes
+  when: item.stat.exists == false
+  with_items:
+  - "{{manifest_results.results}}"

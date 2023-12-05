@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova novncproxy Directory
+  file:
+    path: "/docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-novncproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novanovncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_novncproxy.name }}"
+    tag: "{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

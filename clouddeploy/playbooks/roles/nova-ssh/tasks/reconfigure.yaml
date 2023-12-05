@@ -1,0 +1,107 @@
+- name: Check if nova ssh Docker container is running
+  shell: docker ps | egrep ' novassh_{{ docker.nova_ssh.image_tag }}$' | cut -f1 -d " "
+  register: check_status
+
+- name: systemctl reset
+  command: systemctl reset-failed
+  when: (check_status is defined and check_status.stdout == "")
+
+- name: Restart nova ssh service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novassh
+  when: (check_status is defined and check_status.stdout == "")
+
+- name: Copy the new Nova SSH keys
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+      - { src: "{{ lookup('env','HOME') }}/openstack-configs/nova_private_key",
+          dest: "{{docker.nova_ssh.host_data_dir }}/id_rsa_reconfigure" }
+      - { src: "{{ lookup('env','HOME') }}/openstack-configs/nova_public_key",
+          dest: "{{docker.nova_ssh.host_data_dir }}/authorized_keys_reconfigure" }
+
+- name: Compare old and new private key
+  command: diff /docker/nova_ssh/id_rsa /docker/nova_ssh/id_rsa_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_priv
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/nova_ssh/id_rsa_reconfigure /docker/nova_ssh/id_rsa
+  when: command_result_priv.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/nova_ssh/id_rsa_reconfigure state=absent
+  when: command_result_priv.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the private key inside container to force a reconfigure
+  command: docker cp /docker/nova_ssh/id_rsa novassh_{{ docker.nova_ssh.image_tag }}:/var/lib/nova/.ssh/id_rsa
+  when: command_result_priv.stdout != ""
+
+- name: Compare old and new public key
+  command: diff /docker/nova_ssh/authorized_keys /docker/nova_ssh/authorized_keys_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result_pub
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/nova_ssh/authorized_keys_reconfigure /docker/nova_ssh/authorized_keys
+  when: command_result_pub.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/nova_ssh/authorized_keys_reconfigure state=absent
+  when: command_result_pub.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the public key inside container to force a reconfigure
+  command: docker cp /docker/nova_ssh/authorized_keys novassh_{{ docker.nova_ssh.image_tag }}:/var/lib/nova/.ssh/authorized_keys
+  when: command_result_pub.stdout != ""
+
+# Now reset the SELinux labelling
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t /docker/nova_ssh/
+  when: command_result_priv.stdout != "" or command_result_pub.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec novassh_{{ docker.nova_ssh.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec novassh_{{ docker.nova_ssh.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec novassh_{{ docker.nova_ssh.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart nova ssh service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-novassh
+  when: command_result_priv.stdout != "" or command_result_pub.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Wait for nova ssh to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_SSH_PORT }}
+  when: command_result_priv.stdout != "" or command_result_pub.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")

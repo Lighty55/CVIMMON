@@ -1,0 +1,25 @@
+- include: nova_conductor_service_upgrade_prepare.yaml
+- include: nova_conductor_service_install.yaml
+- include: nova_conductor_service_config.yaml
+- include: nova_conductor_service_bootstrap.yaml
+  when: SKIP_UPGRADE is defined and inventory_hostname == groups['nova_conductor_all'][0]
+- name: Creating the nova endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=nova
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ NOVA_API_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:8774/v2.1/%(tenant_id)s"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: SKIP_UPGRADE is not defined
+
+- include: nova_conductor_service_start.yaml

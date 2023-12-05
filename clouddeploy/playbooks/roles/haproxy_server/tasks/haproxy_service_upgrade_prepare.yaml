@@ -1,0 +1,40 @@
+#####################################################
+# Shut down the old haproxy containers
+####################################################
+# Haproxy.
+
+- name: Shut off haproxy docker service
+  service:
+    name: docker-haproxy
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove haproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-haproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove haproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "haproxy_{{ HAPROXY_PREVIOUS_TAG }}" }
+
+- name: Remove haproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ HAPROXY_PREVIOUS_NAME }}"
+    tag: "{{ HAPROXY_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Haproxy Directory
+  file:
+    path: "{{ docker.haproxy.host_data_dir }}"
+    state: absent

@@ -1,0 +1,44 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Heat Engine Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}
+
+# Back up the heat engine volume contents
+- name: back up the heat engine volume contents
+  shell: cp /docker/heat_engine/*  /docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}/.
+
+#####################################################
+# Shut down the old heat engine containers
+####################################################
+# Heat API.
+- name: Shut off heat engine docker service
+  service:
+    name: docker-heatengine
+    enabled: no
+    state: stopped
+
+- name: Remove heatengine service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatengine.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# List and Remove heat engine config files to regenerate
+- name: List heat engine config files
+  shell: ls -A1 /docker/heat_engine/
+  register: contents
+
+- name: Remove heat engine config files
+  file:
+    path: /docker/heat_engine/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

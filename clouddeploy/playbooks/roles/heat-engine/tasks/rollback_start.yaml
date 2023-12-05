@@ -1,0 +1,92 @@
+# First remove the new container and artifacts and heat engine
+- name: Shut off heat engine docker service
+  service:
+    name: docker-heatengine
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove heatengine service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatengine.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove heat-engine docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatengine_{{ docker.heat_engine.image_tag }}" }
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_engine.name }}"
+    tag: "{{ docker.heat_engine.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# List and Remove heat engine config files to regenerate
+- name: List heat engine config files
+  shell: ls -A1 /docker/heat_engine/
+  register: contents
+
+- name: Remove heat engine config files
+  file:
+    path: /docker/heat_engine/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the heat engine configuration files
+- name: recover heat engine configuration files
+  shell: cp /docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}/* /docker/heat_engine/.
+
+# Now remove the backup volume
+- name: Remove back up heat engine Directory
+  file:
+    path: "/docker/heat_engine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/heat_engine/docker-heatengine.service /usr/lib/systemd/system/docker-heatengine.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias heatengine='in_container heatengine_"
+    line: "{{ item }}"
+  with_items:
+    - alias heatengine='in_container heatengine_{{ HEAT_ENGINE_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start heatengine service
+  service:
+    name: docker-heatengine
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Heat Engine Docker container has started running
+  shell: docker ps -a | grep Up | grep heatengine_{{ HEAT_ENGINE_PREVIOUS_TAG | default('') }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Heat Engine Container does not seem to be running"
+  when: command_result.stdout == ""
+

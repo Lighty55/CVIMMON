@@ -1,0 +1,10 @@
+WORK_DIR: /opt/cisco/snmp
+
+SNMP_TRAP_PORT: "162"
+SNMP_HTTP_PORT: "1161"
+SNMP_HTTP_HOST: "*"
+
+SNMP_STACK_PATH: "{{ WORK_DIR }}/{{ metro_name }}"
+SNMP_MANIFEST_PATH: "{{ SNMP_STACK_PATH }}/manifest"
+SNMP_CONFIG_PATH: "{{ SNMP_STACK_PATH }}/config"
+

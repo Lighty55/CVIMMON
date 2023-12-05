@@ -1,0 +1,75 @@
+---
+- name: Remove old external monitoring file
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ ext_dir_name }}"
+    - "{{ ext_dir_name }}-checksum.txt"
+  when: external_file.matched != 0
+
+- name: Create external telegraf directory
+  file:
+    path: "/tmp/external-monitoring"
+    state: directory
+    owner: root
+    group: 0
+    mode: "0755"
+
+- name: Copy telegraf rpm from repomirror container to temp location
+  command: yumdownloader telegraf --destdir /tmp/external-monitoring/
+
+- name: Get telegraf rpm version
+  shell: >
+    cd /tmp/external-monitoring && rpm -qp --queryformat '%{VERSION}' *.rpm
+  register: rpm_version
+
+- name: Check if telegraf config file exists
+  stat:
+    path:  /var/lib/cvim_mon/external.conf
+  register: external_telegraf_result
+
+- name: Fail if external telegraf conf file is missing.
+  fail: msg="Cannot find telegraf config for external server monitoring"
+  when: external_telegraf_result.stat.exists == False
+
+- name: Copy telegraf config file to temp location
+  copy:
+    src: /var/lib/cvim_mon/external.conf
+    dest: /tmp/external-monitoring
+
+- name: Get Telegraf conf version number
+  shell: >
+    cat /var/lib/cvim_mon/external.conf | grep VERSION | awk '{print $2}'
+  register: telegraf_conf_version
+
+- name: Copy external server monitoring bash scripts to temp location
+  copy:
+    src: "{{ item }}"
+    dest: /tmp/external-monitoring
+    mode: "0755"
+  with_items:
+    ['monitor_external.sh', 'monitor_external_unbootstrap.sh']
+
+- name: Create external monitoring directory with current telegraf rpm version
+  command: mv /tmp/external-monitoring /tmp/external-monitoring-{{ rpm_version.stdout }}-V{{ telegraf_conf_version.stdout }}
+
+- name: Compress directory /var/cisco/artifacts/external-monitoring to a tar file
+  shell: >
+    cd /tmp/ && tar -czvf /var/cisco/artifacts/external-monitoring-{{ rpm_version.stdout }}-V{{ telegraf_conf_version.stdout }}.tar.gz external-monitoring-{{ rpm_version.stdout }}-V{{ telegraf_conf_version.stdout }}
+
+- name: loading checksum to variable
+  stat:
+    path: /var/cisco/artifacts/external-monitoring-{{ rpm_version.stdout }}-V{{ telegraf_conf_version.stdout }}.tar.gz
+    checksum_algorithm: sha512
+  register: origin
+
+- name: Create checksum text file for external monitoring tar file
+  copy:
+    dest: "/var/cisco/artifacts/external-monitoring-{{ rpm_version.stdout }}.tar.gz-checksum.txt"
+    content: |
+      SHA512 (external-monitoring-{{ rpm_version.stdout }}-V{{ telegraf_conf_version.stdout }}.tar.gz) = {{ origin.stat.checksum }}
+
+- name: Remove temporary external monitoring directory once all operations pass
+  shell: >
+    rm -rf /tmp/external-monitoring-*

@@ -1,0 +1,100 @@
+- name: Un-install Openstack services.
+  hosts: host_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "os_uninstall", tags: [ "os_uninstall" ] }
+
+- name: Remove vtf from vtc inventory on the build-node
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: execute remove vtf from vtc script
+      command: bash -c "python {{ install_dir }}/tools/vtc_remove_vtf_from_inventory.py --all"
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      when: MECHANISM_DRIVERS == "vts"
+    - name: Verify VTF removal was successful
+      command: python {{ install_dir }}/tools/vtc_check.py --compute --all --uninstalled
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      when: MECHANISM_DRIVERS == "vts"
+  tags:
+     - os_uninstall
+     - neutron_vtf_uninstall
+
+- name: Additional cleanup tasks.
+  hosts: host_all
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  tasks:
+    - name: Check if any containers are left behind.
+      shell: docker ps -a | grep -v CREATED
+      register: command_result
+      when: FORCE_CLEAN is defined
+      ignore_errors: true
+
+    - name: Force clean all containers, in case some are left behind.
+      shell: docker rm -f `docker ps -aq`
+      when: FORCE_CLEAN is defined and command_result.stdout != ""
+
+    - name: Cleanup docker volumes.
+      file:
+        path: /var/lib/docker/vfs/dir/
+        state: absent
+      when: FORCE_CLEAN is defined
+
+    - name: Remove the external bridge
+      service:
+        name: "{{ item }}"
+        enabled: no
+      with_items:
+        - br-ex
+      ignore_errors: true
+      when: FORCE_CLEAN is defined
+
+    - name: Restart server
+      command: shutdown -r +1 "Ansible Forcing a Reboot on Server."
+      async: 0
+      poll: 0
+      ignore_errors: true
+      when: FORCE_CLEAN is defined
+
+    - name: Wait for the server to boot up.
+      local_action:
+        module: wait_for
+          host={{ inventory_hostname }}
+          port=22
+          delay=70
+          timeout=300
+      when: FORCE_CLEAN is defined
+
+    - name: Check connectivity again.
+      ping:
+      when: FORCE_CLEAN is defined
+
+    - name: Check if any containers are left behind.
+      shell: docker ps -a | grep -v CREATED
+      register: command_result
+      when: FORCE_CLEAN is defined
+      ignore_errors: true
+
+    - name: Force clean all containers, in case some are left behind.
+      shell: docker rm -f `docker ps -aq`
+      when: FORCE_CLEAN is defined and command_result.stdout != ""
+
+  tags:
+    - os_uninstall
+

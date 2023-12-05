@@ -1,0 +1,95 @@
+- name: Check if Glance API Docker container is already running
+  shell: docker ps -a | grep Up | grep glanceapi_{{ docker.glance_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias glanceapi='in_container glanceapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias glanceapi='in_container glanceapi_{{ docker.glance_api.image_tag }}'
+
+- stat: path={{ GLANCE_DIR }}
+  register: glance_dir_check
+
+- name: Create glance directory
+  file: path={{ GLANCE_DIR }} state=directory group=500 mode=0775 recurse=yes
+  when: (glance_dir_check.stat.exists == False) and (NETAPP is defined or ZADARA is defined)
+
+- name: Install nfs-utils packages
+  yum:
+    name: nfs-utils
+    state: present
+  when: NETAPP is defined or ZADARA is defined
+
+- name: Mount NFS share for netapp
+  mount:
+    name: "{{ GLANCE_DIR }}"
+    src: "{{ NETAPP.glance_nfs_server }}:/{{ NETAPP.glance_nfs_path }}"
+    fstype: nfs
+    state: mounted
+  when: NETAPP is defined
+
+- name: Mount NFS share for Zadara
+  mount:
+    name: "{{ GLANCE_DIR }}"
+    src: "{{ ZADARA.vpsa_host }}:/{{ ZADARA.glance_nfs_path }}"
+    fstype: nfs
+    state: mounted
+  when: ZADARA is defined
+
+- name: Set NFS share ownership
+  file:
+    name: "{{ GLANCE_DIR }}"
+    state: directory
+    owner: glance
+    group: glance
+  when: (NETAPP is defined or ZADARA is defined) and (glance_dir_check.stat.exists == False)
+
+- name: Start the Glance API Docker Service for netapp or zadara
+  docker_container:
+    name: "glanceapi_{{ docker.glance_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.glance_api.name }}:{{ docker.glance_api.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ GLANCE_DIR }}:{{ GLANCE_DIR }}:shared"
+      - "{{ docker.glance_api.host_data_dir }}:{{ docker.glance_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/glance:/var/log/glance:z
+    ports: "9292:9292, 9191:9191"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    privileged: True
+  when: command_result.stdout == "" and (NETAPP is defined or ZADARA is defined)
+
+- name: Start the Glance API Docker Service for ceph
+  docker_container:
+    name: "glanceapi_{{ docker.glance_api.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.glance_api.name }}:{{ docker.glance_api.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.glance_api.host_data_dir }}:{{ docker.glance_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/glance:/var/log/glance:z
+      - glance:/var/lib/glance
+    ports: "9292:9292, 9191:9191"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == "" and NETAPP is not defined and ZADARA is not defined
+
+- name: Wait for Glance API to be alive
+  wait_for: host={{ GLANCE_HOST }} port={{ GLANCE_API_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-glanceapi
+  tags:
+    - reboot-on-failure

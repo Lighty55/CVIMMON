@@ -1,0 +1,63 @@
+# Get the fernet keys from the container to back them up in the host,
+# so that they can be used by the new keystone container when it comes up
+- name: Upgrade | Get the list of fernet keys that need to be copied from the container
+  shell: >
+    docker exec keystone_{{ KEYSTONE_PREVIOUS_TAG }} \
+           bash -c "cd {{ KEYSTONE_FERNET_KEYS_REPO }} && ls"
+  register: _list_fernet_keys
+  failed_when: _list_fernet_keys == ""
+  any_errors_fatal: true
+  when: SKIP_UPGRADE is not defined
+
+- name: Upgrade | Get the fernet keys from each keystone container to its own controller node
+  shell: >
+    docker cp keystone_{{ KEYSTONE_PREVIOUS_TAG }}:{{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }} \
+           {{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+  when: SKIP_UPGRADE is not defined
+
+- name: Upgrade | Change the permissions of the fernet keys so that keystone container can copy them later
+  file:
+    path:  "{{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}"
+    state: touch
+    mode:  "u=rw,g=r,o=r"
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+  when: SKIP_UPGRADE is not defined
+
+#####################################################
+# Shut down the old keystone containers
+####################################################
+# Keystone.
+- name: Shut off keystone docker service
+  service:
+    name: docker-keystone
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove keystone service file
+  file:
+    path: "/usr/lib/systemd/system/docker-keystone.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove keystone docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "keystone_{{ KEYSTONE_PREVIOUS_TAG }}" }
+
+- name: Remove keystone docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ KEYSTONE_PREVIOUS_NAME }}"
+    tag: "{{ KEYSTONE_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove keystone Directory
+  command: bash -c "cd {{ docker.keystone.host_data_dir }}; shopt -s extglob; rm -rf !\(fernet-key_*\)"

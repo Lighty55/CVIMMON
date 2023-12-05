@@ -1,0 +1,77 @@
+- name: Generate Grafana LDAP Configuration
+  script: ./generate_grafana_config.py -w "{{ playbook_dir }}/../../../../" -d "{{ playbook_dir }}/roles/grafana/templates/" -n "{{ metro_name }}"
+
+- name: "{{ metro_name }}->Render Grafana-{{ metro_name }}-cluster-monitor Helm Values File | Helm Values File"
+  become: true
+  template: { src: "grafana-values.yaml", dest: "{{ directory_matched.stdout }}/{{ grafana_app_directory }}/values.yaml" }
+
+- name: "{{ metro_name }}->Rename old value file with the revision number"
+  become: true
+  copy: { src: "{{ grafana_helm_upgrade_path }}/grafana-values.yaml", dest: "{{ grafana_helm_upgrade_path }}/grafana-values-{{ ansible_date_time.epoch }}.yaml" }
+
+- name: "{{ metro_name }}->Render Grafana-{{ metro_name }}-cluster-monitor Specific Grafana Helm Values File | Helm Values File for Metro"
+  become: true
+  template: { src: "grafana-values.yaml", dest: "{{ grafana_helm_upgrade_path }}" }
+
+- name: Copy LDAP config file under stack config
+  copy:
+    src: "{{ playbook_dir }}/roles/grafana/templates/ldap_config.toml"
+    dest: "{{ grafana_values_path }}/grafana/"
+  when: LDAP is defined and LDAP == True
+
+- name: Remove ldap config file from template dir
+  file:
+    path: "{{ playbook_dir }}/roles/grafana/templates/ldap_config.toml"
+    state: absent
+
+- name: "{{ metro_name }}->Upgrade grafana-{{ metro_name }}-cluster-monitor with Helm."
+  command: >
+    /usr/bin/helm upgrade -f "{{ grafana_metro_values_path }}" "{{ grafana_deployment_name }}-{{ metro_name }}" "{{ directory_matched.stdout }}"/"{{ grafana_app_directory }}"
+
+- name: "{{ metro_name }}->Check Rollout Status of Grafana-{{ metro_name }}-cluster-monitor Deployment"
+  command: kubectl -n "{{ metro_name }}" rollout status --timeout=300s deployment "{{ grafana_deployment_name }}-{{ metro_name }}"
+  ignore_errors: yes
+  register: grafana_update_status
+
+- name: "{{ metro_name }}->Check the status of Grafana-{{ metro_name }}-cluster-monitor Deployment once rolled-out"
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ metro_name }}" get deployment {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ grafana_deployment_name }}-{{ metro_name }}"
+  when: grafana_update_status is succeeded
+
+- name: Register Grafana podname
+  shell: "kubectl get pods -o NAME -n {{ metro_name }} | grep grafana | cut -d'/' -f2-"
+  register: grafanapod
+
+- name: Check LDAP cert dir exists
+  stat:
+    path: "{{ grafana_values_path }}/grafana/ldap_cert/"
+  register: ldap_cert_dir
+
+- name: Copy LDAP Cert if exists
+  shell: "kubectl cp {{ grafana_values_path }}/grafana/ldap_cert/* {{ metro_name }}/{{ item }}:/var/lib/grafana/"
+  when: ldap_cert_dir.stat.isdir is defined and ldap_cert_dir.stat.isdir
+  with_items: "{{ grafanapod.stdout_lines }}"
+
+- name: "{{ metro_name }}->Rollout new grafana pods with new configuration"
+  command: kubectl rollout restart deployment/"{{ grafana_deployment_name }}-{{ metro_name }}" -n "{{ metro_name }}"
+
+- name: "{{ metro_name }}->Ensure Grafana-{{ metro_name }}-cluster-monitor Deployment and pods are up and running."
+  changed_when: false
+  register: "grafana_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=grafana --output=json --namespace={{ metro_name }}"
+  until:
+      - "grafana_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "grafana_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 50
+  delay: 5
+  when: grafana_update_status is succeeded

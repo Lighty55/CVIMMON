@@ -1,0 +1,45 @@
+- name: Create Neutron VTF Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.neutron_vtf.host_data_dir }}"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Check information needed by VTF is available
+  fail:
+      msg: >
+        VTS_XRNC_TENANT_IPS is missing. Possible reasons: (1) VTS_XRNC_TENANT_IPS
+        is neither defined in setup_data.yaml, nor able to be discovered from VTC.
+        (2) VTS_XRNC_TENANT_IPS is defined in setup_data.yaml, but conflicts with
+        the IPs discovered from VTC. Run validations to get more details.
+  when: "{{ not VTS_XRNC_TENANT_IPS }}"
+
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutron_vtf.service",
+        dest: "/usr/lib/systemd/system/docker-neutron_vtf.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Copy Neutron VTF Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "vtf_config.j2",
+        dest: "{{ docker.neutron_vtf.host_data_dir }}/vtf_config" }
+

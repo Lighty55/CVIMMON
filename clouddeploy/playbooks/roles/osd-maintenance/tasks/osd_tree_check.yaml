@@ -1,0 +1,23 @@
+# Discover current active cephmon container through systemd instead of from
+# docker.yaml file to workaround old image tag issue for system that have
+# been updated but have not been commit yet.
+- name: get current cephmon container
+  shell: systemctl cat docker-cephmon | awk '/ExecStart=.*docker.* start / {print $NF}'
+  register: cur_cephmon
+  run_once: True
+  failed_when: cur_cephmon.rc != 0 or cur_cephmon.stdout == ""
+
+- name: get current status of OSDs
+  shell: docker exec {{ cur_cephmon.stdout }} ceph osd tree -f json
+  register: osd_status
+  run_once: True
+
+- name: Save OSD tree JSON output
+  set_fact:
+    osd_result: "{{ osd_status.stdout | from_json }}"
+  run_once: True
+
+- name: Save OSD tree status
+  shell: "echo {{ osd_result | get_osd_details }} >> {{ CEPH_TREE_STATUS_FILE }}"
+  delegate_to: localhost
+  run_once: True

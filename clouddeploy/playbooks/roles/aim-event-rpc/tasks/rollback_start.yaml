@@ -1,0 +1,93 @@
+# First remove the new container and artifacts
+- name: Shut off aim event rpc docker service
+  service:
+    name: docker-aimeventrpc
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove aim event rpc service file
+  file:
+    path: "/usr/lib/systemd/system/docker-aimeventrpc.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove aim event rpc docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimeventrpc_{{ docker.aim_event_rpc.image_tag }}" }
+
+- name: Remove aim event rpc docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_event_rpc.name }}"
+    tag: "{{ docker.aim_event_rpc.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove aim event rpc volume contents
+- name: List aim event rpc volume contents
+  shell: ls -A1 /docker/aim_event_rpc/
+  register: contents
+
+- name: Remove aim event rpc contents
+  file:
+    path: /docker/aim_event_rpc/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the aim event rpc volume contents
+- name: recover aim event rpc volume contents
+  shell: cp /docker/aim_event_rpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}/* /docker/aim_event_rpc/.
+
+
+# Now remove the backup volume
+- name: Remove back up aim event rpc Directory
+  file:
+    path: "/docker/aim_event_rpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/aim_event_rpc/docker-aimeventrpc.service /usr/lib/systemd/system/docker-aimeventrpc.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias aimeventrpc='in_container aimeventrpc_"
+    line: "{{ item }}"
+  with_items:
+    - alias aimeventrpc='in_container aimeventrpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }}'
+
+
+- name: Start aim event rpc container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-aimeventrpc
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if aim event rpc Docker container has started running
+  shell: docker ps -a | grep Up | grep aimeventrpc_{{ AIM_EVENT_RPC_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="aim event rpc Container does not seem to be running"
+  when: command_result.stdout == ""

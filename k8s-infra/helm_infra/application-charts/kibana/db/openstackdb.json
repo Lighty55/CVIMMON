@@ -1,0 +1,145 @@
+{
+  "version": "6.0.0",
+  "objects": [
+    {
+      "id": "e3d0d4d0-0e86-11e7-a616-e3494a1a0f46",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Openstack - Events By Service",
+        "visState": "{\"title\":\"Openstack - Events By Service\",\"type\":\"pie\",\"params\":{\"addTooltip\":true,\"addLegend\":true,\"legendPosition\":\"top\",\"isDonut\":false},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"service.keyword\",\"size\":50,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"service\"}},{\"id\":\"3\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"service_subtype.keyword\",\"size\":5,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"service_subtype\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{\"vis\":{\"legendOpen\":true}}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"query\":\"*\",\"analyze_wildcard\":true}},\"language\":\"lucene\"},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "bfef6d90-0e88-11e7-8a52-415e9e5e9984",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "OpenStack - Events By Time",
+        "visState": "{\"title\":\"OpenStack - Events By Time\",\"type\":\"histogram\",\"params\":{\"addTooltip\":true,\"addLegend\":true,\"legendPosition\":\"top\",\"scale\":\"linear\",\"mode\":\"stacked\",\"times\":[],\"addTimeMarker\":false,\"defaultYExtents\":true,\"setYExtents\":false},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"@timestamp\",\"size\":50,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"timestamp\"}},{\"id\":\"3\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"group\",\"params\":{\"field\":\"levelname.keyword\",\"size\":50,\"order\":\"desc\",\"orderBy\":\"1\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"filter\":[],\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"language\":\"lucene\"},\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647}}"
+        }
+      }
+    },
+    {
+      "id": "926dd770-0e89-11e7-ad8d-7504b646b6cd",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Openstack - Events By Host",
+        "visState": "{\"title\":\"Openstack - Events By Host\",\"type\":\"table\",\"params\":{\"perPage\":10,\"showMeticsAtAllLevels\":false,\"showPartialRows\":false,\"showTotal\":false,\"sort\":{\"columnIndex\":null,\"direction\":null},\"totalFunc\":\"sum\"},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{\"customLabel\":\"Total Events\"}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"bucket\",\"params\":{\"field\":\"host.keyword\",\"size\":80,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"Hostname\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":1,\"direction\":\"desc\"}}}}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"filter\":[],\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"language\":\"lucene\"},\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647}}"
+        }
+      }
+    },
+    {
+      "id": "1dc5fdc0-0e8a-11e7-ad8d-7504b646b6cd",
+      "type": "visualization",
+      "version": 1,
+      "attributes": {
+        "title": "Openstack - Events",
+        "visState": "{\"title\":\"Openstack - Events\",\"type\":\"table\",\"params\":{\"perPage\":6,\"showMeticsAtAllLevels\":true,\"showPartialRows\":false,\"showTotal\":false,\"sort\":{\"columnIndex\":null,\"direction\":null},\"totalFunc\":\"sum\"},\"aggs\":[{\"id\":\"1\",\"enabled\":true,\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"enabled\":true,\"type\":\"terms\",\"schema\":\"bucket\",\"params\":{\"field\":\"levelname.keyword\",\"size\":10,\"order\":\"desc\",\"orderBy\":\"1\",\"customLabel\":\"Log Level\"}}],\"listeners\":{}}",
+        "uiStateJSON": "{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":null,\"direction\":null}}}}",
+        "description": "",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"filter\":[],\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"query\":{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"language\":\"lucene\"},\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647}}"
+        }
+      }
+    },
+    {
+      "id": "0e6670c0-0e95-11e7-a473-d599e5293906",
+      "type": "search",
+      "version": 1,
+      "attributes": {
+        "title": "Openstack - All Events",
+        "description": "",
+        "hits": 0,
+        "columns": [
+          "host",
+          "levelname",
+          "service",
+          "service_subtype",
+          "module",
+          "message",
+          "file"
+        ],
+        "sort": [
+          "@timestamp",
+          "desc"
+        ],
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"filter\":[],\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647},\"query\":{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"language\":\"lucene\"},\"highlightAll\":true,\"version\":true}"
+        }
+      }
+    },
+    {
+      "id": "1051f7a0-0e96-11e7-811c-11d4863446d0",
+      "type": "search",
+      "version": 1,
+      "attributes": {
+        "title": "OpenStack - Errors",
+        "description": "",
+        "hits": 0,
+        "columns": [
+          "host",
+          "service",
+          "service_subtype",
+          "module",
+          "message"
+        ],
+        "sort": [
+          "@timestamp",
+          "desc"
+        ],
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"3cd34b70-cfda-11e7-a5ef-9f5ab64be49e\",\"filter\":[],\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647},\"query\":{\"query\":{\"query_string\":{\"query\":\"levelname:ERROR\",\"analyze_wildcard\":true}},\"language\":\"lucene\"},\"highlightAll\":true,\"version\":true}"
+        }
+      }
+    },
+    {
+      "id": "3cd34b70-cfda-11e7-a5ef-9f5ab64be49e",
+      "type": "index-pattern",
+      "version": 2,
+      "attributes": {
+        "title": "openstack-*",
+        "timeFieldName": "@timestamp",
+        "fields": "[{\"name\":\"@timestamp\",\"type\":\"date\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"Times\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"Times.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"_id\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"_index\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"_score\",\"type\":\"number\",\"count\":0,\"scripted\":false,\"searchable\":false,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"_source\",\"type\":\"_source\",\"count\":0,\"scripted\":false,\"searchable\":false,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"_type\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":false},{\"name\":\"context\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"context.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"error\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"error.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"error_class\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"error_class.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"file\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"file.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"host\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"host.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"levelname\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"levelname.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"message\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"message.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"module\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"module.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"next_retry\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"next_retry.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"pid\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"pid.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"plugin_id\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"plugin_id.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"ps\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"ps.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"service\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"service.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"service_subtype\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"service_subtype.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true},{\"name\":\"source_ip\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":false,\"readFromDocValues\":false},{\"name\":\"source_ip.keyword\",\"type\":\"string\",\"count\":0,\"scripted\":false,\"searchable\":true,\"aggregatable\":true,\"readFromDocValues\":true}]"
+      }
+    },
+    {
+      "id": "c4148ca0-12ae-11e7-b77a-f10e64093041",
+      "type": "dashboard",
+      "version": 3,
+      "attributes": {
+        "title": "OpenStack Dashboard",
+        "hits": 0,
+        "description": "",
+        "panelsJSON": "[{\"col\":8,\"id\":\"e3d0d4d0-0e86-11e7-a616-e3494a1a0f46\",\"panelIndex\":1,\"row\":5,\"size_x\":5,\"size_y\":4,\"type\":\"visualization\"},{\"col\":1,\"id\":\"bfef6d90-0e88-11e7-8a52-415e9e5e9984\",\"panelIndex\":2,\"row\":1,\"size_x\":12,\"size_y\":4,\"type\":\"visualization\"},{\"col\":1,\"id\":\"926dd770-0e89-11e7-ad8d-7504b646b6cd\",\"panelIndex\":3,\"row\":5,\"size_x\":4,\"size_y\":4,\"type\":\"visualization\"},{\"col\":5,\"id\":\"1dc5fdc0-0e8a-11e7-ad8d-7504b646b6cd\",\"panelIndex\":4,\"row\":5,\"size_x\":3,\"size_y\":4,\"type\":\"visualization\"},{\"col\":1,\"columns\":[\"host\",\"levelname\",\"service\",\"service_subtype\",\"module\",\"message\",\"file\"],\"id\":\"0e6670c0-0e95-11e7-a473-d599e5293906\",\"panelIndex\":7,\"row\":14,\"size_x\":12,\"size_y\":6,\"sort\":[\"@timestamp\",\"desc\"],\"type\":\"search\"},{\"col\":1,\"columns\":[\"host\",\"service\",\"service_subtype\",\"module\",\"message\"],\"id\":\"1051f7a0-0e96-11e7-811c-11d4863446d0\",\"panelIndex\":8,\"row\":9,\"size_x\":12,\"size_y\":4,\"sort\":[\"@timestamp\",\"desc\"],\"type\":\"search\"}]",
+        "optionsJSON": "{\"darkTheme\":true}",
+        "uiStateJSON": "{\"P-1\":{\"spy\":{\"mode\":{\"fill\":false,\"name\":null}}},\"P-3\":{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":null,\"direction\":null}}}},\"P-4\":{\"vis\":{\"params\":{\"sort\":{\"columnIndex\":null,\"direction\":null}}}}}",
+        "version": 1,
+        "timeRestore": false,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"filter\":[{\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}}}],\"highlightAll\":true,\"version\":true}"
+        }
+      }
+    }
+  ]
+}

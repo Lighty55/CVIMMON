@@ -1,0 +1,16 @@
+- include_vars: "{{ lookup('env', 'HOME') }}/openstack-configs/update.yaml"
+
+- name: "{{ metro_name }} Rollback | Delete snmp manifest"
+  command: kubectl delete -f {{ SNMP_STACK_PATH }}/snmp_manifest.yaml -n {{ metro_name }}
+
+- name: "{{ metro_name }} Rollback | Delete snmp manifest"
+  file: path={{ SNMP_STACK_PATH }}/snmp_manifest.yaml state=absent
+
+- name: "{{ metro_name }} Rollback | Recover old snmp manifest"
+  shell: cp /opt/cisco/update/snmp_{{ SNMP_PREVIOUS_TAG }}/{{ metro_name }}/snmp_manifest.yaml {{ SNMP_STACK_PATH }}/
+
+# Remove old update directory
+- include: commit.yaml
+
+# Deploy manifest from old config
+- include: snmp_start.yaml

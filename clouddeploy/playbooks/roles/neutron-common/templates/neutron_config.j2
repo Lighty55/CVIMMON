@@ -1,0 +1,243 @@
+ADMIN_USER: "{{ ADMIN_USER }}"
+ADMIN_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+SERVICE_TENANT_NAME: "{{ SERVICE_TENANT_NAME }}"
+NEUTRON_DB_NAME: "{{ NEUTRON_DB_NAME }}"
+NEUTRON_DB_USER: "{{ NEUTRON_DB_USER }}"
+NEUTRON_KEYSTONE_USER: "{{ NEUTRON_KEYSTONE_USER }}"
+RABBITMQ_HOSTS: {{ RABBITMQ_HOSTS }}
+RABBITMQ_PORT: "{{ RABBITMQ_PORT }}"
+RABBITMQ_USER: "{{ RABBITMQ_USER }}"
+MARIADB_SERVICE_HOST: "{{ MARIADB_SERVICE_HOST | ipwrap }}"
+VERBOSE_LOGGING: "{{ NEUTRON_VERBOSE_LOGGING }}"
+DEBUG_LOGGING: "{{ NEUTRON_DEBUG_LOGGING }}"
+LOGGING_FORMAT_PLAIN: "{{ LOGGING_FORMAT_PLAIN }}"
+LOGGING_FORMAT_JSON: "{{ LOGGING_FORMAT_JSON }}"
+KEYSTONE_PUBLIC_SERVICE_HOST: "{{ KEYSTONE_PUBLIC_SERVICE_HOST }}"
+KEYSTONE_PUBLIC_SERVICE_PORT: "{{ KEYSTONE_PUBLIC_SERVICE_PORT }}"
+KEYSTONE_ADMIN_SERVICE_HOST: "{{ KEYSTONE_ADMIN_SERVICE_HOST }}"
+KEYSTONE_ADMIN_SERVICE_PORT: "{{ KEYSTONE_ADMIN_SERVICE_PORT }}"
+NOVA_KEYSTONE_USER: "{{ NOVA_KEYSTONE_USER }}"
+NOVA_API_SERVICE_HOST: "{{ NOVA_API_SERVICE_HOST }}"
+NEUTRON_HOST: "{{ NEUTRON_HOST }}"
+API_BIND_PORT: "{{ API_BIND_PORT }}"
+NEUTRON_SERVER_SERVICE_HOST: "{{ NEUTRON_SERVER_SERVICE_HOST }}"
+CORE_PLUGIN: "{{ CORE_PLUGIN }}"
+NEUTRON_PLUGIN_LOADED_BASE: "{{ NEUTRON_PLUGIN_LOADED_BASE }}"
+ALLOW_OVERLAPPING_IPS: "{{ ALLOW_OVERLAPPING_IPS }}"
+TYPE_DRIVERS: "{{ TYPE_DRIVERS }}"
+TENANT_NETWORK_TYPES: "{{ TENANT_NETWORK_TYPES }}"
+MECHANISM_DRIVERS: "{{ MECHANISM_DRIVERS }}"
+EXTENSION_DRIVERS: "{{ EXTENSION_DRIVERS }}"
+ENABLE_SECURITY_GROUP: "{{ ENABLE_SECURITY_GROUP }}"
+FIREWALL_DRIVER: "{{ FIREWALL_DRIVER }}"
+LOCAL_IP: "{{ LOCAL_IP }}"
+USE_NAMESPACES: "{{ USE_NAMESPACES }}"
+DHCP_DRIVER: "{{ DHCP_DRIVER }}"
+INTERFACE_DRIVER: "{{ INTERFACE_DRIVER }}"
+NOVA_METADATA_PORT: "{{ NOVA_METADATA_PORT }}"
+{% if TENANT_NETWORK_TYPES == "VXLAN" %}
+VNI_RANGE: "{{ VNI_RANGE }}"
+{% endif %}
+SERVER_ROLE: "{{ SERVER_ROLE }}"
+VETH_1: "{{ VETH_1 }}"
+L3_PHYSICAL_INTERFACE: "{{ L3_PHYSICAL_INTERFACE }}"
+PHYSNET_EXTERNAL: "{{ PHYSNET_EXTERNAL }}"
+PHYSNET_PROVIDER: "{{ PHYSNET_PROVIDER }}"
+PHYSNET_PROVIDER_FIA: "{{ PHYSNET_PROVIDER_FIA }}"
+PHYSNET_PROVIDER_FIB: "{{ PHYSNET_PROVIDER_FIB }}"
+PHYSNET_TENANT: "{{ PHYSNET_TENANT }}"
+PROVIDER_EXISTS: "{{ PROVIDER_EXISTS }}"
+TENANT_VLAN_RANGES: "{{ TENANT_VLAN_TUPLES|default('') }}"
+{# ALL_VLAN_RANGES and PROVIDER_VLAN_RANGES are only used with ACI Unified Plugin #}
+PROVIDER_VLAN_RANGES: "{{ PROVIDER_VLAN_TUPLES|default('') }}"
+ALL_VLAN_RANGES: "{{ ALL_VLAN_TUPLES|default('') }}"
+ENABLE_JUMBO_FRAMES: "{{ ENABLE_JUMBO_FRAMES | default(False) }}"
+MAX_MTU_SIZE: "{{ MAX_MTU_SIZE }}"
+HEADERS_FOR_VPP: "{{ HEADERS_FOR_VPP }}"
+ENABLE_L3_HA: "{{ ENABLE_L3_HA }}"
+PUBLIC_PROTOCOL: "{{ PUBLIC_PROTOCOL }}"
+INTERNAL_PROTOCOL: {{ INTERNAL_PROTOCOL }}
+MEMCACHED_SERVERS: {{ MEMCACHED_SERVERS }}
+{% if VTS_PARAMETERS is defined %}
+VTS_NCS_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+VTS_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+VTS_PASSWORD: "{{ VTS_PARAMETERS | vts_encrypt }}"
+VTS_VMM_ID: "{{ VTS_PARAMETERS.VTS_VMM_ID | default('237CB330-1381-4D9D-9A11-233D10245E55') }}"
+VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+{% endif %}
+{% if UCSMCOMMON is defined %}
+{% if UCSMCOMMON['ENABLE_UCSM_PLUGIN'] is defined %}
+{% if UCSMCOMMON['ENABLE_UCSM_PLUGIN'] == true %}
+UCSM_IP: "{{ UCSMCOMMON.ucsm_ip }}"
+UCSM_PASSWORD: "{{ UCSMCOMMON.ucsm_password }}"
+UCSM_USERNAME: "{{ UCSMCOMMON.ucsm_username }}"
+UCSM_VIRTIO_PORTS: "p"
+{% if UCSMCOMMON['ENABLE_PROV_FI_PIN'] is defined and UCSMCOMMON['ENABLE_PROV_FI_PIN'] == true %}
+UCSM_PROV_PIN: True
+UCSM_VNIC_TEMPLATE_LIST: "phys_prov_fia:org-root/org-{{ UCSMCOMMON.ucsm_resource_prefix }}:{{UCSMCOMMON.ucsm_resource_prefix }}p0 phys_prov_fib:org-root/org-{{ UCSMCOMMON.ucsm_resource_prefix }}:{{UCSMCOMMON.ucsm_resource_prefix }}p1 physnet1:org-root/org-{{ UCSMCOMMON.ucsm_resource_prefix }}:{{ UCSMCOMMON.ucsm_resource_prefix }}t"
+{% else %}
+UCSM_VNIC_TEMPLATE_LIST: "phys_prov:org-root/org-{{ UCSMCOMMON.ucsm_resource_prefix }}:{{UCSMCOMMON.ucsm_resource_prefix }}p physnet1:org-root/org-{{ UCSMCOMMON.ucsm_resource_prefix }}:{{ UCSMCOMMON.ucsm_resource_prefix }}t"
+{% endif %}
+{% if UCSMCOMMON['ENABLE_QOS_POLICY'] is defined and UCSMCOMMON['ENABLE_QOS_POLICY'] == true %}
+{% if UCSMCOMMON['ENABLE_QOS_FOR_PORT_PROFILE'] is defined and UCSMCOMMON['ENABLE_QOS_FOR_PORT_PROFILE'] == true %}
+ENABLE_QOS_POLICY: "{{ UCSMCOMMON.ENABLE_QOS_POLICY }}"
+ENABLE_QOS_FOR_PORT_PROFILE: "{{ UCSMCOMMON.ucsm_resource_prefix }}qos"
+{% endif %}
+{% endif %}
+{% if SRIOV_MULTIVLAN_TRUNK is defined %}
+SRIOV_MULTIVLAN_LIST: "{{ trunk_mvlan_w_sriov|join(' ') }}"
+{% endif %}
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if MECHANISM_DRIVERS == "vpp" %}
+VPP_ETCD_HOST: "{{ groups['etcd_all'] | join(',') }}"
+VPP_ETCD_PORT: "{{ VPP_ETCD_PORT | default(2379)}}"
+VPP_ETCD_USER: "{{ VPP_ETCD_USER }}"
+{% endif %}
+
+NUM_CONTROLLERS: "{{ groups['neutron_server_all'] | length }}"
+
+USE_INTEL: {{ use_intel }}
+INTEL_SRIOV: {{ intel_sriov }}
+VIC_NIC_COMBO: {{ vic_nic_combo }}
+NIC_SRIOV: {{ nic_sriov }}
+
+{% if intel_sriov == true %}
+USE_SAME_PHYSNET: {{ USE_SAME_PHYSNET }}
+SRIOV_INTERFACE_NAME: {{ SRIOV_INTERFACE_NAME }}
+SRIOV_PHYSNET_NAME: {{ SRIOV_PHYSNET_NAME }}
+SRIOV_PHYSNET_MAPPINGS: {{ sriov_physnet_mappings }}
+SRIOV_PHYS_PORTS: {{ sriov_phys_ports }}
+FPGA_INTERFACE_NAME: {{ FPGA_INTERFACE_NAME }}
+FPGA_PHYSNET_NAME: {{ FPGA_PHYSNET_NAME }}
+FPGA_PHYSNET_MAPPINGS: {{ fpga_physnet_mappings }}
+FPGA_PHYS_PORTS: {{ fpga_phys_ports }}
+VENDOR_ID: {{ VENDOR_ID }}
+{% set supported_pci_vendor_devs = [] %}
+{% for pid in supported_intel_pids %}
+{{ supported_pci_vendor_devs.append(VENDOR_ID+":"+pid) }}
+{% endfor %}
+SUPPORTED_PCI_VENDOR_DEVS: {{ supported_pci_vendor_devs|join(',') }}
+{% endif %}
+
+{% if MECHANISM_DRIVERS == "linuxbridge" and use_intel == true %}
+INTEL_EXT_INTERFACE: {{ intel_ext_interface }}
+INTEL_PROV_INTERFACE: {{ intel_prov_interface }}
+{% endif %}
+
+{% if BASE_MACADDRESS is defined %}
+BASE_MACADDRESS: {{ BASE_MACADDRESS }}
+{% endif %}
+
+{% if MECHANISM_DRIVERS == "aci" %}
+APIC_USERNAME: {{ APICINFO.apic_username }}
+APIC_PASSWORD: {{ APICINFO.apic_password }}
+APIC_HOSTS: {{ APICINFO.apic_hosts | join(',') }}
+ACI_OPTIMIZED_DHCP: "{{ ACI_OPTIMIZED_DHCP | default(False) }}"
+ACI_OPTIMIZED_METADATA: "{{ ACI_OPTIMIZED_METADATA | default(True) }}"
+APIC_DHCP_DRIVER: "{{ APIC_DHCP_DRIVER }}"
+{% endif %}
+{% if ENABLE_ESC_PRIV is defined and ENABLE_ESC_PRIV == true %}
+ESC_PRIV: {{ ENABLE_ESC_PRIV }}
+{% endif %}
+{% if OPTIONAL_SERVICE_LIST is defined %}
+OPTIONAL_SERVICE_LIST: {{ OPTIONAL_SERVICE_LIST|join(',') }}
+{% endif %}
+{% if OPTIONAL_SERVICE_LIST is defined %}
+{% if 'ironic' in OPTIONAL_SERVICE_LIST %}
+{% if IRONIC.IRONIC_SWITCHDETAILS[0].switch_type == "Nexus" %}
+IRONIC_ENABLE: "True"
+IRONIC_NETWORK_VLAN: {{ ironic_network.vlan_id }}
+IRONIC_SWITCH_HOSTNAME: "{% for i in range(0, IRONIC.IRONIC_SWITCHDETAILS | length) %}{{ IRONIC.IRONIC_SWITCHDETAILS[i].hostname }} {%endfor%}"
+IRONIC_SWITCH_USERNAME: "{% for i in range(0, IRONIC.IRONIC_SWITCHDETAILS | length) %}{{ IRONIC.IRONIC_SWITCHDETAILS[i].username }} {%endfor%}"
+IRONIC_SWITCH_PASSWORD: "{% for i in range(0, IRONIC.IRONIC_SWITCHDETAILS | length) %}{{ IRONIC.IRONIC_SWITCHDETAILS[i].password }} {%endfor%}"
+IRONIC_SWITCH_SSH_IP: "{% for i in range(0, IRONIC.IRONIC_SWITCHDETAILS | length) %}{{ IRONIC.IRONIC_SWITCHDETAILS[i].ssh_ip }} {%endfor%}"
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if OPTIONAL_SERVICE_LIST is defined %}
+{% if 'taas' in OPTIONAL_SERVICE_LIST %}
+TAAS_ENABLE: "True"
+{% endif %}
+{% endif %}
+
+CEILOMETER_ENABLED: {% if NFVIMON is defined or (OPTIONAL_SERVICE_LIST is defined and 'ceilometer' in OPTIONAL_SERVICE_LIST) -%} True {%- else -%} False {%- endif %}
+
+{% if NETWORK_OPTIONS is defined %}
+NETWORK_OPTIONS: {{ NETWORK_OPTIONS|join(',') }}
+{% if 'l3vpn' in NETWORK_OPTIONS %}
+{% if inventory_hostname == groups['neutron_server_all'][0] %}
+DEVICE_IP: {{ TORSWITCHINFO.SWITCHDETAILS[0].ssh_ip }}
+GRPC_PORT: {{ TORSWITCHINFO.SWITCHDETAILS[0].grpc_port }}
+GRPC_USER: {{ TORSWITCHINFO.SWITCHDETAILS[0].grpc_user }}
+GRPC_PASS: {{ TORSWITCHINFO.SWITCHDETAILS[0].grpc_pass }}
+AS_NUM: {{ MULTI_SEGMENT_ROUTING_INFO.bgp_as_num }}
+{% elif inventory_hostname == groups['neutron_server_all'][1] %}
+DEVICE_IP: {{ TORSWITCHINFO.SWITCHDETAILS[1].ssh_ip }}
+GRPC_PORT: {{ TORSWITCHINFO.SWITCHDETAILS[1].grpc_port }}
+GRPC_USER: {{ TORSWITCHINFO.SWITCHDETAILS[1].grpc_user }}
+GRPC_PASS: {{ TORSWITCHINFO.SWITCHDETAILS[1].grpc_pass }}
+AS_NUM: {{ MULTI_SEGMENT_ROUTING_INFO.bgp_as_num }}
+{% endif %}
+{% endif %}
+{% if 'enable_ecmp' in NETWORK_OPTIONS %}
+{% if 'vxlan' in NETWORK_OPTIONS %}
+{# place holder #}
+{% endif %}
+{% if 'sr-mpls' in NETWORK_OPTIONS %}
+{% set srmpls_physnets = [] %}
+{% set srmpls_underlay_vlans = [] %}
+{% set srmpls_tep_cidrs = [] %}
+{% set srmpls_gateways = [] %}
+{% for net in NETWORKING.networks if net.segments[0] == 'sr-mpls-tenant' %}
+{{ srmpls_physnets.append(NETWORK_OPTIONS['sr-mpls'][net.segments[0]]['physnet_name']) }}
+{{ srmpls_underlay_vlans.append(net.vlan_id) }}
+{{ srmpls_tep_cidrs.append(srmpls[net.segments[0]]['srmpls_tep_cidr']) }}
+{{ srmpls_gateways.append(net.gateway) }}
+{% endfor %}
+VPP_SR_PREFIX_SID: "{{ srmpls['sr']['prefix_sid'] }}"
+VPP_SR_PHYSNETS: "{{ srmpls_physnets | join(',') }}"
+VPP_SR_UNDERLAY_VLANS: "{{ srmpls_underlay_vlans | join(',') }}"
+VPP_SR_TEP_CIDRS: "{{ srmpls_tep_cidrs | join(',') }}"
+VPP_SR_GATEWAYS: "{{ srmpls_gateways | join(',') }}"
+{% endif %}
+{% endif %}
+{% if 'vxlan' in NETWORK_OPTIONS %}
+VNI_RANGE: 5000:65535
+{% set vxlan_physnets = [] %}
+{% set vxlan_underlay_vlans  = [] %}
+{% set vxlan_vtep_cidrs = [] %}
+{% set vxlan_gateways = [] %}
+{% for net in NETWORKING.networks if net.segments[0][:5] == 'vxlan' %}
+{{ vxlan_physnets.append(NETWORK_OPTIONS['vxlan'][net.segments[0]]['physnet_name']) }}
+{{ vxlan_underlay_vlans.append(net.vlan_id) }}
+{{ vxlan_vtep_cidrs.append(vxlan[net.segments[0]]['vxlan_vtep_cidr']) }}
+{{ vxlan_gateways.append(net.gateway) }}
+{% endfor %}
+VPP_VXLAN_PHYSNETS: "{{ vxlan_physnets | join(',') }}"
+VPP_VXLAN_UNDERLAY_VLANS: "{{ vxlan_underlay_vlans | join(',') }}"
+VPP_VXLAN_VTEP_CIDRS: "{{ vxlan_vtep_cidrs | join(',') }}"
+VPP_VXLAN_GATEWAYS: "{{ vxlan_gateways | join(',') }}"
+{% endif %}
+{% endif %}
+{% if VAULT is defined and VAULT.enabled == True %}
+# VAULT
+VAULT_TOKEN: {{ TOKEN }}
+MGMT_IP: {{ build_node_ip | ipwrap }}
+PASSWORD_VARS: {{ PASSWORD_VARS }}
+{% else %}
+ADMIN_USER_PASSWORD: {{ ADMIN_USER_PASSWORD }}
+NEUTRON_DB_PASSWORD: {{ NEUTRON_DB_PASSWORD }}
+DB_ROOT_PASSWORD: {{ DB_ROOT_PASSWORD }}
+NOVA_KEYSTONE_PASSWORD: {{ NOVA_KEYSTONE_PASSWORD }}
+NEUTRON_KEYSTONE_PASSWORD: {{ NEUTRON_KEYSTONE_PASSWORD }}
+METADATA_PROXY_SHARED_SECRET: {{ METADATA_PROXY_SHARED_SECRET }}
+RABBITMQ_PASSWORD: {{ RABBITMQ_PASSWORD }}
+{% if MECHANISM_DRIVERS == "vpp" %}
+VPP_ETCD_PASSWORD: "{{ VPP_ETCD_PASSWORD }}"
+{% endif %}
+{% endif %}
+WORKERS: {{ WORKERS }}

@@ -1,0 +1,31 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create mcast daemon Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }}
+
+# Backup the systemd file
+- name: back up the mcast daemon systemd file
+  command: cp /usr/lib/systemd/system/docker-mcast-daemon.service /docker/mcast_daemon_{{ MCAST_DAEMON_PREVIOUS_TAG }}/docker-mcast-daemon.service
+
+#####################################################
+# Shut down the old mcast daemon containers
+####################################################
+- name: Shut off mcast docker service
+  service:
+    name: docker-mcast-daemon
+    enabled: no
+    state: stopped
+
+- name: Remove mcast daemon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mcast-daemon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload

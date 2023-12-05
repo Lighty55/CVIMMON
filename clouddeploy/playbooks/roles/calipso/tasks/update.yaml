@@ -1,0 +1,14 @@
+- include_vars: "{{ playbook_dir }}/../../openstack-configs/update.yaml"
+
+- include: prepare-update.yaml
+  when: host_control
+
+- include_vars: "{{ playbook_dir }}/../../openstack-configs/docker.yaml"
+
+- include: calipso-mgmt-deploy.yaml
+  static: no
+  when: mgmt
+
+- include: calipso-host-control-deploy.yaml
+  static: no
+  when: host_control

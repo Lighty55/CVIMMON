@@ -1,0 +1,26 @@
+# Per RHEL's documentation, the direct use of libcgroup to mange cgroups are
+# deprecated since RHEL7, and systemd is recommended to mange cgroups (ref 1).
+# However, the current feature what systemd is offering is really limitted,
+# which does't support cpuset limit (ref 2). Therefore, the tranditional way
+# for managing cgroups is still used.
+#
+# REF:
+# (1) https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Resource_Management_Guide/chap-Using_libcgroup_Tools.html
+# (2) https://access.redhat.com/solutions/1445073
+
+- name: Get default cpuset.mems
+  shell: cat /sys/fs/cgroup/cpuset/cpuset.mems
+  register: ceph_osd_cpuset_mems
+
+- name: Rendering cgroup configuration file
+  template:
+    src: cgconfig.conf.j2
+    dest: /etc/cgconfig.conf
+    mode: 0644
+
+- name: Enable cgconfig service
+  systemd:
+    name: cgconfig
+    enabled: yes
+    state: restarted
+    masked: no

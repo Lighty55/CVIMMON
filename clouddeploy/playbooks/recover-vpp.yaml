@@ -1,0 +1,12 @@
+- name: Restart neutron-vpp Container service.
+  hosts: neutron_vpp_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+      - name: Restarting neutron vpp
+        service:
+          name: docker-neutron_vpp
+          enabled: yes
+          state: restarted
+        when: MECHANISM_DRIVERS == "vpp"

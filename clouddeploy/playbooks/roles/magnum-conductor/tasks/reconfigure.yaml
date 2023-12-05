@@ -1,0 +1,93 @@
+- name: Copy the new Magnum conductor configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "magnum_conductor_config.j2", dest: "{{docker.magnum_conductor.host_data_dir }}/magnum_conductor_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/magnum_conductor/magnum_conductor_config /docker/magnum_conductor/magnum_conductor_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/magnum_conductor/magnum_conductor_reconfigure /docker/magnum_conductor/magnum_conductor_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/magnum_conductor/magnum_conductor_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now update the SQL password if the MAGNUM_DB_PASSWORD is part of update
+- name: Update the SQL password
+  command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ MAGNUM_DB_USER }}'@'%' = PASSWORD('{{ MAGNUM_DB_PASSWORD }}');flush privileges"
+  when: " 'MAGNUM_DB_PASSWORD' in command_result.stdout "
+
+# Now update the MAGNUM keystone password if it is part of update
+- name: Update the magnum keystone password
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=user_update
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           username={{ MAGNUM_KEYSTONE_USER }}
+           password={{ MAGNUM_KEYSTONE_PASSWORD }}
+           project={{ SERVICE_TENANT_NAME }}
+           role=admin"
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'MAGNUM_KEYSTONE_PASSWORD' in command_result.stdout "
+
+- name: Updating the magnum endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=magnum
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ MAGNUM_API_SERVICE_HOST }}:{{ MAGNUM_API_PORT }}/v1
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ MAGNUM_API_PORT }}/v1
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:{{ MAGNUM_API_PORT }}/v1"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+# Now delete the template file inside the container
+- name: Delete the magnum conductor config file inside container to force a reconfigure
+  command: docker cp /docker/magnum_conductor/magnum_conductor_config magnumconductor_{{ docker.magnum_conductor.image_tag }}:/opt/kolla/magnum_conductor_config
+  when: command_result.stdout != ""
+
+# Now restart the service
+- name: Restart magnum conductor service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-magnumconductor
+  when: command_result.stdout != ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != ""
+
+- name: Check if Magnum conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumconductor_{{ docker.magnum_conductor.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != ""
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum conductor Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

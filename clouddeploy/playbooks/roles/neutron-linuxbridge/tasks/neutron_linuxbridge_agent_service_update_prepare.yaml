@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron linuxbridge Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}
+
+# Back up the neutron linuxbridge volume contents
+- name: back up the neutron linuxbridge volume contents
+  shell: cp /docker/neutron_linuxbridge_agent/* /docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the neutron linuxbridge systemd file
+  command: cp /usr/lib/systemd/system/docker-neutronlb.service /docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}/docker-neutronlb.service
+
+#####################################################
+# Shut down the old neutron linuxbridge containers
+####################################################
+- name: Shut off neutron linuxbridge docker service
+  service:
+    name: docker-neutronlb
+    enabled: no
+    state: stopped
+
+- name: Remove neutron linuxbridge service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronlb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of neutron linuxbridge volume
+- name: List contents of neutron linuxbridge volume
+  shell: ls -A1 /docker/neutron_linuxbridge_agent/
+  register: contents
+
+- name: Remove contents of neutron linuxbridge volume
+  file:
+    path: /docker/neutron_linuxbridge_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

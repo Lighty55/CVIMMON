@@ -1,0 +1,174 @@
+###############################################################################
+# Disk replace playbook
+#
+# This playbook will look for any new disk(s) that have been added to the
+# server as replacements and will add them to the Disk Group as spares.
+###############################################################################
+
+- name: Check if raid_status was previously determined
+  stat:
+    path: "{{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+  register: raid_status_file
+  delegate_to: localhost
+
+- name: End play if this is Micropod - avoiding re-running
+  meta: end_play
+  when: raid_status_file.stat is defined and raid_status_file.stat.exists
+
+- name: show storcli
+  shell: "/opt/MegaRAID/storcli/storcli64 show J"
+  register: result
+
+- name: Save storcli JSON output
+  set_fact:
+    storcli_result: "{{ result.stdout | from_json }}"
+
+- name: Get controller number
+  set_fact:
+    control_num: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['Ctl'] }}"
+
+- name: Determine virtual drive controller - avoid flexfash drives
+  meta: end_play
+  when: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['VDs'] }} == 0"
+
+- name: Check for disks with Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ control_num }}/fall show J"
+  register: foreign_cfg_result
+
+- name: Save Foreign config result
+  set_fact:
+    fcfg: "{{ foreign_cfg_result.stdout | from_json }}"
+  when: foreign_cfg_result is defined and foreign_cfg_result.stdout != ""
+
+- name: Clear any Foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ control_num }}/fall delete"
+  when: fcfg is defined and fcfg.Controllers[0]['Response Data']['FOREIGN CONFIGURATION'] is defined
+
+- name: show storcli - post clear foreign config
+  shell: "/opt/MegaRAID/storcli/storcli64 show J"
+  register: result
+  when: fcfg is defined and fcfg.Controllers[0]['Response Data']['FOREIGN CONFIGURATION'] is defined
+
+- name: Save storcli JSON output - post clear foreign config
+  set_fact:
+    storcli_result: "{{ result.stdout | from_json }}"
+  when: fcfg is defined and fcfg.Controllers[0]['Response Data']['FOREIGN CONFIGURATION'] is defined
+
+- name: Get raid status, controller number, health status and number of PDs and VDs
+  set_fact:
+    raid_status: "{{ storcli_result.Controllers[0]['Command Status']['Status'] }}"
+    control_num: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['Ctl'] }}"
+    raid_health: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['Hlth'] }}"
+    num_of_PDs: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['PDs'] }}"
+    num_of_VDs: "{{ storcli_result.Controllers[0]['Response Data']['System Overview'][0]['VDs'] }}"
+
+- name: Save raid status, controller number, health status and number of PDs and VDs
+  shell:
+    cmd: |
+      echo 'RAID_status: {{ raid_status }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'RAID_health: {{ raid_health }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'controller_num: {{ control_num }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'number_of_VDs: {{ num_of_VDs }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'number_of_PDs: {{ num_of_PDs }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+  when: '("{{ raid_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: show storcli for controller
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ control_num }} show J"
+  register: result
+
+- name: Save storcli controller JSON output
+  set_fact:
+    storcli_disk_result: "{{ result.stdout | from_json }}"
+
+- name: Get controller status
+  set_fact:
+    command_status: "{{ storcli_result.Controllers[0]['Command Status']['Status'] }}"
+    controller_status: "{{ storcli_disk_result.Controllers[0]['Response Data']['VD LIST'][0]['State'] }}"
+    raid_level: "{{ storcli_disk_result.Controllers[0]['Response Data']['VD LIST'][0]['TYPE'] }}"
+    eid: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'][0]['EID:Slt'] }}"
+    disk_group: "{{ storcli_disk_result.Controllers[0]['Response Data']['TOPOLOGY'][0]['DG'] }}"
+
+- name: Save controller status
+  shell:
+    cmd: |
+      echo 'VD_health: {{ controller_status }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'RAID_level: {{ raid_level }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'Enclosure_ID: {{ eid }}' | cut -d \: -f 1,2 >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+      echo 'Disk_Group: {{ disk_group }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}
+  when: '("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: Store the medium of good disks
+  set_fact:
+    disk_med: "{{ item.Med }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" == "{{ PDISK_ONLINE_STATE }}") and ("{{ item.Med }}" in PDISK_VALID_MED) and ("{{ command_status }}" == "Success") and disk_med is undefined'
+
+- name: Save the disk medium
+  shell: "echo 'Disk_Med: {{ disk_med }}' >> {{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+  delegate_to: localhost
+
+- name: Check state of each disk to identify bad disks
+  shell: "echo 'disk {{ item['EID:Slt'] }} DG {{ item.DG }} State {{ item.State }}' >> {{ BAD_DISKS_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" not in PDISK_VALID_STATES) and ("{{ item.Med }}" in PDISK_VALID_MED) and ("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: Check state of each disk to identify existing spare disks
+  shell: "echo 'disk {{ item['EID:Slt'] }} DG {{ item.DG }} State {{ item.State }}' >> {{ SPARE_DISKS_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" == "{{ PDISK_SPARE_STATE }}") and ("{{ item.Med }}" in PDISK_VALID_MED) and ("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: Check state of each disk to identify disks rebuilding
+  shell: "echo 'disk {{ item['EID:Slt'] }} DG {{ item.DG }} State {{ item.State }}' >> {{ RBLD_DISKS_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" == "{{ PDISK_RBLD_STATE }}") and ("{{ item.Med }}" in PDISK_VALID_MED) and ("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: Check state of each disk to identify disks to place as spares
+  shell: "echo 'disk {{ item['EID:Slt'] }} DG {{ item.DG }} State {{ item.State }}' >> {{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" in PDISK_TO_REPLACE_STATES) and ("{{ item.DG }}" != "F") and ("{{ item.Med }}" in PDISK_VALID_MED) and ("{{ item.Med }}" == "{{ disk_med }}") and ("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+- name: Check state of each disk to identify disks in foreign configuration
+  shell: "echo 'disk {{ item['EID:Slt'] }} DG {{ item.DG }} State {{ item.State }}' >> {{ FCFG_DISKS_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ storcli_disk_result.Controllers[0]['Response Data']['PD LIST'] }}"
+  when: '("{{ item.State }}" in PDISK_VALID_STATES) and ("{{ item.DG }}" == "F") and ("{{ command_status }}" == "Success")'
+  delegate_to: localhost
+
+# For Micropod, ensure that disks in add_as_spares are not OSDs. The following tasks do this.
+- name: Check if there actually are disks to be added as spares
+  stat:
+    path: "{{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+  register: disks_to_add
+  delegate_to: localhost
+
+- name: Get list of slots for the spare disks
+  shell:
+    cmd: cat {{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }} | awk '/disk/{print $2}' | cut -d ":" -f 2
+  register: Slot_ID
+  delegate_to: localhost
+  when: disks_to_add.stat.exists
+
+- name: Determine if spare disk slot is OSD slot
+  shell:
+    cmd: "cat /etc/fstab | grep -w '#Slot:{{ item }}' | cut -d':' -f2 | cut -d' ' -f1"
+  register: result
+  with_items: "{{ Slot_ID.stdout_lines }}"
+  when: disks_to_add.stat.exists
+
+- name: Save results
+  set_fact: same_slots="[{% for i in result.results %}{{ i.stdout }},{%endfor%}]"
+  when: disks_to_add.stat.exists
+
+- name: Update add_as_spares file if there is overlap
+  lineinfile:
+    dest: "{{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+    state: absent
+    regexp: '{{ item }} DG'
+  with_items: "{{ same_slots }}"
+  delegate_to: localhost
+  when: disks_to_add.stat.exists

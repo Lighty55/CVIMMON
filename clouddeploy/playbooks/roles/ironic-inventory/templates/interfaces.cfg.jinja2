@@ -1,0 +1,48 @@
+{% for server_name, server_info in IRONIC_INVENTORY['SERVERS'].items() if EXISTING_IRONIC_NODES_STATE[server_name] | default('')  not in ['active', 'available'] %}
+{% for portgroup in server_info['portgroups'] | default([]) %}
+{% set portgroup_loop = loop %}
+{% for switch, port in portgroup['ports'].items() %}
+{% set switch_loop = loop %}
+{% if switch == ironic_switch['hostname'] %}{# Creating config for exact switch thus ingore <other switch>:<ports> #}
+{# If server is using two+ ports attached to one switch then 'port' variable may be a list otherwise it is a string #}
+{% if port is iterable and port is not string %}{% set switchports = port %}{% else %}{% set switchports = [port] %}{% endif %}
+{% for sp in switchports %}{# Finally, iterrate switchports (list of one or more ports) on the switch #}
+no int {{ portgroup['name'] }}
+interface {{ sp }}
+  description IRONIC interface to {{ server_name }}
+  no channel-group
+  switchport
+  spanning-tree port type edge
+  switchport mode access
+{% if loop.index == 1 and switch_loop.index == 1 and portgroup_loop.index == 1 %}
+{# configure vlan on the 'first switchport' only. It is PXE enabled port.
+'first switchport' - Port found in first portgroup, first switch-ports item in 'ports' dictionary and first port if list.
+Ex #1: 'first port' == Ethernet1/29
+    portgroups:
+      - name: Po29
+        address: fc:5b:39:5b:6c:10
+        ports:
+          marahaika-tora: [Ethernet1/29, Ethernet1/9]
+          marahaika-torb: [Ethernet1/30, Ethernet1/10]
+Ex #2: 'first port' == Ethernet1/29
+    portgroups:
+      - name: Po29
+        address: fc:5b:39:5b:6c:10
+        ports:
+          marahaika-tora: Ethernet1/29
+          marahaika-torb: Ethernet1/30
+#}
+  switchport access vlan {{ ironic_network['vlan_id'] }}
+{% else %}
+  no switchport access vlan
+{% endif %}
+  no switchport trunk native vlan
+  no switchport trunk allowed vlan all
+{# mtu=1500 because baremetal node talks to br_mgmt having 1500 in any case (huge pages of not) #}
+  mtu 1500
+  no shutdown
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endfor %}

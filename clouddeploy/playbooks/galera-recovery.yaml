@@ -1,0 +1,13 @@
+###############################################################################
+# Galera cluster failure recovery playbook
+#
+# This playbook will try to determine the best way to restore a problem galera
+# cluster with minimal down time and/or data loss and perform the recovery.
+# Post recovery it will make sure all docker container services are started.
+###############################################################################
+- name: galera cluster failure recovery
+  hosts: mariadb_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  max_fail_percentage: 0
+  roles:
+    - { role: galera_recovery }

@@ -1,0 +1,9 @@
+- include: keystone_upgrade_prepare.yaml
+- include: keystone_service_install.yaml
+- include: keystone_service_config.yaml
+- include: keystone_service_bootstrap.yaml
+  when: SKIP_UPGRADE is defined and inventory_hostname == groups['keystone_all'][0]
+- include: keystone_service_start.yaml
+- include: keystone_users_update.yaml
+- include: keystone_autorotate_cronjob.yaml
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"

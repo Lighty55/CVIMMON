@@ -1,0 +1,56 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep gobgp_{{ docker.gobgp.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias gobgp='in_container gobgp_"
+    line: "{{ item }}"
+  with_items:
+    - alias gobgp='in_container gobgp_{{ docker.gobgp.image_tag }}'
+
+- name: Create log directories
+  file:
+    path: /var/log/gobgp
+    state: directory
+    recurse: yes
+    mode: 0770
+    group: 500
+    owner: 2207
+
+- name: Start the gobgp Docker Service.
+  docker_container:
+    name: "gobgp_{{ docker.gobgp.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.gobgp.name }}:{{ docker.gobgp.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.gobgp.host_data_dir }}:{{ docker.gobgp.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/gobgp:/var/log/gobgp:z
+      - /run:/run:shared
+      - /var/crash:/var/crash
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Check if gobgp Docker container has started running
+  shell: docker ps -a | grep Up | grep gobgp_{{ docker.gobgp.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="gobgp Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-gobgp
+  tags:
+    - reboot-on-failure

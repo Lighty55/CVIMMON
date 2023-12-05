@@ -1,0 +1,8 @@
+- name: Copy Ironic API config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "ironic_api_config.j2",
+        dest: "{{ docker.ironic_api.host_data_dir }}/{{ IRONIC_API_CONFIG_FILE | default('ironic_api_config') }}" }

@@ -1,0 +1,105 @@
+- name: Check cinder internal tenant
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack project list | grep -w "cinder-internal"| awk '{ print $2}'
+  register: tenant
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: Check cinder internal user
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack user list | grep -w "cinder-internal"| awk '{ print $2}'
+  register: user
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: add tenant/user UUID cinder
+  set_fact:
+    tenant_uuid: "{{ tenant.stdout }}"
+    user_uuid: "{{ user.stdout }}"
+
+- name: Copy the new cinder scheduler configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "cinder_scheduler_config.j2", dest: "{{docker.cinder_scheduler.host_data_dir }}/cinder_scheduler_reconfigure" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/cinder_scheduler/cinder_scheduler_config /docker/cinder_scheduler/cinder_scheduler_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/cinder_scheduler/cinder_scheduler_reconfigure /docker/cinder_scheduler/cinder_scheduler_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/cinder_scheduler/cinder_scheduler_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the cinder scheduler config file inside container to force a reconfigure
+  command: docker cp /docker/cinder_scheduler/cinder_scheduler_config cinderscheduler_{{ docker.cinder_scheduler.image_tag }}:/opt/kolla/cinder_scheduler_config
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec cinderscheduler_{{ docker.cinder_scheduler.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec cinderscheduler_{{ docker.cinder_scheduler.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec cinderscheduler_{{ docker.cinder_scheduler.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+# Now restart the service
+- name: Restart cinder scheduler service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-cindersch
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- pause: seconds=5 prompt="Waiting for sometime"
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check if cinder scheduler Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderscheduler_{{ docker.cinder_scheduler.image_tag }} | cut -f1 -d " "
+  register: container_status
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Fail if container is not UP.
+  fail: msg="cinder scheduler Container does not seem to be running"
+  when: (container_status is defined and container_status.stdout == "")

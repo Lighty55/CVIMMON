@@ -1,0 +1,63 @@
+- shell:  ls -dl /root/openstack-configs | awk '{ print $NF }' | sed s'?/openstack-configs??'g
+  register: workspace
+
+- name: Create backup directory
+  file: path="{{ backupdir }}" state=directory
+
+- shell: echo "{{ workspace.stdout }}" > "/root/openstack-configs/.workspace"
+
+- name: create directories to backup build data
+  file: path="{{ backupdir }}/{{ item }}" state=directory
+  with_items:
+    - "{{ workspace.stdout }}/"
+    - "/opt/cisco/"
+    - "/root/.ssh/"
+    - "/root/.kube/"
+    - "/var/log/cvimmonha/"
+    - "/var/cisco/artifacts/"
+    - "/etc/"
+    - "/var/lib/etcd/"
+    - "{{ argus_image_path }}"
+
+- name: Synchronizing all the build data
+  synchronize: src="{{ item }}" dest="{{ backupdir }}/{{ item }}" compress=no perms=yes rsync_opts="--xattrs"
+  with_items:
+    - "{{ workspace.stdout }}/"
+    - "/opt/cisco/"
+    - "/root/.ssh/"
+    - "/root/.kube/"
+    - "/var/log/cvimmonha/"
+    - "/var/cisco/artifacts/"
+    - "/etc/mercury-version.txt"
+    - "/etc/hosts"
+    - "/etc/ntp.conf"
+    - "/etc/resolv.conf"
+    - "/var/lib/etcd/"
+    - "/var/cisco/artifacts/"
+    - "/root/cvimha_certs/"
+    - "{{ argus_image_path }}/{{ argus_image_name }}"
+
+- name: Generate Network Interface Content File
+  shell: ls /etc/sysconfig/network-scripts/ifcfg-br* | sort | xargs cat | grep -v DNS | grep -v NM_CONTROLLED > "{{ backupdir }}"/.network_file
+
+- name: Generate Network Interface Hash
+  shell: cat "{{ backupdir }}"/.network_file | sha1sum | awk '{ print $1 }' > "{{ backupdir }}"/.network_hash
+
+- name: Store timezone in backup directory
+  shell: timedatectl | grep 'Time zone' | cut -f2 -d':' | cut -f2 -d' ' > {{ backupdir }}/.timezone
+
+- name: Copy the hostname file
+  copy: src="/etc/hostname" dest="{{ backupdir }}/.hostname"
+
+# This should be the last task in this playbook. We should not make any
+# changes to backup directory after the hash is generated. It will brake
+# the restore validation.
+- name: Generate Backup file list
+  shell: find "{{ backupdir }}"  \( -path "{{ backupdir }}/var/lib/docker/volumes/container_registry" -o -name kolla \) -prune -o -type f \( ! -iname '.backup_files' ! -iname '*.pyc' \) -exec sha1sum {} \; | sort -k 1 >> "{{ backupdir }}"/.backup_files
+
+- name: Sort Backup file list
+  shell: cat  "{{ backupdir }}"/.backup_files | sort -k 1 -o "{{ backupdir }}"/.backup_files
+
+- name: Generate Backup hash
+  shell: cat "{{ backupdir }}"/.backup_files | grep -oh '^[0-9a-f]*' | sha1sum | awk '{ print $1 }' > "{{ backupdir }}"/.backup_hash
+

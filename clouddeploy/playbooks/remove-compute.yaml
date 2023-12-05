@@ -1,0 +1,398 @@
+- name: Check if any VM's are running
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - set_fact:
+        ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    - name: Checking for VM's on compute node
+      shell: |
+        openstack server list --all-projects --host={{ item }} | awk '{print $2}' | grep -v ^ID
+      ignore_errors: true
+      environment:
+        OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+        OS_USERNAME: "{{ ADMIN_USER }}"
+        OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+        OS_REGION_NAME: "RegionOne"
+        OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+        OS_PROJECT_DOMAIN_NAME: "default"
+        OS_USER_DOMAIN_NAME: "default"
+        OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+        OS_INTERFACE: "internal"
+      with_items: "{{ COMPUTE }}"
+      register: command_result_v3
+      when: FORCE is not defined
+
+    - name: Print VM's if any running on v3
+      fail: msg="ERROR There are Virtual Machines running on given Compute Nodes. If you intend to delete them please use --force option"
+      when: (FORCE is not defined) and (item.stdout|trim|length > 0)
+      with_items: "{{ command_result_v3.results }}"
+  tags:
+    - base
+
+- name: Stop nova containers before cleaning up
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Stop nova compute if running
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "systemctl stop docker-novacpu"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ compute_ips }}"
+    - name: Stop nova libvirt if running
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "systemctl stop docker-novalibv"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ compute_ips }}"
+    - name: Waiting for the service to go down
+      pause: seconds=60 prompt="Waiting for nova service to go down"
+  tags:
+    - base
+
+- name: Delete VM's on compute node
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  max_fail_percentage: 0
+  tasks:
+    - name: Delete VM's on compute node
+      command: "sh $PWD/roles/remove_compute/templates/remove_vms.sh -n {{ item }}"
+      environment:
+        OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+        OS_USERNAME: "{{ ADMIN_USER }}"
+        OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+        OS_REGION_NAME: "RegionOne"
+        OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+        OS_PROJECT_DOMAIN_NAME: "default"
+        OS_USER_DOMAIN_NAME: "default"
+        OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+      with_items: "{{ COMPUTE }}"
+  tags:
+    - base
+
+- name: Remove necessary containers if host is Reachable
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Remove containers if host is reachable
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      local_action: shell ssh -t -t -o StrictHostKeyChecking=no root@{{ item }} "docker ps -a | grep neutron | cut -f1 -d ' ' | xargs docker rm -f 2> /dev/null"
+      with_items: "{{ compute_ips }}"
+
+    - name: Remove containers if host is reachable
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "docker rm -f novacompute_{{ docker.nova_compute.image_tag }} 2> /dev/null"
+      with_items: "{{ compute_ips }}"
+
+    - pause: seconds=10 prompt="Wait for containers to be removed"
+  tags:
+    - base
+
+# In case of replace-controller, stop all neutron agents and pause for 60 secs
+# This is to prevent orphaned agent records in the DB if the agent heartbeats
+# are still sending updates to nova
+# In case of replace-controller, stop all neutron agents and pause for 60 secs
+# This is to prevent orphaned agent records in the DB if the agent heartbeats
+# are still sending updates to nova
+- name: Discover and shutdown all neutron services
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  gather_facts: False
+  tasks:
+    - name: Discover all neutron agents
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ compute_ips[0] }} systemctl list-unit-files | awk 'match($1,/^docker-neutron.*.service$/) && match($2,/enabled/) {print $1}'
+      ignore_errors: yes
+      register: results
+      failed_when: results and results.rc != 255 and results.rc != 0
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: "{{ compute_ips|length|int == 1 and compute_ips[0] in groups['nova_api_mgmt_ip'] }}"
+
+    - set_fact:
+        neutron_services: "{{ results }}"
+      run_once: true
+      when: results is defined
+
+    - name: Shutdown and disable all services
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ compute_ips[0] }} "systemctl disable {{ item }}; systemctl stop {{ item }}"
+      with_items:
+        - "{{ neutron_services.stdout_lines }}"
+      ignore_errors: yes
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: neutron_services is defined and 'stdout_lines' in neutron_services
+
+    - pause: seconds=60 prompt="Wait for 60 seconds until all agent heartbeats have stop"
+      when: neutron_services is defined and 'stdout_lines' in neutron_services
+  tags:
+    - base
+
+# To avoid IP address conflict later on if the node was accidentally power
+# on, change the node to boot into single user mode so none of the networking
+# interfaces will be active.
+- name: Disable compute node from properly booting if host is reachable
+  hosts: localhost
+  tasks:
+    - name: Change the default grub to boot into single user mode
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "sed -i '/^GRUB_CMDLINE_LINUX=\"/ {/single/! s/ *\"\$/ single\"/}' /etc/default/grub; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ compute_ips }}"
+
+    - name: Update grub config
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "grub2-mkconfig -o /boot/grub2/grub.cfg; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ compute_ips }}"
+
+    - name: Update EFI GRUB if exist
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} "ls /boot/efi/EFI/redhat/grub.cfg 2>&1 >/dev/null && rm -f /boot/efi/EFI/redhat/grub.cfg && cp -f /boot/grub2/grub.cfg /boot/efi/EFI/redhat/grub.cfg; sync; sleep 2; sync"
+      ignore_errors: true
+      register: results
+      failed_when: results and results.rc != 255
+      with_items: "{{ compute_ips }}"
+  tags:
+    - base
+
+# Clean up the allocations table since there is a possibility where if allocations table
+# has entries for a resource provider of the compute being deleted, it will prevent
+# removal of the resource provider consequently resulting in VM placement scheduler
+# errors when the same compute node is added back due to stale entry for the
+# compute node in the resource provider table
+- name: Remove allocations for the resource provider for removed compute
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - set_fact:
+        DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    - name: Delete the allocations for removed compute
+      shell: mysql -h {{ internal_lb_vip_address }} -uroot -p{{ DB_ROOT_PASSWORD }} -P 3306 -e "use nova_api;delete from allocations where resource_provider_id in (select root_provider_id from resource_providers where name='{{ item }}');"
+      with_items:
+        -  "{{ COMPUTE }}"
+      ignore_errors: True
+      failed_when: false
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  tags:
+    - base
+
+- name: Remove DB entries
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  max_fail_percentage: 0
+  tasks:
+    - name: Remove compute information from DB for v3
+      command: "sh $PWD/roles/remove_compute/templates/remove_compute.sh -n {{ item }}"
+      environment:
+        OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}"
+        OS_USERNAME: "{{ ADMIN_USER }}"
+        OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+        OS_REGION_NAME: "RegionOne"
+        OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+        OS_PROJECT_DOMAIN_NAME: "default"
+        OS_USER_DOMAIN_NAME: "default"
+        OS_IDENTITY_API_VERSION: "{{ KEYSTONE_API_VERSION }}"
+      with_items: "{{ COMPUTE }}"
+  tags:
+    - base
+
+- name: Create removed computes group
+  hosts: host_power_all
+  gather_facts: false
+  tasks:
+    - name: Create groups for Removed Compute
+      add_host:
+        hostname: "{{ item }}"
+        groupname: removed_computes
+      with_items:
+        - "{{ compute_ips }}"
+
+- name: Fix /etc/hosts
+  hosts: host_power_all:!removed_computes
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        state: absent
+        regexp: "{{ item }}"
+      with_items: "{{ COMPUTE }}"
+  tags:
+     - base
+
+- name: Check reachable hosts before IPA Client unenrollment
+  hosts: removed_computes
+  gather_facts: no
+  tasks:
+    - command: ping -c1 {{ inventory_hostname }}
+      delegate_to: localhost
+      register: ping_result
+      ignore_errors: True
+      no_log: True
+      failed_when: False
+    - group_by: key=reachable
+      when: ping_result is defined and ping_result|success
+  tags:
+     - base
+
+- name: Unenroll reachable IPA Client hosts
+  hosts: reachable
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ipa-config", ACTION: 'unenroll' }
+  tags:
+     - base
+     - ipa-config
+
+- name: Fix management node /etc/hosts
+  hosts: localhost
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        state: absent
+        regexp: "{{ item }}"
+      with_items: "{{ COMPUTE }}"
+  tags:
+     - base
+
+- name: Remove vtf from vtc on the management node
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: call script
+      command: bash -c "python {{ install_dir }}/tools/vtc_remove_vtf_from_inventory.py {{ item }}"
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      with_items: "{{ COMPUTE }}"
+      when: MECHANISM_DRIVERS == "vts"
+    - name: Verify VTF removal was successful
+      command: bash -c "python {{ install_dir }}/tools/vtc_check.py --compute {{ item }} --uninstalled"
+      ignore_errors: true
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      with_items: "{{ COMPUTE }}"
+      when: MECHANISM_DRIVERS == "vts"
+  tags:
+     - base
+
+- name: Cloudpulse populate
+  hosts: cloudpulse_server_all{{server|default('')}}:!removed_computes
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse-populate", tags: [ "base", "cloudpulse" ] }
+
+- name: Fix management node ~/.ssh/known_hosts
+  hosts: localhost
+  tasks:
+    - lineinfile:
+        dest: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        state: absent
+        regexp: "^{{ item }} "
+      with_items:
+        - "{{ compute_ips }}"
+        - "{{ COMPUTE }}"
+      ignore_errors: true
+      failed_when: False
+  tags:
+     - base
+
+- name: Updating hosts
+  hosts: nova_compute_power_all{{server|default('')}}:!removed_computes
+  tasks:
+    - name: updating novassh hosts
+      shell: docker exec -iu root novassh_{{ docker.nova_ssh.image_tag }} /bin/sh -c "cp /etc/hosts /tmp/. && sed -i '/^.*{{ item }}*$/d' /tmp/hosts && cat /tmp/hosts > /etc/hosts && rm -f /tmp/hosts"
+      with_items: "{{ COMPUTE }}"
+
+    - name: updating novacompute hosts
+      shell: docker exec -iu root novacompute_{{ docker.nova_compute.image_tag }} /bin/sh -c "cp /etc/hosts /tmp/. && sed -i '/^.*{{ item }}*$/d' /tmp/hosts && cat /tmp/hosts > /etc/hosts && rm -f /tmp/hosts"
+      with_items: "{{ COMPUTE }}"
+
+    - name: updating novalibvirt hosts
+      shell: docker exec -iu root novalibvirt_{{ docker.nova_libvirt.image_tag }} /bin/sh -c "cp /etc/hosts /tmp/. && sed -i '/^.*{{ item }}*$/d' /tmp/hosts && cat /tmp/hosts > /etc/hosts && rm -f /tmp/hosts"
+      with_items: "{{ COMPUTE }}"
+  tags:
+     - base
+
+- include: cvim-mon-configure.yaml
+
+# Cleanup stale rabbitmq queues on compute node
+# For replace controller in Micropod skip this section and perform clean up in stop controller
+- name: Create the remainder rabbit node group
+  hosts: rabbitmq_mgmt_ip
+  gather_facts: false
+  tasks:
+    - name: Create group for remainder rabbit nodes
+      add_host:
+        hostname: "{{ item }}"
+        groupname: remainder_rabbitmq
+      with_items: "{{ groups['rabbitmq_mgmt_ip'] }}"
+      when:  replace_controller_ip is not defined or (replace_controller_ip is defined and item != replace_controller_ip)
+  tags:
+    - base
+
+- name: Now delete all queues associated with this node
+  hosts: remainder_rabbitmq[0]
+  tasks:
+    - set_fact:
+       RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    # First fetch the rabbitmqadmin tool
+    - name: Get the rabbitmq admin tool v6 POD
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "curl -g 6 -u guest:{{ RABBITMQ_PASSWORD }} -S http://{{ ansible_host | ipwrap }}:15672/cli/rabbitmqadmin > /opt/kolla/rabbitmqadmin"
+      when: replace_controller_ip is not defined and hostvars[inventory_hostname]['management_ipv6'] is defined
+
+    - name: Get the rabbitmq admin tool v4 POD
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "curl -u guest:{{ RABBITMQ_PASSWORD }} -S http://{{ ansible_host | ipwrap }}:15672/cli/rabbitmqadmin > /opt/kolla/rabbitmqadmin"
+      when: replace_controller_ip is not defined and hostvars[inventory_hostname]['management_ipv6'] is not defined
+
+    # Now change the permission of the tool
+    - name: Change permission of tool
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "chmod +x /opt/kolla/rabbitmqadmin"
+      when: replace_controller_ip is not defined
+
+    # Now delete all queues for the compute nodes in question
+    - name: Delete the queues for this compute node
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} rabbitmqctl list_queues | awk '{print $1}' | grep '.*{{ item }}$' | xargs -I % docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /opt/kolla/rabbitmqadmin --username=guest --password={{ RABBITMQ_PASSWORD}} -H {{ ansible_host }} delete queue name=%
+      with_items: "{{ COMPUTE }}"
+      when: replace_controller_ip is not defined
+
+    # Now remove the rabbitmqadmin binary
+    - name: Remove the rabbitmqadmin binary
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} rm -rf /opt/kolla/rabbitmqadmin
+      when: replace_controller_ip is not defined
+  tags:
+    - base

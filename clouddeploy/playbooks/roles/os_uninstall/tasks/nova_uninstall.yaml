@@ -1,0 +1,513 @@
+# Nova API
+- name: Shut off nova api docker service
+  service:
+    name: docker-novaapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novaapi_uninstall
+
+- name: Remove novaapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaapi.service"
+    state: absent
+  tags:
+    - novaapi_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novaapi_uninstall
+
+- name: Stop and remove nova-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaapi_{{ docker.nova_api.image_tag }}" }
+  tags:
+    - novaapi_uninstall
+
+- name: Remove nova api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_api.name }}"
+    tag: "{{ docker.nova_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novaapi_uninstall
+
+- name: Remove Nova API Directory
+  file:
+    path: "{{ docker.nova_api.host_data_dir }}"
+    state: absent
+  tags:
+    - novaapi_uninstall
+
+# Nova Placement API
+- name: Shut off nova placementapi docker service
+  service:
+    name: docker-novaplacementapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novaplacementapi_uninstall
+
+- name: Remove novaplacementapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaplacementapi.service"
+    state: absent
+  tags:
+    - novaplacementapi_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novaplacementapi_uninstall
+
+- name: Stop and remove nova-placement-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaplacementapi_{{ docker.nova_placement_api.image_tag }}" }
+  tags:
+    - novaplacementapi_uninstall
+
+- name: Remove nova placement api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_placement_api.name }}"
+    tag: "{{ docker.nova_placement_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novaplacementapi_uninstall
+
+- name: Remove Nova placement API Directory
+  file:
+    path: "{{ docker.nova_placement_api.host_data_dir }}"
+    state: absent
+  tags:
+    - novaplacementapi_uninstall
+
+# Nova SSH
+- name: Shut off nova ssh docker service
+  service:
+    name: docker-novassh
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novassh_uninstall
+
+- name: Remove nova ssh service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novassh.service"
+    state: absent
+  tags:
+    - novassh_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novassh_uninstall
+
+- name: Stop and remove nova-ssh docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novassh_{{ docker.nova_ssh.image_tag }}" }
+  tags:
+    - novassh_uninstall
+
+- name: Remove nova ssh docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_ssh.name }}"
+    tag: "{{ docker.nova_ssh.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novassh_uninstall
+
+- name: Remove Nova ssh Directory
+  file:
+    path: "{{ docker.nova_ssh.host_data_dir }}"
+    state: absent
+  tags:
+    - novassh_uninstall
+
+# Nova Compute
+- name: Shut off nova compute docker service
+  service:
+    name: docker-novacpu
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novacompute_uninstall
+
+- name: Remove nova compute service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacpu.service"
+    state: absent
+  tags:
+    - novacompute_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novacompute_uninstall
+
+- name: Stop and remove nova-compute docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacompute_{{ docker.nova_compute.image_tag }}" }
+  tags:
+    - novacompute_uninstall
+
+- name: Remove nova compute docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_compute.name }}"
+    tag: "{{ docker.nova_compute.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novacompute_uninstall
+
+- name: Remove Nova Compute Directory
+  file:
+    path: "{{ docker.nova_compute.host_data_dir }}"
+    state: absent
+  tags:
+    - novacompute_uninstall
+
+# Nova Conductor
+- name: Shut off nova conductor docker service
+  service:
+    name: docker-novacond
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novaconductor_uninstall
+
+- name: Remove nova conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacond.service"
+    state: absent
+  tags:
+    - novaconductor_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novaconductor_uninstall
+
+- name: Remove nova bootstrap container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconduct_bootstrap" }
+  tags:
+    - novaconductorbootstrap_uninstall
+
+- name: Stop and remove nova-conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconduct_{{ docker.nova_conductor.image_tag }}" }
+  tags:
+    - novaconductor_uninstall
+
+- name: Remove nova conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_conductor.name }}"
+    tag: "{{ docker.nova_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novaconductor_uninstall
+
+- name: Remove Nova Conductor Directory
+  file:
+    path: "{{ docker.nova_conductor.host_data_dir }}"
+    state: absent
+  tags:
+    - novaconductor_uninstall
+
+# Nova libvirt
+- name: Shut off nova libvirt docker service
+  service:
+    name: docker-novalibv
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novalibvirt_uninstall
+
+- name: Remove nova libvirt service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novalibv.service"
+    state: absent
+  tags:
+    - novalibvirt_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novalibvirt_uninstall
+
+- name: Stop and remove nova-libvirt docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}" }
+  tags:
+    - novalibvirt_uninstall
+
+- name: Remove nova libvirt docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}"
+    tag: "{{ docker.nova_libvirt.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novalibvirt_uninstall
+
+- name: Remove Nova Libvirt Directory
+  file:
+    path: "{{ docker.nova_libvirt.host_data_dir }}"
+    state: absent
+  tags:
+    - novalibvirt_uninstall
+
+# Nova Scheduler
+- name: Shut off nova scheduler docker service
+  service:
+    name: docker-novasch
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novascheduler_uninstall
+
+- name: Remove nova scheduler service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novasch.service"
+    state: absent
+  tags:
+    - novascheduler_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novascheduler_uninstall
+
+- name: Stop and remove nova scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novascheduler_{{ docker.nova_scheduler.image_tag }}" }
+  tags:
+    - novascheduler_uninstall
+
+- name: Remove nova scheduler docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_scheduler.name }}"
+    tag: "{{ docker.nova_scheduler.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novascheduler_uninstall
+
+- name: Remove Nova Scheduler Directory
+  file:
+    path: "{{ docker.nova_scheduler.host_data_dir }}"
+    state: absent
+  tags:
+    - novascheduler_uninstall
+
+# Nova ConsoleAuth
+- name: Shut off nova consoleauth docker service
+  service:
+    name: docker-novaconsoleauth
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novaconsoleauth_uninstall
+
+- name: Remove nova consoleauth service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaconsoleauth.service"
+    state: absent
+  tags:
+    - novaconsoleauth_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novaconsoleauth_uninstall
+
+- name: Stop and remove nova consoleauth docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconsoleauth_{{ docker.nova_consoleauth.image_tag }}" }
+  tags:
+    - novaconsoleauth_uninstall
+
+- name: Remove nova consoleauth docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_consoleauth.name }}"
+    tag: "{{ docker.nova_consoleauth.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novaconsoleauth_uninstall
+
+- name: Remove Nova ConsoleAuth Directory
+  file:
+    path: "{{ docker.nova_consoleauth.host_data_dir }}"
+    state: absent
+  tags:
+    - novaconsoleauth_uninstall
+
+# Nova NoVNCproxy
+- name: Shut off nova novncproxy docker service
+  service:
+    name: docker-novanovncproxy
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novanovncproxy_uninstall
+
+- name: Remove nova novncproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novanovncproxy.service"
+    state: absent
+  tags:
+    - novanovncproxy_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - novanovncproxy_uninstall
+
+- name: Stop and remove nova novncproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novanovncproxy_{{ docker.nova_novncproxy.image_tag }}" }
+  tags:
+    - novanovncproxy_uninstall
+
+- name: Remove nova novncproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_novncproxy.name }}"
+    tag: "{{ docker.nova_novncproxy.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novanovncproxy_uninstall
+
+- name: Remove Nova NoVNCproxy Directory
+  file:
+    path: "{{ docker.nova_novncproxy.host_data_dir }}"
+    state: absent
+  tags:
+    - novanovncproxy_uninstall
+
+# Nova common
+- name: Stop and remove nova common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacommon_{{ docker.nova_common.image_tag }}" }
+  tags:
+    - novacommon_uninstall
+
+- name: Remove nova common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_common.name }}"
+    tag: "{{ docker.nova_common.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - novacommon_uninstall
+
+- name: Remove nova common Directory
+  file:
+    path: "{{ docker.nova_common.host_data_dir }}"
+    state: absent
+  tags:
+    - novacommon_uninstall
+
+- name: Shut off nova common docker service
+  service:
+    name: docker-novacommon
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - novacommon_uninstall
+
+- name: Remove nova compute service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacommon.service"
+    state: absent
+  tags:
+    - novacommon_uninstall
+
+- name: Umount
+  shell: umount /var/lib/nova/instances
+  ignore_errors: true
+
+- name: Remove /var/lib/nova
+  file:
+    path: "/var/lib/nova"
+    state: absent
+
+- name: Check for Intel FPGA VFs
+  shell: lspci -d {{ FPGA_VENDOR_ID }}:{{ FPGA_VF_DEVICE_ID }} | wc -l
+  register: num_fpga_vfs
+
+- name: Remove any Intel FPGA VFs if exists
+  shell: /opt/cisco/bbdev_pf_config_app/remove-fpga-vf.sh
+  ignore_errors: True
+  when: num_fpga_vfs.stdout | int > 0

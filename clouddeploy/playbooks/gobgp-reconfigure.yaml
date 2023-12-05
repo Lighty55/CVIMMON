@@ -1,0 +1,8 @@
+- name: GoBGP and GoBGP-agent install
+  hosts: gobgp_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gobgp", tags: [ "base", "gobgp" ] }
+  serial: "30%"

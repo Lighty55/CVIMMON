@@ -1,0 +1,10 @@
+- include: deploy.yaml
+  when: IPA_INFO is defined and ACTION is undefined
+
+- include: reconfigure.yaml
+  when: IPA_INFO is defined and (ACTION is defined and ACTION == 'reconfigure')
+
+- include: un-enroll.yaml
+  when: >
+    IPA_INFO is defined and
+    (ACTION is defined and ACTION == 'unenroll')

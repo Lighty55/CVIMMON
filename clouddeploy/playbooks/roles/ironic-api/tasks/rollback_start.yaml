@@ -1,0 +1,97 @@
+# First remove the new container and artifacts
+- name: Shut off Ironic API docker service
+  service:
+    name: docker-ironicapi
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove Ironic API service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove Ironic API docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_api_{{ docker.ironic_api.image_tag }}" }
+
+- name: Remove Ironic API docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_api.name }}"
+    tag: "{{ docker.ironic_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove ironic volume contents
+- name: List Ironic API volume contents
+  shell: ls -A1 {{ docker.ironic_api.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic API volume contents
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the ironic volume contents
+- name: recover Ironic API volume contents
+  shell: "cp -r {{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}/. {{ docker.ironic_api.host_data_dir }}/"
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: "cp {{ docker.ironic_api.host_data_dir }}/docker-ironicapi.service /usr/lib/systemd/system/docker-ironicapi.service"
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicapi='in_container ironic_api_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicapi='in_container ironic_api_{{ IRONIC_API_PREVIOUS_TAG }}'
+
+- name: Start Ironic API container
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicapi
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic API Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_api_{{ IRONIC_API_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if Ironic API container is not UP.
+  fail: msg="Ironic API Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Wait for Ironic API to be alive
+  wait_for: host={{ IRONIC_HOST }} port={{ IRONIC_API_PORT }}
+
+# Now remove the backup volume
+- name: Remove back up Ironic API Directory
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}"
+    state: absent

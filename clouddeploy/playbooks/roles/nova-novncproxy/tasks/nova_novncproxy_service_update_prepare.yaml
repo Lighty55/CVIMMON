@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova novncproxy Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}
+
+# Back up the config file
+- name: backup the config file
+  command: cp /docker/nova_novncproxy/nova_config /docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}/nova_config
+
+# Backup the systemd file
+- name: back up the nova novncproxy systemd file
+  command: cp /usr/lib/systemd/system/docker-novanovncproxy.service /docker/nova_novncproxy_{{ NOVA_NOVNCPROXY_PREVIOUS_TAG }}/docker-novanovncproxy.service
+
+#####################################################
+# Shut down the old nova novncproxy containers
+####################################################
+# Nova novncproxy.
+- name: Shut off nova novncproxy docker service
+  service:
+    name: docker-novanovncproxy
+    enabled: no
+    state: stopped
+
+- name: Remove nova-novncproxy service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novanovncproxy.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the nova novncproxy volume contents
+- name: List the nova novncproxy volume contents
+  shell: ls -A1 /docker/nova_novncproxy/
+  register: contents
+
+- name: Remove the nova novncproxy volume contents
+  file:
+    path: /docker/nova_novncproxy/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

@@ -1,0 +1,18 @@
+- name: Create staging for fluentd container
+  file:
+    path: "/docker/fluentd"
+    state: directory
+    mode: "0755"
+
+- name: Copy containers restart-on-boot files
+  template:
+     src: "docker-fluentd.service"
+     dest: "/usr/lib/systemd/system/docker-fluentd.service"
+     mode: "0644"
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure

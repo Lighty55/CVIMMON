@@ -1,0 +1,34 @@
+---
+- name: "Check for existing CFSSL Config Files"
+  stat:
+   path: "/etc/kubernetes/pki/etcd/{{item}}"
+  register: cfssl_stats
+  with_items:
+  - ["ca-config.json", "ca-csr.json", "config.json", "client.json"]
+
+- name: Copy ca-cert config files
+  copy:
+    src: certs/
+    dest: /etc/kubernetes/pki/etcd/
+    owner: root
+    group: root
+  when: not item.stat.exists
+  with_items: "{{ cfssl_stats.results }}"
+
+- name: Generate CA certs
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -initca ca-csr.json | /usr/bin/cfssljson -bare ca -
+  args:
+    executable: /bin/bash
+  when: not item.stat.exists
+  with_items: "{{ cfssl_stats.results }}"
+
+- name: Generate etcd client certs
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client client.json | /usr/bin/cfssljson -bare client
+  args:
+    executable: /bin/bash
+  when: not item.stat.exists
+  with_items: "{{ cfssl_stats.results }}"

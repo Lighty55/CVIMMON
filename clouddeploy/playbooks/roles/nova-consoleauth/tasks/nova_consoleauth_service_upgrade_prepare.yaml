@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old nova consoleauth containers
+####################################################
+# Nova consoleauth.
+- name: Shut off nova consoleauth docker service
+  service:
+    name: docker-novaconsoleauth
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove nova consoleauth service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaconsoleauth.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova consoleauth docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconsoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}" }
+
+- name: Remove nova consoleauth docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_CONSOLEAUTH_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova consoleauth Directory
+  file:
+    path: "{{ docker.nova_consoleauth.host_data_dir }}"
+    state: absent

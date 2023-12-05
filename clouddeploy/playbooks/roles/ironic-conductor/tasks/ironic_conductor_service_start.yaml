@@ -1,0 +1,66 @@
+- name: Check if Ironic Conductor Docker container is already running
+  shell: docker ps -a | grep Up | grep ironic_conductor_{{ docker.ironic_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicconductor='in_container ironic_conductor_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicconductor='in_container ironic_conductor_{{ docker.ironic_conductor.image_tag }}'
+
+- name: Start the Ironic Conductor Docker Service
+  docker_container:
+    name: "ironic_conductor_{{ docker.ironic_conductor.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}:{{ docker.ironic_conductor.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.ironic_conductor.host_data_dir }}:{{ docker.ironic_conductor.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /lib/modules:/lib/modules:ro
+      - "{{ IRONIC_VOLUME }}:{{ IRONIC_VOLUME }}:z"
+      - /var/log/ironic:/var/log/ironic:z
+      - /run:/run:z
+      - /sys:/sys:z
+      - /dev:/dev:z
+    interactive: yes
+    privileged: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ironic Conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep ironic_conductor_{{ docker.ironic_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ironic Conductor Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironiccond
+  tags:
+    - reboot-on-failure
+
+# ironic-nova-compute depends on ironic-conductor
+- name: Reset systemctl failures
+  shell: systemctl reset-failed
+  when: 'ACTION is defined and ACTION == "update"'
+
+- name: Make sure ironic-nova-compute is started again after update
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicnovacpu
+  when: 'ACTION is defined and ACTION == "update"'

@@ -1,0 +1,5 @@
+- include: ceilometer_central_install.yaml
+- include: ceilometer_central_config.yaml
+- include: ceilometer_central_bootstrap.yaml
+  when: server is undefined
+- include: ceilometer_central_start.yaml

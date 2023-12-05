@@ -1,0 +1,6 @@
+- include: neutron_ovsagent_service_install.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+
+- include: neutron_ovsagent_service_start.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+

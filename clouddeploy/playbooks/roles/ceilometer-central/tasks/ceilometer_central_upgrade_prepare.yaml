@@ -1,0 +1,38 @@
+#######################################################
+# Shut down the old ceilometer central containers
+#######################################################
+# Ceilometer Central.
+- name: Shut off ceilometer central docker service
+  service:
+    name: docker-ceilometercentral
+    enabled: no
+    state: stopped
+
+- name: Remove ceilometer central service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercentral.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ceilometer central docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometercentral_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}" }
+
+- name: Remove ceilometer central docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ CEILOMETER_CENTRAL_PREVIOUS_NAME }}"
+    tag: "{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ceilometer central Directory
+  file:
+    path: "{{ docker.ceilometer_central.host_data_dir }}"
+    state: absent

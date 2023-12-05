@@ -1,0 +1,23 @@
+- name: UninstallCronJob | Check if cronjob was installed
+  stat:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+  register: keyscript
+
+- name: Uninstall | Remove Fernet keys rotation cron job
+  cron:
+    name: "Fernet keys rotation job"
+    job: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  ignore_errors: true
+  when: keyscript.stat.exists
+
+- name: Uninstall | Remove Fernet keys rotation script
+  file:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  ignore_errors: true
+  when: keyscript.stat.exists

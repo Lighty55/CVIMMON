@@ -1,0 +1,5 @@
+- include: magnum_conductor_install.yaml
+- include: magnum_conductor_config.yaml
+- include: magnum_conductor_bootstrap.yaml
+  when: server is undefined
+- include: magnum_conductor_start.yaml

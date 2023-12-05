@@ -1,0 +1,115 @@
+# Glance API
+- name: Shut off glance api docker service
+  service:
+    name: docker-glanceapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - glanceapi_uninstall
+
+- name: Remove glance api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-glanceapi.service"
+    state: absent
+  tags:
+    - glanceapi_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - glanceapi_uninstall
+
+- name: Stop and remove glance api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "glanceapi_{{ docker.glance_api.image_tag }}" }
+  tags:
+    - glanceapi_uninstall
+
+- name: Remove glance api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.glance_api.name }}"
+    tag: "{{ docker.glance_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - glanceapi_uninstall
+
+- name: Remove Glance API Directory
+  file:
+    path: "{{ docker.glance_api.host_data_dir }}"
+    state: absent
+  tags:
+    - glanceapi_uninstall
+
+# Glance Registry
+- name: Shut off glance registry docker service
+  service:
+    name: docker-glancer
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - glancer_uninstall
+
+- name: Remove glance registry service file
+  file:
+    path: "/usr/lib/systemd/system/docker-glancer.service"
+    state: absent
+  tags:
+    - glancer_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - glancer_uninstall
+
+- name: Remove glance bootstrap docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "glancer_bootstrap" }
+  tags:
+    - glancerbootstrap_uninstall
+
+
+- name: Stop and remove glance registry docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "glancer_{{ docker.glance_registry.image_tag }}" }
+  tags:
+    - glancer_uninstall
+
+- name: Remove glance registry docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.glance_registry.name }}"
+    tag: "{{ docker.glance_registry.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - glancer_uninstall
+
+- name: Remove Glance Registry Directory
+  file:
+    path: "{{ docker.glance_registry.host_data_dir }}"
+    state: absent
+  tags:
+    - glancer_uninstall
+
+# Remove the glance volume
+- name: Remove the glance volume
+  shell: docker volume rm glance
+  ignore_errors: true
+  failed_when: false

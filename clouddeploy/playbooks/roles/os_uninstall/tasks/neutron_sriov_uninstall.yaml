@@ -1,0 +1,77 @@
+# Neutron sriov agent.
+- name: Shut off neutron sriovagent docker service
+  service:
+    name: docker-neutron_sriov
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove neutron sriov agent  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_sriov.service"
+    state: absent
+
+- name: Remove sriov service file
+  file:
+    path: "/usr/lib/systemd/system/sriov.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron sriov agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_sriov_{{ docker.neutron_sriov.image_tag}}" }
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron sriov agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_sriov.name }}"
+    tag: "{{ docker.neutron_sriov.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove sriov directory
+  file:
+    path: "{{ docker.neutron_sriov.host_data_dir }}"
+    state: absent
+
+- name: Remove udev rules allocate sriov vfs file
+  file:
+    path: /etc/udev/rules.d/75-allocate-sriov-vfs.rules
+    state: absent
+  ignore_errors: True
+
+- name: Reload udev rules with allocate sriov vfs file removed
+  shell: udevadm control --reload-rules
+  ignore_errors: True
+
+- name: Get a list of SRIOV interfaces
+  shell: ls /sys/class/net/{{ SRIOV_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: sriov_intfs
+  ignore_errors: True
+
+- name: Clean the VFs on the SRIOV interfaces
+  shell: echo 0 > {{ item }}
+  ignore_errors: True
+  with_items: "{{ sriov_intfs.stdout_lines }}"
+  when: sriov_intfs.stdout_lines | length > 0
+
+- name: Get a list of FPGA interfaces
+  shell: ls /sys/class/net/{{ FPGA_INTERFACE_NAME }}[0-9]*/device/sriov_numvfs
+  register: fpga_intfs
+  ignore_errors: True
+
+- name: Clean the VFs on the FPGA interfaces
+  shell: echo 0 > {{ item }}
+  ignore_errors: True
+  with_items: "{{ fpga_intfs.stdout_lines }}"
+  when: fpga_intfs.stdout_lines | length > 0

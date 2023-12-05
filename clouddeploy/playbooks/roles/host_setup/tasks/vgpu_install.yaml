@@ -1,0 +1,57 @@
+# Check if NVIDIA RPM is installed
+- name: Check for RPM installed
+  shell: rpm -qa | grep {{ NVIDIA_VGPU_RPM }}
+  register: rpm_check
+  ignore_errors: true
+  failed_when: false
+  when: 'gpu_count > 0 and vgpu_type'
+
+# Copy the NVIDIA RPM to the compute node
+- name: Copy the NVIDIA module
+  copy:
+   src: "{{ install_dir }}/openstack-configs/{{ NVIDIA_VGPU_RPM }}.rpm"
+   dest: "/tmp/{{ NVIDIA_VGPU_RPM }}.rpm"
+  when: 'gpu_count > 0 and vgpu_type and rpm_check.stdout == ""'
+
+- name: Install the NVIDIA RPM
+  shell: rpm -Uvh /tmp/{{ NVIDIA_VGPU_RPM }}.rpm
+  when: 'gpu_count > 0 and vgpu_type and rpm_check.stdout == ""'
+
+- name: Restart server post NVIDIA RPM Install
+  command: shutdown -r +1 "Ansible Forcing a Reboot on Server."
+  async: 0
+  poll: 0
+  ignore_errors: true
+  register: server_reboot
+  when: 'gpu_count > 0 and vgpu_type and rpm_check.stdout == ""'
+
+- name: Wait for the server to boot up
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      port=22
+      delay=70
+      timeout=800
+  when: 'gpu_count > 0 and vgpu_type and rpm_check.stdout == ""'
+
+# Make sure the vgpu manager service is started
+- name: Enable VGPU manager service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - nvidia-vgpu-mgr
+  when: 'gpu_count > 0 and vgpu_type'
+
+# Make sure required modules are loaded
+- name: Make sure modules are loaded
+  shell: lsmod | grep {{ item }}
+  with_items:
+   - nvidia_vgpu_vfio
+   - nvidia
+   - vfio_mdev
+   - mdev
+   - vfio
+   - vfio_iommu_type1
+  when: 'gpu_count > 0 and vgpu_type'

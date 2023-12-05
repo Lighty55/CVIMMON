@@ -1,0 +1,4 @@
+CVIM_MON_PREVIOUS_TAG:
+CVIM_MON_PREVIOUS_NAME:
+CVIM_MON_ENABLED: "{{ CVIM_MON is defined and CVIM_MON.enabled }}"
+EXTERNAL_SERVERS: "{{ CVIM_MON is defined and CVIM_MON.enabled and CVIM_MON.external_servers is defined }}"

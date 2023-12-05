@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove cinder Scheduler Directory
+  file:
+    path: "/docker/cinder_scheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old cinder-scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderscheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}" }
+
+- name: Remove cinder scheduler docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_scheduler.name }}"
+    tag: "{{ CINDER_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

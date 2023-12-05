@@ -1,0 +1,40 @@
+#######################################################
+# Preparing Gnocchi API upgrade
+#######################################################
+- name: Shut off gnocchi statsd docker service
+  service:
+    name: docker-gnocchi-statsd
+    enabled: no
+    state: stopped
+
+- name: Remove gnocchi statsd service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-statsd.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove gnocchi statsd docker container
+  docker_container:
+    image: ""
+    name: "gnocchistatsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi statsd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ GNOCCHI_STATSD_PREVIOUS_NAME }}"
+    tag: "{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi statsd directory
+  file:
+    path: "{{ docker.gnocchi_statsd.host_data_dir }}"
+    state: absent
+
+#######################################################
+# Installing new Gnocchi API
+#######################################################
+- include: deploy.yaml

@@ -1,0 +1,19 @@
+- name: "{{ metro_name }} Reconf | Render new log-rotate manifest"
+  template:
+    src: log_rotate_manifest.yaml.j2
+    dest: "{{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.reconfigure"
+
+- name: "{{ metro_name }} Reconf | Compare old and new rendered manifest template"
+  command: diff {{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.yaml {{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.reconfig
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: diff_result
+
+- name: "{{ metro_name }} Reconf | Remove new rendered manifest template"
+  file: path="{{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.reconfig" state=absent
+
+- include: uninstall.yaml
+  when: diff_result.rc
+- include: deploy.yaml
+  when: diff_result.rc

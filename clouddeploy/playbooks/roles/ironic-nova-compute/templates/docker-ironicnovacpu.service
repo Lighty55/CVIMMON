@@ -1,0 +1,14 @@
+[Unit]
+Description=Ironic Nova Compute docker
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitBurst={{ RESTART_LIMIT }}
+StartLimitInterval={{ RESTART_INTERVAL }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

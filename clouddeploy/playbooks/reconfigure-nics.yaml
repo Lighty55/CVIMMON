@@ -1,0 +1,100 @@
+- name: Reload Ansible inventory
+  hosts: localhost
+  tasks:
+    - meta: refresh_inventory
+  tags: reconfigure-nics
+
+- name: Create a filtered NIC reconfiguration group
+  hosts: nova_compute_all{{server|default('')}}
+  tasks:
+    - name: Create group to reconfigure NIC cards
+      local_action: add_host hostname={{ item }} groupname=nic_reconfig_computes
+      with_items:
+        - "{{ RECONFIG_COMPUTES }}"
+  tags: reconfigure-nics
+
+- name: Reconfigure SRIOV mac addresses
+  hosts: nic_reconfig_computes
+  tasks:
+
+    - name: Determine all docker container services running on the compute
+      shell: systemctl list-unit-files | awk '! (match($1,/^docker-iptables.service$/) || match($1,/^docker-ovscleanup.service$/) || match($1,/^docker-storage-setup.service$/)) && match($1,/^docker-.*?\.service$/) && match($2,/enabled/) {print $1}'
+      register: container_services
+      when: sriov_macs is defined
+
+    - name: Shutting down sriov interface
+      shell: ifdown sriov{{ item.0 }}
+      with_indexed_items: "{{ sriov_macs }}"
+      when: sriov_macs is defined
+
+    - name: Update HWADDR for sriov interfaces
+      lineinfile:
+        dest: "/etc/sysconfig/network-scripts/ifcfg-sriov{{ item.0 }}"
+        state: present
+        regexp: '^#?HWADDR=.*'
+        line: "HWADDR={{ item.1 }}"
+      with_indexed_items: "{{ sriov_macs }}"
+      when: sriov_macs is defined
+
+    - name: Set persistent NIC device name with PCI slot via udev instead of MAC address
+      script: roles/host-packages/files/ifcfg-hwaddr-to-udev-net-rules.sh
+
+    - name: Reboot the SRIOV compute node
+      shell: sleep 2 && /sbin/reboot
+      async: 1
+      poll: 0
+      ignore_errors: true
+      failed_when: false
+      when: sriov_macs is defined
+
+    - name: First attempt | Wait for the server to boot up
+      local_action:
+        module: wait_for
+          host={{ inventory_hostname }}
+          port=22
+          delay=70
+          timeout=1200
+      register: reboot_wait
+      ignore_errors: true
+      failed_when: false
+      when: sriov_macs is defined
+
+    - name: Second attempt | Wait for the server to boot up second try
+      local_action:
+        module: wait_for
+          host={{ inventory_hostname }}
+          port=22
+          delay=70
+          timeout=600
+      when: sriov_macs is defined and reboot_wait.state is not defined and no_reboot_required.stdout ==""
+
+    - name: Ensure all docker container services are up
+      shell: 'systemctl status docker-*.service --all --state=active | grep -E "Active:\s+active\s+\(running\)" | grep -Ev ";\s+[0-9]+m?s\s+ago$" | wc -l'
+      register: check_count
+      until: check_count.stdout | int >= {{ container_services.stdout_lines | length }} and check_count.stderr == ""
+      retries: 30
+      delay: 5
+      when: sriov_macs is defined and container_services | changed
+
+    #(Note): An additional restart of nova compute is required for the product id to be
+    # discovered from the virtual function device.  The pci_passthrough_whitelist is
+    # dynamically generated from the virtfn* devices
+    - name: Restart nova compute to ensure product id is reflected in the config
+      service:
+        name: "{{ item }}"
+        enabled: yes
+        state: restarted
+      with_items:
+        - docker-novacpu
+      when: sriov_macs is defined
+
+    - name: Check if nova compute Docker container has started running
+      shell: docker ps -a | grep Up | grep novacompute_{{ docker.nova_compute.image_tag }} | cut -f1 -d " "
+      register: container_status
+      when: sriov_macs is defined
+
+    - name: Fail if container is not UP.
+      fail: msg="Nova Compute did not start"
+      when: (container_status is defined and container_status.stdout == "")
+
+  tags: reconfigure-nics

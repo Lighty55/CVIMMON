@@ -1,0 +1,42 @@
+- name: Default enrollement to True
+  set_fact:
+    unenroll: False
+
+- include: retrieve-tgt.yaml
+
+- name: Set unenroll to True if TGT request is successful
+  set_fact:
+    unenroll: True
+  when: kinit_result is defined and kinit_result.rc == 0
+
+# IPA client exit status
+# 0 if the installation was successful
+# 1 if an error occurred
+# 2 if uninstalling and the client is not configured
+# 3 if installing and the client is already configured
+# 4 if an uninstall error occurred
+# This is best effort, but proceed with log message
+# if it failed un-registering host with IPA server
+- name: Uneroll IPA client if already enrolled
+  shell: ipa-client-install --unattended --uninstall --debug
+  register: uneroll_result
+  ignore_errors: True
+  failed_when: false
+  when: unenroll
+
+- name: Check if un-enroll was not successful
+  debug: msg="Un-enrollment is not successful please check logs"
+  when: uneroll_result is defined and uneroll_result.rc not in [0,2]
+
+  # cleanup /etc/hosts
+- name: Update /etc/hosts file to remove IPA servers
+  lineinfile:
+    dest: /etc/hosts
+    state: absent
+    line: "{{ item.1 }} {{ item.0.hostname }}"
+  with_subelements:
+    - "{{ IPA_INFO.ipa_servers }}"
+    - ipaddresses
+    - skip_missing: True
+  ignore_errors: True
+  failed_when: false

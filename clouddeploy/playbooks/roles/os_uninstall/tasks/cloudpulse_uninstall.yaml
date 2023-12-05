@@ -1,0 +1,35 @@
+- name: Shut off cloudpulse docker service
+  service:
+    name: docker-cloudpulse
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove cloudpulse service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cloudpulse.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove cloudpulse docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cloudpulse_server_{{ docker.cloudpulse_server.image_tag }}" }
+
+- name: Remove Cloudpulse docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cloudpulse_server.name }}"
+    tag: "{{ docker.cloudpulse_server.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Cloudpulse Directory
+  file:
+    path: "{{ docker.cloudpulse_server.host_data_dir }}"
+    state: absent

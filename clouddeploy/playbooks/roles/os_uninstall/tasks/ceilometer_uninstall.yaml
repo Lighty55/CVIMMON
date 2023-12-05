@@ -1,0 +1,5 @@
+#- include: ceilometer_api_uninstall.yaml
+- include: ceilometer_compute_uninstall.yaml
+- include: ceilometer_notification_uninstall.yaml
+#- include: ceilometer_collector_uninstall.yaml
+- include: ceilometer_central_uninstall.yaml

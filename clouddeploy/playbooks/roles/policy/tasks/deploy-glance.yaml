@@ -1,0 +1,22 @@
+- name: Copy Glance Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/glance-api/templates/{{ item }}"
+    dest: "{{ docker.glance_api.host_data_dir }}/{{ item }}"
+  with_items:
+    - "glance_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.glance_api.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart glance api service
+  service:
+    name: "docker-glanceapi"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Glance API to be alive
+  wait_for: host={{ control_bond }} port={{ GLANCE_API_PORT }}
+  when: policy.changed

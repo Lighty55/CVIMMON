@@ -1,0 +1,31 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Generating the openrc file
+  template:
+    src: openrc.template
+    dest: "{{ lookup('env', 'HOME') }}/openstack-configs/openrc"
+    mode: 0600
+
+- name: Generating the openrc file
+  template:
+    src: openrc.template
+    dest: /opt/cisco/openrc
+    mode: 0600
+
+- name: Generating the openrc file for public endpoints
+  template:
+    src: openrc-public.template
+    dest: "{{ lookup('env', 'HOME') }}/openstack-configs/openrc.public"
+    mode: 0600
+  when: MGMTNODE_EXTAPI_REACH is defined and not MGMTNODE_EXTAPI_REACH|bool
+
+- name: Generating the openrc file for public endpoints
+  template:
+    src: openrc-public.template
+    dest: /opt/cisco/openrc.public
+    mode: 0600
+  when: MGMTNODE_EXTAPI_REACH is defined and not MGMTNODE_EXTAPI_REACH|bool

@@ -1,0 +1,24 @@
+- name: Gnocchi api install
+  hosts: gnocchi_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-api", tags: [ "base", "gnocchi", "gnocchi-api" ] }
+
+- name: Gnocchi metricd install
+  hosts: gnocchi_metricd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-metricd", tags: [ "base", "gnocchi", "gnocchi-metricd" ] }
+
+
+- name: Gnocchi statsd install
+  hosts: gnocchi_statsd_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "gnocchi-statsd", tags: [ "base", "gnocchi", "gnocchi-statsd" ] }

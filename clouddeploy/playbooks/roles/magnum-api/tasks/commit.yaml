@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Magnum API Directory
+  file:
+    path: "/docker/magnum_api_{{ MAGNUM_API_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old magnum-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumapi_{{ MAGNUM_API_PREVIOUS_TAG }}" }
+
+- name: Remove magnum docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.magnum_api.name }}"
+    tag: "{{ MAGNUM_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

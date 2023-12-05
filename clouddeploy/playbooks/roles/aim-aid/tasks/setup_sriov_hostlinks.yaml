@@ -1,0 +1,23 @@
+- name: Check if aimctl hostlinks config file exists
+  stat: path=/opt/cisco/data/tor/aim_hostlink.cfg
+  register: aimctl_cfg_file
+  delegate_to: localhost
+
+- name: Copy hostlink configuration into aim container
+  copy:
+    src: /opt/cisco/data/tor/aim_hostlink.cfg
+    dest: /docker/aim_aid/aim_hostlink.cfg
+    mode: "0755"
+  run_once: True
+  when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True
+
+- name: Copy file into container
+  command: docker cp /docker/aim_aid/aim_hostlink.cfg aimaid_{{ docker.aim_aid.image_tag }}:/opt/kolla/aim_hostlink.cfg
+  run_once: True
+  when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True
+
+- name: Run the host link configuration
+  shell: docker exec -u root aimaid_{{ docker.aim_aid.image_tag }} /bin/sh -c '/aimctl_exec.sh'
+  register: aimctl_out
+  run_once: True
+  when: aimctl_cfg_file.stat and aimctl_cfg_file.stat.exists == True

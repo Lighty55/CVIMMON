@@ -1,0 +1,95 @@
+# Create a Group of relevant multi-roles controller+compute hosts if
+# target_node_ips is passed to act on a subset of hosts
+- name: Create host_control_mgmt_ip + nova_compute_mgmt_ip intersect group
+  hosts: localhost
+  tasks:
+    - name: Create dynamic groups for target_controller_computes
+      local_action: add_host hostname={{ item }} groupname=target_controller_computes
+      with_items:
+        - "{{ groups['host_control_mgmt_ip'] | intersect(groups['nova_compute_mgmt_ip']) | intersect(target_node_ips|default(groups['host_control_mgmt_ip'])) | unique }}"
+
+    - name: target_controller_computes list
+      debug:
+        msg: "{{ groups['target_controller_computes']|default([]) }}"
+
+# Multi-roles controller+compute nodes
+- name: Apply Edge POD BIOS update on all/target Controller+Compute nodes one at time
+  hosts: target_controller_computes
+  max_fail_percentage: 0
+  serial: 1
+  roles:
+    - { role: "edge-pod-bios-update" }
+  tasks:
+    - name: Check galera cluster status after Edge POD BIOS update
+      shell: /usr/bin/clustercheck
+      register: post_cluster_check
+      until: post_cluster_check.rc == 0
+      retries: 180
+      delay: 5
+      ignore_errors: true
+
+- name: Call galera-recovery after Controller node update
+  include: galera-recovery.yaml
+  when: "target_node_ips is not defined or 'target_controller_computes' in groups"
+
+- name: Call rabbitmq-recovery after Controller node update
+  include: rabbitmq-recovery.yaml
+  when: "target_node_ips is not defined or 'target_controller_computes' in groups"
+
+# Create a Group of relevant multi-roles storge+compute hosts if
+# target_node_ips is passed to act on a subset of hosts
+- name: Create ceph_osd_all + nova_compute_mgmt_ip intersect group
+  hosts: localhost
+  tasks:
+    - name: Create dynamic groups for target_storage_computes
+      local_action: add_host hostname={{ item }} groupname=target_storage_computes
+      with_items:
+        - "{{ groups['ceph_osd_all'] | intersect(groups['nova_compute_mgmt_ip']) | intersect(target_node_ips|default(groups['ceph_osd_all'])) | difference(groups['target_controller_computes']|default([])) | unique }}"
+
+    - name: target_storage_computes list
+      debug:
+        msg: "{{ groups['target_storage_computes']|default([]) }}"
+
+# Multi-roles storage+compute nodes
+- name: Apply Edge POD BIOS update on all/target Storage+Compute nodes one at time
+  hosts: target_storage_computes
+  max_fail_percentage: 0
+  serial: 1
+  roles:
+    - { role: "edge-pod-bios-update"}
+  tasks:
+    - name: Get a list of OSD ID
+      shell: cat /etc/fstab | awk '/^UUID=/ && match($0,/\/var\/lib\/ceph\/osd\/ceph-([0-9]+)/,osd) {print osd[1]}'
+      register: osd_id
+      failed_when: osd_id.stdout_lines | length == 0
+
+    - name: Check OSD status after Edge POD BIOS update
+      service:
+        name: ceph-osd@{{ item }}.service
+        state: started
+      register: osd_status
+      until: not osd_status | changed
+      retries: 180
+      delay: 5
+      with_items: "{{ osd_id.stdout_lines }}"
+
+# Create a Group of relevant compute hosts if target_node_ips is passed to act
+# on a subset of hosts
+- name: Create nova_compute_mgmt_ip intersect group
+  hosts: localhost
+  tasks:
+    - name: Create dynamic groups for target_computes
+      local_action: add_host hostname={{ item }} groupname=target_computes
+      with_items:
+        - "{{ groups['nova_compute_mgmt_ip'] | intersect(target_node_ips|default(groups['nova_compute_mgmt_ip'])) | difference(groups['target_controller_computes']|default([])) | difference(groups['target_storage_computes']|default([])) | unique }}"
+
+    - name: target_computes list
+      debug:
+        msg: "{{ groups['target_computes']|default([]) }}"
+
+# Pure Compute nodes
+- name: Apply Edge POD BIOS update on all/target Compute nodes
+  hosts: target_computes
+  max_fail_percentage: 0
+  roles:
+    - { role: "edge-pod-bios-update"}

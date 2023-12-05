@@ -1,0 +1,67 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create neutron vtf Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_vtf_{{ VTF_PREVIOUS_TAG }}
+
+- stat: path=/docker/neutron_vtf/
+  register: dir_check
+
+# Back up the neutron vtf volume
+- name: back up the neutron vtf volume
+  shell: cp -r /docker/neutron_vtf/* /docker/neutron_vtf_{{ VTF_PREVIOUS_TAG }}/.
+  when: dir_check.stat.exists
+
+# Backup the systemd file
+- name: back up the neutron vtf systemd file
+  command: cp /usr/lib/systemd/system/docker-neutron_vtf.service /docker/neutron_vtf_{{ VTF_PREVIOUS_TAG }}/docker-neutron_vtf.service
+  when: dir_check.stat.exists
+
+#####################################################
+# Shut down the old neutron vtf containers
+####################################################
+# Handle case for VTF agent not being present for VTS
+- stat: path=/usr/lib/systemd/system/docker-neutron_vtf.service
+  register: systemd_check
+
+- name: Shut off neutron vtf docker service
+  service:
+    name: docker-neutron_vtf
+    enabled: no
+    state: stopped
+  when: systemd_check.stat.exists
+
+- name: Remove neutron vtf service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutron_vtf.service"
+    state: absent
+  when: systemd_check.stat.exists
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of neutron VTF volume
+- name: List the contents of neutron VTF volume
+  shell: ls -A1 /docker/neutron_vtf/
+  register: contents
+  when: systemd_check.stat.exists
+
+- name: Remove the contents of neutron VTF volume
+  file:
+    path: /docker/neutron_vtf/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+  when: systemd_check.stat.exists
+
+- name: Restore tenant interface
+  command: "ifup t"
+  ignore_errors: yes
+  failed_when: false
+  tags:
+    - neutron_vtf_uninstall
+  when: systemd_check.stat.exists

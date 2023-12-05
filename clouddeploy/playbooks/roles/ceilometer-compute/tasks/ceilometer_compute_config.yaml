@@ -1,0 +1,35 @@
+- name: Copy ceilometer compute config.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "ceilometer_compute_config.j2",
+        dest: "{{ docker.ceilometer_compute.host_data_dir }}/ceilometer_compute_config.j2" }
+
+- name: Copy Ceilometer Pipeline Files
+  template:
+    src: "{{ playbook_dir }}/roles/ceilometer-common/templates/pipeline.yaml"
+    dest: "{{ docker.ceilometer_compute.host_data_dir }}/pipeline.yaml"
+
+- name: Copy Ceilometer Polling Files
+  template:
+    src: "{{ playbook_dir }}/roles/ceilometer-common/templates/polling.yaml"
+    dest: "{{ docker.ceilometer_compute.host_data_dir }}/polling.yaml"
+
+- name: Establish Zenoss devices
+  set_fact:
+    ZENOSS_PUBLISHER: "{{ NFVIMON.COLLECTOR.management_vip }}"
+    ZENOSS_DEVICE: "openstack-{{ NFVIMON_UUID }}"
+  when: NFVIMON is defined and nfvimon == 'True'
+
+- name: Establish Zenoss HA device
+  set_fact:
+    ZENOSS_HA_PUBLISHER: "{{ NFVIMON.COLLECTOR_2.management_vip }}"
+  when: NFVIMON is defined and nfvimon == 'True' and NFVIMON.COLLECTOR_2 is defined
+
+- name: Copy Zenoss Ceilometer Pipeline Files
+  template:
+    src: "{{ playbook_dir }}/roles/ceilometer-common/templates/zenoss_pipeline.yaml"
+    dest: "{{ docker.ceilometer_compute.host_data_dir }}/zenoss_pipeline.yaml"
+  when: NFVIMON is defined and nfvimon == 'True'

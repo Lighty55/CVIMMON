@@ -1,0 +1,343 @@
+# Ironic PXE
+- name: Shut off ironic pxe service
+  service:
+    name: docker-ironicpxe
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicpxe_uninstall
+
+- name: Remove ironicpxe service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicpxe.service"
+    state: absent
+  tags:
+    - ironicpxe_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicpxe_uninstall
+
+- name: Stop and remove ironic-pxe docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_pxe_{{ docker.ironic_pxe.image_tag }}" }
+  tags:
+    - ironicpxe_uninstall
+
+- name: Remove ironic pxe docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_pxe.name }}"
+    tag: "{{ docker.ironic_pxe.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicpxe_uninstall
+
+- name: Remove ironic PXE Directory
+  file:
+    path: "{{ docker.ironic_pxe.host_data_dir }}"
+    state: absent
+  tags:
+    - ironicpxe_uninstall
+
+# Ironic conductor
+- name: Shut off ironic conductor service
+  service:
+    name: docker-ironiccond
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironiccond_uninstall
+
+- name: Remove ironiccond service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironiccond.service"
+    state: absent
+  tags:
+    - ironiccond_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironiccond_uninstall
+
+- name: Stop and remove ironic-conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_conductor_{{ docker.ironic_conductor.image_tag }}" }
+  tags:
+    - ironiccond_uninstall
+
+- name: Remove ironic conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_conductor.name }}"
+    tag: "{{ docker.ironic_conductor.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironiccond_uninstall
+
+- name: Remove ironic conductor Directory
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}"
+    state: absent
+  tags:
+    - ironiccond_uninstall
+
+# Ironic API
+- name: Shut off ironic api service
+  service:
+    name: docker-ironicapi
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicapi_uninstall
+
+- name: Remove ironicapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicapi.service"
+    state: absent
+  tags:
+    - ironicapi_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicapi_uninstall
+
+- name: Stop and remove ironic_api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_api_{{ docker.ironic_api.image_tag }}" }
+  tags:
+    - ironicapi_uninstall
+
+- name: Remove ironic api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_api.name }}"
+    tag: "{{ docker.ironic_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicapi_uninstall
+
+- name: Remove ironic api Directory
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}"
+    state: absent
+  tags:
+    - ironicapi_uninstall
+
+# Ironic Nova Compute
+- name: Shut off ironic nova-compute service
+  service:
+    name: docker-ironicnovacpu
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicnovacpu_uninstall
+
+- name: Remove ironicnovacpu service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicnovacpu.service"
+    state: absent
+  tags:
+    - ironicnovacpu_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicnovacpu_uninstall
+
+- name: Stop and remove ironic_novacompute docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }}" }
+  tags:
+    - ironicnovacpu_uninstall
+
+- name: Remove ironic novacompute docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_nova_compute.name }}"
+    tag: "{{ docker.ironic_nova_compute.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicnovacpu_uninstall
+
+- name: Remove ironic nova-compute Directory
+  file:
+    path: "{{ docker.ironic_nova_compute.host_data_dir }}"
+    state: absent
+  tags:
+    - ironicnovacpu_uninstall
+
+# Ironic inspector service
+- name: Shut off ironic inspector service
+  service:
+    name: docker-ironicinspector
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicinspector_uninstall
+
+- name: Remove ironicinspector service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicinspector.service"
+    state: absent
+  tags:
+    - ironicinspector_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicinspector_uninstall
+
+- name: Stop and remove ironic-inspector docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_inspector_{{ docker.ironic_inspector.image_tag }}" }
+  tags:
+    - ironicinspector_uninstall
+
+- name: Remove ironic inspector docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_inspector.name }}"
+    tag: "{{ docker.ironic_inspector.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicinspector_uninstall
+
+- name: Remove ironic inspector Directory
+  file:
+    path: "{{ docker.ironic_inspector.host_data_dir }}"
+    state: absent
+  tags:
+    - ironicinspector_uninstall
+
+# Ironic dnsmasq service
+- name: Shut off ironic dnsmasq service
+  service:
+    name: docker-ironicdnsmasq
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicdnsmasq_uninstall
+
+- name: Remove ironicdnsmasq service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicdnsmasq.service"
+    state: absent
+  tags:
+    - ironicdnsmasq_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicdnsmasq_uninstall
+
+- name: Stop and remove ironic-dnsmasq docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_dnsmasq_{{ docker.ironic_dnsmasq.image_tag }}" }
+  tags:
+    - ironicdnsmasq_uninstall
+
+- name: Remove ironic dnsmasq docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_dnsmasq.name }}"
+    tag: "{{ docker.ironic_dnsmasq.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicdnsmasq_uninstall
+
+- name: Remove ironic dnsmasq Directory
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}"
+    state: absent
+  tags:
+    - ironicdnsmasq_uninstall
+
+# Ironic ipxe service
+- name: Shut off ironic ipxe service
+  service:
+    name: docker-ironicipxe
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ironicipxe_uninstall
+
+- name: Remove ironicipxe service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicipxe.service"
+    state: absent
+  tags:
+    - ironicipxe_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ironicipxe_uninstall
+
+- name: Stop and remove ironic-ipxe docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_ipxe_{{ docker.ironic_ipxe.image_tag }}" }
+  tags:
+    - ironicipxe_uninstall
+
+- name: Remove ironic ipxe docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_ipxe.name }}"
+    tag: "{{ docker.ironic_ipxe.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicipxe_uninstall
+
+- name: Remove ironic ipxe Directory
+  file:
+    path: "{{ docker.ironic_ipxe.host_data_dir }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ironicipxe_uninstall

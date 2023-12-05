@@ -1,0 +1,59 @@
+- name: Shut off keystone docker service
+  service:
+    name: docker-keystone
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove keystone service file
+  file:
+    path: "/usr/lib/systemd/system/docker-keystone.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Remove keystone bootstrap container.
+  docker_container:
+    name: "keystone_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Stop and remove keystone docker container.
+  docker_container:
+    name: "keystone_{{ docker.keystone.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.keystone.name }}:{{ docker.keystone.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove keystone docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.keystone.name }}"
+    tag: "{{ docker.keystone.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Keystone Directory
+  file:
+    path: "{{ docker.keystone.host_data_dir }}"
+    state: absent
+
+- name: Uninstall | Remove Fernet keys rotation cron job
+  cron:
+    name: "Fernet keys rotation job"
+    job: "{{ KEYSTONE_FERNET_ROTATION_DIR }}/{{ KEYSTONE_FERNET_ROTATION_SCRIPT }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  ignore_errors: true
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"
+
+- name: Uninstall | Remove Fernet keys rotation script
+  file:
+    path: "{{ KEYSTONE_FERNET_ROTATION_DIR }}"
+    state: absent
+  run_once: true
+  delegate_to: 127.0.0.1
+  ignore_errors: true
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"

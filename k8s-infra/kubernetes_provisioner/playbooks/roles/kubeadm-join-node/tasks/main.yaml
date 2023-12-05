@@ -1,0 +1,2 @@
+- name: Run kubeadm join on worker
+  shell: "{{ kubeadm_join_cmd }}"

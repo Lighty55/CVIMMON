@@ -1,0 +1,49 @@
+- name: Create tmp directory for CVIM-MON
+  file:
+    path: "/tmp/cvim_mon"
+    state: directory
+    owner: root
+    group: 500
+    mode: "0770"
+
+- name: Start the http data containers
+  docker_container:
+    name: "cvim-mon-data"
+    image: "{{ docker.common.registry }}/{{ docker.cvim_mon.name }}:{{ docker.cvim_mon.image_tag }}"
+    state: present
+    timeout: 420
+
+- name: Archive the container image
+  shell: "docker export cvim-mon-data > /tmp/cvim_mon/cvim-mon.tar"
+
+- name: Extract /tmp/cvim-mon.tar into /tmp/cvim_mon
+  unarchive:
+    src: /tmp/cvim_mon/cvim-mon.tar
+    dest: /tmp/cvim_mon
+
+- name: Stop the http data containers
+  docker_container:
+    name: "cvim-mon-data"
+    image: "{{ docker.common.registry }}/{{ docker.cvim_mon.name }}:{{ docker.cvim_mon.image_tag }}"
+    state: absent
+    timeout: 420
+
+- name: Copy file with owner and permissions
+  copy:
+    src: /tmp/cvim_mon/cvim_mon
+    dest: /var/lib/
+    force: yes
+
+- name: Remove Temporary Files
+  file:
+    state: absent
+    path: "/tmp/cvim_mon"
+
+- name: Get Stack Password
+  shell: "kubectl get secret grafana-auth-{{ metro_name }} -n {{ metro_name }} -o jsonpath='{.data.admin-password}' | base64 --decode"
+  register: grafana_password
+
+- name: Deploy Dashboards
+  shell: "python /var/lib/cvim_mon/cvim_mon/cvim_mon.py -n {{ metro_name }} -p {{ grafana_password.stdout }} -g https://{{ ingress_host_grafana }} -a http://prometheus-{{ metro_name }}-alertmanager.{{ metro_name }}.svc.cluster.local:80 -o http://prometheus-{{ metro_name }}-server.{{ metro_name }}.svc.cluster.local:80"
+  args:
+    chdir: /var/lib/cvim_mon/cvim_mon

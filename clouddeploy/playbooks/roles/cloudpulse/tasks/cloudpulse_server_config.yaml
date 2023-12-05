@@ -1,0 +1,40 @@
+- name: Copy cloudpulse ssh keys
+  copy: src={{ lookup('env','HOME') }}/.ssh/cloudpulse_id_rsa dest="{{ docker.cloudpulse_server.host_data_dir }}/cloudpulse_id_rsa" owner="2029" group="2029" mode="0600"
+  ignore_errors: true
+
+- name: Copy Haproxy certificate if TLS is enabled
+  copy: src={{ HAPROXY_CACERT }} dest="{{ docker.cloudpulse_server.host_data_dir }}/haproxy-ca.crt"
+  when: HAPROXY_TLS|bool and HAPROXY_CACERT
+
+- set_fact:
+    WSREP_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/WSREP_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CPULSE_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CPULSE_DB_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    CLOUDPULSE_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/CLOUDPULSE_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy Cloudpulse configuration template.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  with_items:
+    - { src: "cloudpulse.conf", dest: "{{docker.cloudpulse_server.host_data_dir }}/cloudpulse.conf" }
+    - { src: "nodes_config.yaml", dest: "{{docker.cloudpulse_server.host_data_dir }}/nodes_config.yaml" }
+
+- name: Copy Cloudpulse Templates config file.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "cloudpulse_config.j2",
+        dest: "{{ docker.cloudpulse_server.host_data_dir }}/cloudpulse_config" }
+
+- name: Pull cloudpulse Image
+  shell: docker pull "{{ docker.common.registry }}/{{ docker.cloudpulse_server.name }}:{{ docker.cloudpulse_server.image_tag }}"

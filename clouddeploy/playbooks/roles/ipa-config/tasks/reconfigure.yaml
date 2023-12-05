@@ -1,0 +1,5 @@
+- debug: msg="Reconfiguring IPA configs - {{ ipa_delta }}"
+  when: ipa_delta is defined and ipa_delta|bool
+
+- include: deploy.yaml
+  when: ipa_delta is defined and ipa_delta|bool

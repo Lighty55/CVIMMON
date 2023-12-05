@@ -1,0 +1,55 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    chart: '{{.Chart.Name}}-{{.Chart.Version}}'
+    component: '{{.Release.Name}}-snmp'
+    heritage: '{{.Release.Service}}'
+    release: '{{.Release.Name}}'
+    version: v1
+  name: '{{ template "snmp.fullname" . }}'
+spec:
+  replicas: {{.Values.snmp.replicas}}
+  template:
+    metadata:
+      labels:
+        component: '{{.Release.Name}}-snmp'
+        version: v1
+    spec:
+      volumes:
+      - configMap:
+          name: {{ template "snmp.fullname" . }}
+        name: config
+      - hostPath:
+          path: '{{.Values.persistence.logs.path}}'
+        name: logs
+      - hostPath:
+          path: '{{.Values.persistence.time.path}}'
+        name: time
+      containers:
+      - command:
+        - /usr/bin/python
+        - -u
+        - /usr/bin/my_init
+        - /start.sh
+        image: '{{.Values.snmp.snmpcvim.image}}:{{.Values.snmp.snmpcvim.imageTag}}'
+        imagePullPolicy: '{{.Values.snmp.snmpcvim.imagePullPolicy}}'
+        name: snmp-cvim
+        ports:
+        - containerPort: 1161
+          name: http
+        - containerPort: 162
+          name: snmp-trap
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /docker/snmp/
+          name: config
+          readOnly: true
+        - mountPath: /var/log/snmp
+          name: logs
+        - mountPath: /etc/localtime
+          name: time
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master

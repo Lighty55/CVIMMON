@@ -1,0 +1,67 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias neutronopflexagent='in_container neutron_opflexagent_"
+    line: "{{ item }}"
+  with_items:
+    - alias neutronopflexagent='in_container neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }}'
+
+- name: Start the Neutron opflex agent Service
+  docker_container:
+    name: "neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_opflex_agent.name }}:{{ docker.neutron_opflex_agent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_opflex_agent.host_data_dir }}:{{ docker.neutron_opflex_agent.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+      - /var/run/opflex-agent-ovs:/var/run/opflex-agent-ovs:z
+      - /var/lib/opflex-agent-ovs:/var/lib/opflex-agent-ovs:z
+      - neutron:/var/lib/neutron
+      - /run:/run:shared
+      - /lib/modules:/lib/modules:ro
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update")
+
+- pause: seconds=60 prompt="Waiting for sometime for all processes to be launched by supervisor"
+
+- name: Check if neutron opflex agent container has started running
+  shell: docker ps -a | grep Up | grep neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron opflex agent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutronopflexagent
+  tags:
+    - reboot-on-failure
+
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-agentovs
+  tags:
+    - reboot-on-failure
+
+

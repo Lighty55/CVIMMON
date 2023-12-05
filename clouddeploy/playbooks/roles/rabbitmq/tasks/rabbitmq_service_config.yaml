@@ -1,0 +1,28 @@
+- set_fact:
+    RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy RabbitMQ config templates to Docker staging folder.
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  with_items:
+    - { src: "../templates/rabbitmq.config.j2",
+        dest: "{{ docker.rabbitmq.host_data_dir}}/rabbitmq.config" }
+    - { src: "../templates/rabbitmq-env.conf.j2",
+        dest: "{{ docker.rabbitmq.host_data_dir}}/rabbitmq-env.conf" }
+
+- name: Copy rabbitmq config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "rabbitmq_config.j2",
+        dest: "{{ docker.rabbitmq.host_data_dir }}/rabbitmq_config" }
+    - { src: "definitions.json.j2",
+        dest: "{{ docker.rabbitmq.host_data_dir }}/definitions.json" }
+

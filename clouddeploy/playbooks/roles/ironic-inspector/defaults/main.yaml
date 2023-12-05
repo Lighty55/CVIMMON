@@ -1,0 +1,33 @@
+IRONIC_INSPECTOR_HOST: "{{ control_bond }}"
+
+# Which MAC addresses to add as ports during introspection. Possible
+# values: all (all MAC addresses), active (MAC addresses of NIC with
+# IP addresses), pxe (only MAC address of NIC node PXE booted from,
+# falls back to "active" if PXE MAC is not supplied by the ramdisk).
+# (string value)
+# Possible values:
+# all - <No description provided>
+# active - <No description provided>
+# pxe - <No description provided>
+# disabled - <No description provided>
+PROCESSING_ADD_PORTS: pxe
+
+# Which ports (already present on a node) to keep after introspection.
+# Possible values: all (do not delete anything), present (keep ports
+# which MACs were present in introspection data), added (keep only
+# MACs that we added during introspection). (string value)
+# Allowed values: all, present, added
+PROCESSING_KEEP_PORTS: added
+
+# True because we do not rely on node's hardware details when scheduling an instance. Instead we use
+# host aggregates. Node's details are for information purposes only
+PROCESSING_OVERWRITE_EXISTING: true
+PROCESSING_DEFAULT_PROCESSING_HOOKS: "ramdisk_error,root_disk_selection,scheduler,validate_interfaces,capabilities,pci_devices,lldp_basic,local_link_connection"
+
+PROCESSING_ALWAYS_STORE_RAMDISK_LOGS: true
+
+DISCOVERY_ENROLL_NODE_DRIVER: "ipmi"
+
+PXE_FILTER_DRIVER: "dnsmasq"
+PXE_FILTER_SYNC_PERIOD: 10
+PASSWORD_VARS: IRONIC_INSPECTOR_DB_PASSWORD,IRONIC_INSPECTOR_KEYSTONE_PASSWORD,RABBITMQ_PASSWORD

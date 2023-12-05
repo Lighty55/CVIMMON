@@ -1,0 +1,132 @@
+- name: Generate the reconfig credentials
+  command: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- set_fact:
+    RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/RABBITMQ_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    RABBITMQ_ERLANG_COOKIE: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/RABBITMQ_ERLANG_COOKIE:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: secrets_result|changed
+
+- name: Copy the new rabbitmq configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "rabbitmq_config.j2", dest: "{{docker.rabbitmq.host_data_dir }}/rabbitmq_reconfigure" }
+    - { src: "definitions.json.j2", dest: "{{ docker.rabbitmq.host_data_dir }}/definitions.json" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/rabbit/rabbitmq_config /docker/rabbit/rabbitmq_reconfigure
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/rabbit/rabbitmq_reconfigure /docker/rabbit/rabbitmq_config
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/rabbit/rabbitmq_reconfigure state=absent
+  when: command_result.stdout == ""
+
+# Now remove the old rabbitmq config
+- name: Remove the old rabbitmq config
+  command: docker exec -u root rabbitmq_{{ docker.rabbitmq.image_tag }} rm -rf /etc/rabbitmq/rabbitmq.config
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+# Now delete the template file inside the container
+- name: Delete the rabbitmq config file inside container to force a reconfigure
+  command: docker cp /docker/rabbit/rabbitmq_config rabbitmq_{{ docker.rabbitmq.image_tag }}:/opt/kolla/rabbitmq_config
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+# Now restart the service
+- name: Restart rabbitmq service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-rabbitmq
+  when: command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != "")
+
+- name: Check whether staging_secrets exist
+  stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+  register: staging_exists
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the RABBITMQ_ERLANG_COOKIE  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep RABBITMQ_ERLANG_COOKIE
+  register: rabbit_erlang_cookie
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^RABBITMQ_ERLANG_COOKIE" line="RABBITMQ_ERLANG_COOKIE{{ ":" }} {{ RABBITMQ_ERLANG_COOKIE }}"
+  when:  staging_exists.stat.exists == True and rabbit_erlang_cookie.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: find if the RABBITMQ_PASSWORD  has changed
+  shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep RABBITMQ_PASSWORD
+  register: rabbit_password
+  ignore_errors: True
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  delegate_to: localhost
+  run_once: True
+  when: staging_exists.stat.exists == True
+
+- name: Modify the secrets yaml file
+  lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^RABBITMQ_PASSWORD" line="RABBITMQ_PASSWORD{{ ":" }} {{ RABBITMQ_PASSWORD }}"
+  when:  staging_exists.stat.exists == True and rabbit_password.stdout != ""
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  delegate_to: localhost
+  run_once: True
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/RABBITMQ_ERLANG_COOKIE value={{ RABBITMQ_ERLANG_COOKIE }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['rabbitmq_all'][0] }}"
+    - secrets_result|changed and 'RABBITMQ_ERLANG_COOKIE' in secrets_result.stdout
+
+- name: Write new password to engine
+  environment:
+    VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+  shell: vault kv put secret/cvim-secrets/RABBITMQ_PASSWORD value={{ RABBITMQ_PASSWORD }}
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  run_once: True
+  when:
+    - inventory_hostname == "{{ groups['rabbitmq_all'][0] }}"
+    - secrets_result|changed and 'RABBITMQ_PASSWORD' in secrets_result.stdout

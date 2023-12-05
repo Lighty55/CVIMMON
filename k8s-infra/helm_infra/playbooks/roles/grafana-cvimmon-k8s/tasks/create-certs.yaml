@@ -1,0 +1,105 @@
+---
+- name: "CVIMMON-Kubernetes-Monitor->Check for any historic cert/key files in the path"
+  stat:
+    path: "{{ item }}"
+  register: fpath
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+
+- name: "CVIMMON-Kubernetes-Monitor->Delete any past cert files if exists in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+
+- name: "CVIMMON-Kubernetes-Monitor->Check for Namespace-Metro if it exists"
+  shell: kubectl get namespace {{ clustermon_namespace }} | cat
+  register: ns_exist
+  failed_when: false
+
+- name: "CVIMMON-Kubernetes-Monitor->Render Metro Namespace Template | Kubernetes Namespace"
+  become: true
+  template: { src: "namespace.yaml", dest: "/tmp/namespace.yaml" }
+  register: "rendering"
+  when: "'{{ clustermon_namespace }}' not in ns_exist.stdout"
+
+- name: "CVIMMON-Kubernetes-Monitor->Kubernetes Apps | Create a Metro Namespace"
+  kube:
+    name: "namespace"
+    kubectl: "kubectl"
+    filename: "/tmp/namespace.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+  when: "'{{ clustermon_namespace }}' not in ns_exist.stdout"
+
+- name: "CVIMMON-Kubernetes-Monitor->Ensure Metro Namespace Created is Active."
+  register: "ns_state"
+  command: "kubectl get ns {{ clustermon_namespace }} --output=json"
+  changed_when: false
+  until: "ns_state.stdout|default('{}')|from_json|json_query(\"status.phase\") == 'Active'"
+  retries: 10
+  delay: 5
+
+- name: "CVIMMON-Kubernetes-Monitor->Delete temporary namespace manifest file"
+  file:
+    path: /tmp/namespace.yaml
+    state: absent
+
+- name: "CVIMMON-Kubernetes-Monitor->Check if the domain based wildcard certificate is available"
+  stat:
+    path: "{{ domaincert_pemfile }}"
+  register: domaincert
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy domain cert to temp location"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_cert_out_path }}"
+  when:
+    - domaincert.stat.exists == True
+
+- name: "CVIMMON-Kubernetes-Monitor->Check if Stack Level certificate is available"
+  stat:
+    path: "{{ stackcert_pemfile }}"
+  register: stackcert
+
+- name: "CVIMMON-Kubernetes-Monitor->Copy stack cert to temp location"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_cert_out_path }}"
+  when:
+    - stackcert.stat.exists == True
+
+- name: "CVIMMON-Kubernetes-Monitor->Get secrets form the namespace and check Grafana Ingress Secret exists"
+  shell: kubectl get secrets -n {{ clustermon_namespace }} | grep cvimmon-grafana-cert | cat
+  register: grafana_secret
+
+- name: "CVIMMON-Kubernetes-Monitor->Create Self Signed Certs with OpenSSL for Grafana"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ cvimmon_key_out_path }}
+    -out {{ cvimmon_cert_out_path }}
+    -subj "/CN={{ ingress_host_grafana }}/O={{ ingress_host_grafana }}"
+  when:
+    - domaincert.stat.exists == False
+    - stackcert.stat.exists == False
+
+- name: "CVIMMON-Kubernetes-Monitor->Create Kubernetes TLS Secret for Grafana"
+  command: kubectl create secret tls cvimmon-grafana-cert -n {{ clustermon_namespace }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ cvimmon_key_out_path }}']
+    - ['{{ cvimmon_cert_out_path }}']
+  when: "'cvimmon-grafana-cert' not in grafana_secret.stdout"
+
+- name: "CVIMMON-Kubernetes-Monitor->Delete all Cert Sensitive files in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"

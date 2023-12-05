@@ -1,0 +1,76 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Generate a token
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack token issue -f value -c id
+  register: token
+  run_once: True
+  delegate_to: localhost
+  changed_when: false
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Find IDs of service accounts
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack user show -f value -c id {{ item }}
+  register: userid_list
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+  changed_when: false
+  with_list:
+    - " {{ IRONIC_KEYSTONE_USER }} "
+    - " {{ GLANCE_KEYSTONE_USER }} "
+    - " {{ HEAT_KEYSTONE_USER }} "
+    - " {{ HEAT_STACK_DOMAIN_ADMIN }} "
+    - " {{ MAGNUM_KEYSTONE_USER }} "
+    - " trustee_domain_admin "
+    - " {{ IRONIC_INSPECTOR_KEYSTONE_USER }} "
+    - " {{ ADMIN_USER }} "
+    - " {{ CEILOMETER_KEYSTONE_USER }} "
+    - " {{ NEUTRON_KEYSTONE_USER }} "
+    - " {{ CLOUDPULSE_KEYSTONE_USER }} "
+    - " {{ NOVA_KEYSTONE_USER }} "
+    - " {{ NOVA_PLACEMENT_USER }} "
+    - " {{ GNOCCHI_KEYSTONE_USER }} "
+    - " {{ CINDER_KEYSTONE_USER }} "
+
+- name: Ignore lockout for service accounts
+  uri:
+    method: PATCH
+    url: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3/users/{{ item.stdout }}"
+    headers:
+      Content-Type: "application/json"
+      X-Auth-Token: "{{ token.stdout }}"
+    body: '{"user": {"options": {
+            "ignore_lockout_failure_attempts": true,
+            "ignore_change_password_upon_first_use": true,
+            "ignore_password_expiry": true
+            }}}'
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: item.stdout != ""
+  with_items: "{{ userid_list.results }}"

@@ -1,0 +1,81 @@
+# First remove the new container and artifacts and heat api cfn
+- name: Shut off heat api cfn docker service
+  service:
+    name: docker-heatapicfn
+    enabled: no
+    state: stopped
+
+- name: Remove heatapicfn service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapicfn.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove heat-api-cfn docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "heatapicfn_{{ docker.heat_api_cfn.image_tag }}" }
+
+- name: Remove heat docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.heat_api_cfn.name }}"
+    tag: "{{ docker.heat_api_cfn.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: List heat API CFN files
+  shell: ls -A1 /docker/heat_api_cfn/
+  register: contents
+
+- name: Remove heat API CFN files
+  file:
+    path: /docker/heat_api_cfn/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the heat api cfn volume contents
+- name: recover heat api cfn volume contents
+  shell: cp /docker/heat_api_cfn_{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}/* /docker/heat_api_cfn/.
+
+# Now remove the backup volume
+- name: Remove back up heat API CFN Directory
+  file:
+    path: "/docker/heat_api_cfn_{{ HEAT_API_CFN_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/heat_api_cfn/docker-heatapicfn.service /usr/lib/systemd/system/docker-heatapicfn.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias heatapicfn='in_container heatapicfn_"
+    line: "{{ item }}"
+  with_items:
+    - alias heatapicfn='in_container heatapicfn_{{ HEAT_API_CFN_PREVIOUS_TAG }}'
+
+# Start the container via systemd
+- name: Start heatapicfn service
+  service:
+    name: docker-heatapicfn
+    enabled: yes
+    state: started
+
+- name: Wait for Heat API to be alive
+  wait_for: host={{ HEAT_HOST }} port={{ HEAT_API_CFN_PORT }}

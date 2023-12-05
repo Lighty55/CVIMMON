@@ -1,0 +1,16 @@
+[Unit]
+Description=etcd Docker
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a etcd_{{ docker.etcd.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 etcd_{{ docker.etcd.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

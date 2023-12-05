@@ -1,0 +1,24 @@
+- include_vars: "{{ playbook_dir }}/../../../../openstack-configs/cvim_mon_ha.yaml"
+  when: ACTION is defined and (ACTION == "update" or ACTION == "upgrade")
+
+- file: path=/opt/cisco/registry  state=directory mode=0755
+
+- copy: src=pull_docker.py dest=/opt/cisco/registry/pull_docker.py owner=root mode=0544
+- copy: src=registry_copy.py dest=/opt/cisco/registry/registry_copy.py owner=root mode=0544
+- copy: src=push_images.py dest=/opt/cisco/registry/push_images.py owner=root mode=0544
+
+- name: Register log path
+  shell: grep "log_path" "{{ playbook_dir }}/ansible.cfg" | cut -f2 -d"=" | xargs dirname
+  register: logpath
+
+- name: Populate local_registry build without internet
+  shell: /opt/cisco/registry/push_images.py -i "{{ ARTIFACT_PATH }}/images" -d "http://{{ docker.common.registry }}" "{{ playbook_dir }}/../../../../openstack-configs/cvim_mon_ha.yaml" > "{{ logpath.stdout }}"/registry_push.log
+
+#- name: Retag registry image
+#  shell: docker tag "cloud-docker.cisco.com/redstone/registry-2.6.2:{{ image_tag }}" "{{ docker.common.registry }}/redstone/registry-2.6.2:{{ image_tag }}"
+
+#- name: Push registry image
+#  shell: docker push "{{ docker.common.registry }}/redstone/registry-2.6.2:{{ image_tag }}"
+
+- include_vars: "/root/openstack-configs/cvim_mon_ha.yaml"
+  when: ACTION is defined and (ACTION == "update" or ACTION == "upgrade")

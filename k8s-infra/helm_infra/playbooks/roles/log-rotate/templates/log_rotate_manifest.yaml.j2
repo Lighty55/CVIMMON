@@ -1,0 +1,106 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    k8s-app: {{ metro_name }}-logrotate
+  name: {{ metro_name }}-logrotate
+spec:
+  selector:
+    matchLabels:
+        k8s-app: {{ metro_name }}-logrotate
+  template:
+    metadata:
+      labels:
+        k8s-app: {{ metro_name }}-logrotate
+    spec:
+      tolerations:
+      # Make sure log-rotate gets scheduled on all nodes
+      - effect: NoSchedule
+        operator: Exists
+      # Mark log-rotate as a critical add-on for rescheduling
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      volumes:
+      - name: config
+        configMap:
+          name: {{ metro_name }}-logrotate-cm
+      - name: log-config
+        configMap:
+          name: {{ metro_name }}-logrotate-logfiles-cm
+      #- name: log-config
+      #  hostPath:
+      #    path: /docker/log-rotate
+      #    type: Directory
+      - name: rotation
+        hostPath:
+          path: /var/log/snmp
+          type: DirectoryOrCreate
+      - name: time
+        hostPath:
+          path: /etc/localtime
+      containers:
+      - command:
+        - /usr/bin/python
+        - -u
+        - /usr/bin/my_init
+        - /start.sh
+        #image: 10.10.10.196:5000/cvim-rhel7-osp13/log-rotate:20865
+        image: {{ management_node_ip }}:5000/{{ docker.log_rotate.name }}:{{ docker.log_rotate.image_tag }}
+        #image: cloud-docker.cisco.com/cvim-rhel7-osp13/log-rotate:20966
+        #imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
+        name: log-rotate
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: log-config
+          mountPath: /docker/log-rotate/
+        - name: config
+          mountPath: /opt/cisco/log-rotate/
+          readOnly: true
+        - name: rotation
+          mountPath: /var/log/snmp/
+        - name: time
+          mountPath: /etc/localtime
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ metro_name }}-logrotate-cm
+data:
+  log_rotate_config: |
+    CENTRAL_CVIM_MON: True
+    PREFIX: {{ metro_name }}
+    LOGROTATION_FREQ:  {{ log_rotation_frequency }}
+    LOGROTATION_DEL_OLDER: {{ log_rotation_del_older }}
+    LOGROTATION_SIZE:  {{ log_rotation_size }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ metro_name }}-logrotate-logfiles-cm
+data:
+  docker-snmp: |
+    /var/log/snmp/{{ metro_name }}_*.log {
+       su root root
+       #@log_rotation_frequency@
+       {{ log_rotation_frequency }}
+       #rotate @log_rotation_del_older@
+       rotate {{ log_rotation_del_older }}
+       notifempty
+       missingok
+       compress
+       copytruncate
+       dateext
+       dateformat -%Y%m%d-%s
+       #maxsize @log_rotation_size@
+       maxsize {{ log_rotation_size }}
+

@@ -1,0 +1,43 @@
+- name: Check if Nova Placement API Docker container is already running
+  shell: docker ps -a | grep Up | grep novaplacementapi_{{ docker.nova_placement_api.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novaplacementapi='in_container novaplacementapi_"
+    line: "{{ item }}"
+  with_items:
+    - alias novaplacementapi='in_container novaplacementapi_{{ docker.nova_placement_api.image_tag }}'
+
+- name: Start the Nova Placement api Docker Service
+  docker_container:
+    name: "novaplacementapi_{{ docker.nova_placement_api.image_tag }}"
+    privileged: True
+    image: "{{ docker.common.registry }}/{{ docker.nova_placement_api.name }}:{{ docker.nova_placement_api.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      -  "{{ docker.nova_placement_api.host_data_dir }}:{{ docker.nova_placement_api.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/nova:/var/log/nova:z
+    volumes_from:
+      - novacommon_{{ docker.nova_common.image_tag }}
+    ports: "8778:8778"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- name: Wait for Nova placement api to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_PLACEMENT_API_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novaplacementapi
+  tags:
+    - reboot-on-failure

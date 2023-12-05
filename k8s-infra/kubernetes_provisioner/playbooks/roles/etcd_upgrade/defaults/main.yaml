@@ -1,0 +1,12 @@
+etcd_backup_local_root_dir: "/var/lib/etcd/backups"
+etcd_backup_remote_root_dir: "/tmp"
+etcd_backup_node_name: "{{ groups['all-masters'] [0] }}"
+etcd_data_dir: "/var/lib/etcd"
+etcd_backup_tag: ""
+etcd_backup_keep_local_files: 5
+etcd_backup_keep_remote_files: 5
+etcd_backup_suffix: "k8setcd"
+etcd_certificates:
+  - "etcd-server"
+  - "etcd-peer"
+  - "etcd-healthcheck-client"

@@ -1,0 +1,84 @@
+# First remove the new container and artifacts and nova ssh
+- name: Shut off nova ssh docker service
+  service:
+    name: docker-novassh
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove novassh service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novassh.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-ssh docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novassh_{{ docker.nova_ssh.image_tag }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_ssh.name }}"
+    tag: "{{ docker.nova_ssh.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove nova ssh volume contents
+- name: List nova ssh volume contents
+  shell: ls -A1 /docker/nova_ssh/
+  register: contents
+
+- name: Remove nova ssh volume contents
+  file:
+    path: /docker/nova_ssh/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the nova ssh volume contents
+- name: recover nova ssh volume contents
+  shell: cp /docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}/* /docker/nova_ssh/.
+
+# Now remove the backup volume
+- name: Remove back up nova ssh Directory
+  file:
+    path: "/docker/nova_ssh_{{ NOVA_SSH_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/nova_ssh/docker-novassh.service /usr/lib/systemd/system/docker-novassh.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novassh='in_container novassh_"
+    line: "{{ item }}"
+  with_items:
+    - alias novassh='in_container novassh_{{ NOVA_SSH_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the nova ssh service
+  service:
+    name: docker-novassh
+    enabled: yes
+    state: started
+
+- name: Wait for Nova ssh to be alive
+  wait_for: host={{ NOVA_HOST }} port={{ NOVA_SSH_PORT }}

@@ -1,0 +1,10 @@
+---
+- hosts: localhost
+  become: yes
+  roles:
+    - decide-master
+
+- hosts: ha_master
+  become: yes
+  roles:
+    - get-master-vip-hostname

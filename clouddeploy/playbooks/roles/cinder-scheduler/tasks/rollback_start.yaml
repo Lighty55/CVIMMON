@@ -1,0 +1,91 @@
+# First remove the new container and artifacts and cinder scheduler
+- name: Shut off cinder scheduler docker service
+  service:
+    name: docker-cindersch
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove cinderscheduler service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cindersch.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove cinder-scheduler docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderscheduler_{{ docker.cinder_scheduler.image_tag }}" }
+
+- name: Remove cinder docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_scheduler.name }}"
+    tag: "{{ docker.cinder_scheduler.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove contents of cinder scheduler volume
+- name: List contents of cinder scheduler volume
+  shell: ls -A1 /docker/cinder_scheduler/
+  register: contents
+
+- name: Remove cinder API scheduler contents
+  file:
+    path: /docker/cinder_scheduler/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the cinder scheduler volume contents
+- name: recover cinder scheduler volume contents
+  shell: cp /docker/cinder_scheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}/* /docker/cinder_scheduler/.
+
+# Now remove the backup volume
+- name: Remove back up cinder SCHEDULER Directory
+  file:
+    path: "/docker/cinder_scheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/cinder_scheduler/docker-cindersch.service /usr/lib/systemd/system/docker-cindersch.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: systemctl reset failed
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cinderscheduler='in_container cinderscheduler_"
+    line: "{{ item }}"
+  with_items:
+    - alias cinderscheduler='in_container cinderscheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }}'
+
+# Start the container
+- name: Start the cinder scheduler service
+  service:
+    name: docker-cindersch
+    enabled: yes
+    state: started
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Cinder Scheduler Docker container has started running
+  shell: docker ps -a | grep Up | grep cinderscheduler_{{ CINDER_SCHEDULER_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Cinder Scheduler Container does not seem to be running"
+  when: command_result.stdout == ""

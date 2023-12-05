@@ -1,0 +1,64 @@
+# Create a Group of relevant compute hosts if target_node_ips is passed to act
+# on a subset of hosts
+- name: Create nova_compute_mgmt_ip intersect group
+  hosts: localhost
+  tags:
+    - firmware_check
+    - firmware_update
+  tasks:
+    - name: Create dynamic groups for target_computes
+      local_action: add_host hostname={{ item }} groupname=target_computes
+      with_items:
+        - "{{ groups['nova_compute_mgmt_ip'] | intersect(target_node_ips|default(groups['nova_compute_mgmt_ip'])) | unique }}"
+
+    - name: target_computes list
+      debug:
+        msg: "{{ groups['target_computes']|default([]) }}"
+
+# Pre-req for Intel FPGA N3000 before firmware check or update
+- name: Pre-req for Intel FPGA N3000 firmware before firmware check or update
+  hosts: target_computes
+  tags:
+    - firmware_check
+    - firmware_update
+  tasks:
+    - name: Check for Intel FPGA N3000 card
+      shell: lspci -d 8086:0b30 | wc -l
+      register: n3000_card_count
+
+    - name: Print if accelerated compute
+      debug:
+        msg: "ACCELERATED COMPUTE: {{ ansible_nodename }}"
+      when: n3000_card_count.stdout | int > 0
+
+    - name: Create dynamic groups for accelerated_computes
+      local_action: add_host hostname={{ item }} groupname=accelerated_computes
+      with_items: "[{% for host in groups['target_computes'] if hostvars[host].n3000_card_count.stdout | int > 0 %} '{{ host }}', {% endfor %}]"
+
+    - name: accelerated_computes list
+      debug:
+        msg: "{{ groups['accelerated_computes']|default([]) }}"
+      delegate_to: localhost
+      run_once: true
+
+# Check accelerated computes
+- name: Check Intel FPGA N3000 firmware on accelerated Compute
+  hosts: accelerated_computes
+  tags:
+    - firmware_check
+  roles:
+    - { role: "n3000-firmware-update", firmware_check: true, firmware_update: false }
+  tasks:
+    - name: Check if firmware update is available
+      debug:
+        msg: "FIRMWARE UPDATE AVAILABLE: {{ ansible_nodename }}"
+      when: (n3000_secure_check_status is defined and n3000_secure_check_status.rc == 3) or
+            (n3000_xl710_check_status is defined and n3000_xl710_check_status.rc == 3)
+
+# Update accelerated computes
+- name: Update Intel FPGA N3000 firmware on accelerated Compute
+  hosts: accelerated_computes
+  tags:
+    - firmware_update
+  roles:
+    - { role: "n3000-firmware-update", firmware_check: false, firmware_update: true }

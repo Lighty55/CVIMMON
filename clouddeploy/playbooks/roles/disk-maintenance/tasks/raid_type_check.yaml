@@ -1,0 +1,19 @@
+- name: Check if HW or SW raid
+  shell: "cat /proc/mdstat | awk '/Personalities/{print $3}'"
+  register: raid_type_sw
+
+- name: Check if raid_status was previously determined
+  stat:
+    path: "{{ RAID_TYPE_FILE }}_{{ inventory_hostname }}"
+  register: raid_type_file
+  delegate_to: localhost
+
+- name: Save raid type
+  shell: "echo 'RAID_type: HW' >> {{ RAID_TYPE_FILE }}_{{ inventory_hostname }}"
+  delegate_to: localhost
+  when: raid_type_sw.stdout == "" and raid_type_file.stat.exists == False
+
+- name: Save raid type
+  shell: "echo 'RAID_type: SW' >> {{ RAID_TYPE_FILE }}_{{ inventory_hostname }}"
+  delegate_to: localhost
+  when: raid_type_sw.stdout != "" and raid_type_file.stat.exists == False

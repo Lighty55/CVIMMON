@@ -1,0 +1,113 @@
+- name: check /etcd/member directory exists
+  stat:
+    path: "/var/lib/etcd/member"
+  register: etcd_directory_exists_check
+  ignore_errors: true
+
+- name: Delete if member directory exists
+  file:
+    state: absent
+    path: "/var/lib/etcd/member"
+  when: etcd_directory_exists_check
+  ignore_errors: true
+
+- name: stop and disable etcd
+  systemd:
+    name: etcd
+    enabled: no
+    daemon_reload: yes
+    state: stopped
+  ignore_errors: true
+  failed_when: False
+
+- name: Generate etcd certs for the newly added node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl print-defaults csr > config.json
+  args:
+    executable: /bin/bash
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'CN/{s/example\.net'
+    replace: "{{ hostvars[inventory_hostname]['ansible_usehost'] }}"
+    backup: no
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'www\.example\.net'
+    replace: "{{ inventory_hostname }}"
+    backup: no
+
+- replace:
+    dest: /etc/kubernetes/pki/etcd/config.json
+    regexp: 'example\.net'
+    replace: "{{ hostvars[inventory_hostname]['ansible_usehost'] }}"
+    backup: no
+
+- name: Generate etcd peer certs for each master node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server config.json | /usr/bin/cfssljson -bare server
+  args:
+    executable: /bin/bash
+
+- name: Generate etcd server certs for each master node
+  shell: |
+    cd /etc/kubernetes/pki/etcd
+    /usr/bin/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer config.json | /usr/bin/cfssljson -bare peer
+  args:
+    executable: /bin/bash
+
+- name: install specific version of ETCD from Yum
+  yum:
+    name: etcd-{{ etcd_version }}
+    state: present
+
+- name: Configure | Check if etcd cluster is healthy before installing Keepalived
+  shell: "/usr/bin/etcdctl --ca-file /etc/kubernetes/pki/etcd/ca.pem --cert-file /etc/kubernetes/pki/etcd/client.pem --key-file /etc/kubernetes/pki/etcd/client-key.pem --peers https://{{ hostvars[groups['ha_master'][0]]['masterha_hostname']['stdout'] }}:2379 cluster-health | grep -q 'cluster is healthy'"
+
+- name: stop etcd
+  systemd:
+    name: etcd
+    daemon_reload: yes
+    state: stopped
+
+- name: Delete etcd default configuration file
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /usr/lib/systemd/system/etcd.service
+    - /etc/etcd/etcd.conf
+
+- name: Copy etcd config file
+  template:
+    src: etcd.service
+    dest: /etc/systemd/system/etcd.service
+
+- name: Copy etcd.env config file
+  template:
+    src: etcd.env
+    dest: /etc/etcd.env
+
+- name: add the node to etcd cluster
+  shell: "etcdctl --endpoints=https://{{hostvars[groups['ha_master'][0]]['masterha_hostname']['stdout']}}:2379 --ca-file=/etc/kubernetes/pki/etcd/ca.pem --key-file=/etc/kubernetes/pki/etcd/client-key.pem --cert-file=/etc/kubernetes/pki/etcd/client.pem member add {{ansible_hostname}} https://{{ansible_usehost}}:2380"
+  register: etcd_node
+  changed_when: false
+  ignore_errors: yes
+
+- name: Wait for etcd member to be added to cluster
+  pause:
+    seconds: 20
+
+- name: start and enable etcd
+  systemd:
+    name: etcd
+    enabled: yes
+    daemon_reload: yes
+    state: started
+
+- name: SELinux Label etcd directories
+  shell: |
+    for i in {/var/lib/etcd,/etc/kubernetes/pki,/etc/kubernetes/pki/etcd,/etc/cni/net.d}; do mkdir -p $i && chcon -Rt svirt_sandbox_file_t $i; done

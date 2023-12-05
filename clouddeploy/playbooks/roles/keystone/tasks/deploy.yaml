@@ -1,0 +1,79 @@
+######################################################################################
+# INSTALL and CONFIG tasks:
+- name: Deploy | Run keystone_service_install.yaml
+  include: keystone_service_install.yaml
+
+- name: Deploy | Run keystone_service_config.yaml
+  include: keystone_service_config.yaml
+
+######################################################################################
+# BOOTSTRAP checks and common tasks:
+# Run bootstrap to start mariadb and setup the fernet keys only if no cloud is running
+# Otherwise, it needs to just start up the already existing containers or replace the
+# controller
+- name: Deploy | Check if docker service is already running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: _bootstrap_created
+  run_once: true
+  delegate_to: "{{ groups['keystone_all'][0] }}"
+
+- name: Deploy | Run keystone_service_bootstrap.yaml
+  include: keystone_service_bootstrap.yaml
+  run_once: true
+  when: (server is undefined) and (not _bootstrap_created.stdout)
+
+######################################################################################
+# REPLACE CONTROLLER checks and common tasks:
+# If server is defined, then need to replace the controller. However, these can only be
+# done if there is some other controller running. Otherwise, there's not a container to
+# get the fernet keys from
+- name: Deploy | Check idempotency for replace controller
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: _container_already_replaced
+  delegate_to: "{{ inventory_hostname }}"
+  when: (server is defined) and (server == ":&{{ inventory_hostname }}")
+
+- name: Deploy | Check which docker containers are already running
+  set_fact:
+    _other_hosts: "[{% for host in groups['keystone_all'] if inventory_hostname != host %} '{{ host }}', {% endfor %}]"
+  when: (_container_already_replaced is defined) and (not _container_already_replaced.stdout)
+
+# This checks if the first container of the other two nodes is running, so we'll be
+# able to check the keys from it
+- name: Deploy | Going to replace a controller. Check if the first keystone container is running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: _first_container_is_up
+  delegate_to: "{{ _other_hosts[0] }}"
+  when: (_other_hosts is defined)
+
+# If we have an error here, then it means that all neither of the other keystone
+# containers are up. Something wrong is going here. Then bail out.
+- name: Deploy | Going to replace a controller. Check if the second keystone container is running
+  shell: docker ps -a | grep Up | grep keystone_{{ docker.keystone.image_tag }} | cut -f1 -d " "
+  register: _second_container_is_up
+  failed_when: _second_container_is_up.stdout == ""
+  any_errors_fatal: true
+  delegate_to: "{{ _other_hosts[1] }}"
+  when: (_other_hosts is defined) and (not _first_container_is_up.stdout)
+
+# Set the _ip_source_node variable to the first keystone container to be up where to get the keys
+- set_fact:
+    _ip_source_node: "{% if _first_container_is_up.stdout -%} {{_other_hosts[0]}} {%- else -%} {{_other_hosts[1]}} {%- endif %}"
+  when: _other_hosts is defined
+
+- name: Deploy | Run keystone_replace_controller.yaml
+  include: keystone_replace_controller.yaml
+  when: _ip_source_node is defined
+
+######################################################################################
+# START common tasks:
+# Continue by starting the keystone service and clean up after it
+- name: Deploy | Run keystone_service_start.yaml
+  include: keystone_service_start.yaml
+
+- name: Deploy | Run keystone_autorotate_cronjob.yaml
+  include: keystone_autorotate_cronjob.yaml
+  when: KEYSTONE_FERNET_CRONJOB == "Enabled"
+
+- name: Deploy | Run keystone_service_post_start.yaml
+  include: keystone_service_post_start.yaml

@@ -1,0 +1,40 @@
+[Unit]
+Description=Nova Compute Docker
+{% if MECHANISM_DRIVERS == "linuxbridge" %}
+Requires=docker-neutronlb.service
+After=docker-neutronlb.service
+{% elif MECHANISM_DRIVERS == "openvswitch" %}
+Requires=docker-neutron_ovsagent.service
+After=docker-neutron_ovsagent.service
+{% elif MECHANISM_DRIVERS == "vts" %}
+Requires=docker-neutron_vtf.service
+After=docker-neutron_vtf.service
+{% elif MECHANISM_DRIVERS == "aci" %}
+Wants=docker-neutronopflexagent.service
+{% endif %}
+{% if COMPUTE_DRIVER == "libvirt.LibvirtDriver" %}
+Requires=docker-novalibv.service
+After=docker-novalibv.service
+{% endif %}
+
+{# Note: 1) The dependency of novapcu AFTER neutron-sriov service is fulfilled  #}
+{#       by the Before directive in the neutron_sriov.service systemd unit      #}
+{#       2) novapcu dependency on novalibv is important for VMs running on the  #}
+{#       compute hosts to come up in a running state during host startup        #}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+{% if MECHANISM_DRIVERS == "vts" or MECHANISM_DRIVERS == "vpp" %}
+RestartSec=20
+StartLimitBurst={{ RESTART_LIMIT_VPP }}
+{% else %}
+RestartSec=5
+StartLimitBurst={{ RESTART_LIMIT }}
+{% endif %}
+StartLimitInterval={{ RESTART_INTERVAL }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a novacompute_{{ docker.nova_compute.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 novacompute_{{ docker.nova_compute.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

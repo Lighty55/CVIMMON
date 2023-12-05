@@ -1,0 +1,97 @@
+# First remove the new container and artifacts
+- name: Shut off neutron linuxbridge docker service
+  service:
+    name: docker-neutronlb
+    enabled: no
+    state: stopped
+  ignore_errors: true
+  failed_when: false
+
+- name: Remove neutron linuxbridge service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronlb.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron linuxbridge docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_linuxbridge_agent_{{ docker.neutron_linuxbridge_agent.image_tag }}" }
+
+- name: Remove neutron linuxbridge docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_linuxbridge_agent.name }}"
+    tag: "{{ docker.neutron_linuxbridge_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+# Now list and remove neutron linuxbridge volume contents
+- name: List neutron linuxbridge volume contents
+  shell: ls -A1 /docker/neutron_linuxbridge_agent/
+  register: contents
+
+- name: Remove neutron linuxbridge volume contents
+  file:
+    path: /docker/neutron_linuxbridge_agent/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+
+#  Recover the neutron linuxbridge volume contents
+- name: recover neutron linuxbridge volume contents
+  shell: cp /docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}/* /docker/neutron_linuxbridge_agent/.
+
+
+# Now remove the backup volume
+- name: Remove back up neutron linuxbridge Directory
+  file:
+    path: "/docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+##########################################
+# Copy and enable Service Manager Definition
+##########################################
+- name: Copy Containers restart-on-boot files.
+  command: cp /docker/neutron_linuxbridge_agent/docker-neutronlb.service /usr/lib/systemd/system/docker-neutronlb.service
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Reset the failures
+  shell: systemctl reset-failed
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias linuxbridge='in_container neutron_linuxbridge_agent_"
+    line: "{{ item }}"
+  with_items:
+    - alias linuxbridge='in_container neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}'
+
+# start the container via systemd
+- name: Start neutron linuxbridge docker service
+  service:
+    name: docker-neutronlb
+    enabled: yes
+    state: started
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if neutron linuxbridge  Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="neutron linuxbridge Container does not seem to be running"
+  when: command_result.stdout == ""
+
+
+

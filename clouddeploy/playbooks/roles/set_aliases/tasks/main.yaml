@@ -1,0 +1,52 @@
+- name: Check whether bashrcfile needs to be regenerated
+  shell: cat "{{ lookup('env', 'HOME') }}/.bashrc" | grep "reboot_command("
+  register: update_bashrc
+  ignore_errors: True
+  failed_when: false
+
+- name: Remove old bashrc
+  file:
+    path: "{{ lookup('env', 'HOME') }}/.bashrc"
+    state: absent
+  when: (ACTION is undefined) or (ACTION is defined and ACTION == "upgrade") or (update_bashrc.stdout == "")
+
+- name: Copy Containers restart-on-boot files.
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "bashrcfile",
+        dest: "{{ lookup('env', 'HOME') }}/.bashrc" }
+  when: (ACTION is undefined) or (ACTION is defined and ACTION == "upgrade") or (update_bashrc.stdout == "")
+
+- name: Add docker alias to bashrc.
+  lineinfile:
+    dest: "{{ lookup('env', 'HOME') }}/.bashrc"
+    state: present
+    line: "{% raw %}alias dp='docker ps -a --format \"table {{.Names}}\t{{.Status}}\"'{% endraw %}"
+
+# Aliases to workaround the issue of virtual machines getting shutdown by systemd before nova compute
+# goes down
+- name: alias the shutdown commands
+  lineinfile:
+    dest: "{{ lookup('env', 'HOME') }}/.bashrc"
+    state: present
+    line: alias {{ item }}='reboot_command {{ item }}'
+  with_items:
+    - "shutdown"
+    - "reboot"
+    - "halt"
+    - "poweroff"
+  when: '"compute" in server_role'
+
+# Now add the ceph mon alias here to make sure we handle the case of regeneration of bashrc
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias cephmon='in_container cephmon_"
+    line: "{{ item }}"
+  with_items:
+    - alias cephmon='in_container cephmon_{{ docker.ceph_mon.image_tag | default('') }}'
+  when: (ROLES.block_storage is defined and ROLES.block_storage) and (ACTION is undefined or (ACTION is defined and ACTION == "upgrade") or (update_bashrc.stdout == "")) and '"control" in server_role'

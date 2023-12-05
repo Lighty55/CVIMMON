@@ -1,0 +1,29 @@
+---
+- name: "Create /tmp/kubeadm-ha directory"
+  file:
+    path: /tmp/kubeadm-ha
+    state: directory
+
+- name: "Get Br_api IPV6 Addresses of the Host"
+  shell: ip addr show dev br_api | grep global | grep -v dad | sed -e's/^.*inet6 \([^ ]*\)\/.*$/\1/;t;d'
+  register: local_ipv6_api_address
+  failed_when: false
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Set Br_api IPV6 Addresses"
+  set_fact: ipv6_api_address={{ local_ipv6_api_address.stdout }}
+  when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+- name: "Copy kubeadm init config"
+  template:
+    src: kubeadm-config.yaml
+    dest: /tmp/kubeadm-ha/kubeadm-config.yaml
+
+#- name: Create GlusterFS directory
+#  file:
+#    path: /etc/kubernetes/glusterfs
+#    state: directory
+
+#- name: "Migrate Kubeadm-Config to 1.12"
+#  become: true
+#  shell: kubeadm config migrate --old-config /tmp/kubeadm-ha/kubeadm-config.yaml --new-config /tmp/kubeadm-ha/kubeadm-config.yaml

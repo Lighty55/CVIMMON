@@ -1,0 +1,8 @@
+- include: ovs_dbserver_upgrade_prepare.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+
+- include: ovs_dbserver_service_install.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"
+
+- include: ovs_dbserver_service_start.yaml
+  when: MECHANISM_DRIVERS == "openvswitch"

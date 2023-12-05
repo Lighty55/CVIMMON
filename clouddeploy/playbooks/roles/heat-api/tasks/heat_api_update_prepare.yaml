@@ -1,0 +1,44 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Heat API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/heat_api_{{ HEAT_API_PREVIOUS_TAG | default('') }}
+
+# Back up the heat api volume contents
+- name: back up the heat api configuration file
+  shell: cp /docker/heat_api/* /docker/heat_api_{{ HEAT_API_PREVIOUS_TAG | default('') }}/.
+
+#####################################################
+# Shut down the old heat api containers
+####################################################
+# Heat API.
+- name: Shut off heat api docker service
+  service:
+    name: docker-heatapi
+    enabled: no
+    state: stopped
+
+- name: Remove heatapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-heatapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now remove the old config files and we will regenerate that
+- name: List heat API files
+  shell: ls -A1 /docker/heat_api/
+  register: contents
+
+- name: Remove heat API files
+  file:
+    path: /docker/heat_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

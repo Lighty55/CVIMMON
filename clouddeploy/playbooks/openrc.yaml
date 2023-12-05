@@ -1,0 +1,6 @@
+- name: Render the openrc file
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "root"
+  roles:
+    - { role: "openrc", tags: [ "base", "openrc" ] }

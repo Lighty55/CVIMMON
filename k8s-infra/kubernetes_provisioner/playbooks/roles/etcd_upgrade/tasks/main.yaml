@@ -1,0 +1,6 @@
+- include: etcd_backup.yaml
+  when: ACTION is defined and ACTION == "etcd-backup"
+- include: etcd_restore.yaml
+  when: ACTION is defined and ACTION == "etcd-restore"
+- include: etcd-regenerate_certs.yaml
+  when: ACTION is defined and ACTION == "etcd-renew-certs"

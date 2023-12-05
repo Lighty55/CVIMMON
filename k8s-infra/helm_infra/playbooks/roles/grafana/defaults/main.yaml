@@ -1,0 +1,50 @@
+---
+
+#Helm Directory Information
+helm_parent_directory: "application-charts"
+grafana_app_directory: "grafana"
+grafana_deployment_name: "grafana"
+#grafana_namespace: "kube-system"
+conf_bin_path: "/opt/cisco/cvimmon-metros"
+grafana_values_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}"
+grafana_helm_upgrade_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/grafana"
+grafana_metro_values_path: "/opt/cisco/cvimmon-metros/{{ metro_name }}/grafana/grafana-values.yaml"
+
+#sidecar_image: "kiwigrid/k8s-sidecar:0.0.16"
+
+#For Dashboard Reloaders
+# Check if we use this image. We don't downlod this image from cloud-docker
+downld_dash_repository: "appropriate/curl"
+downld_dash_tag: "latest"
+
+#Grafana Ingress
+ingress_class_grafana: "nginx"
+ingress_cert_grafana: "{{ metro_name }}/cvimmon-grafana-{{ metro_name }}"
+ingress_secret_name: "cvimmon-grafana-{{ metro_name }}"
+ingress_host_grafana: "cvimmon-grafana-{{ metro_name }}.{{ cvimmon_domain_suffix }}"
+
+#Grafana Certificates
+stackcert_pemfile: "{{ stack_ca_cert | default('') }}"
+domaincert_pemfile: "{{ cvimmon_domain_ca_cert | default('') }}"
+
+#Grafana Storage Class
+grafana_storage_class: "portworx-sc"
+grafana_storage_size: "10Gi"
+
+#Grafana ReplicaSet Size
+grafana_replicaset_size: "1"
+
+##Passwords File Path
+password_file_path: /root/openstack-configs/secrets.yaml
+
+##Temporary Cert File Paths
+cvimmon_key_out_path: /tmp/cvimmon.key
+cvimmon_cert_out_path: /tmp/cvimmon.crt
+
+##Temporary Key File Paths
+efk_key_out_path: /tmp/efk.key
+efk_cert_out_path: /tmp/efk.crt
+
+##Certificate Specific
+validity_days: 365
+bits: 2048

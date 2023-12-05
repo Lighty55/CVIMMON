@@ -1,0 +1,43 @@
+#####################################################
+# Shut down the old nova common containers
+####################################################
+# Nova Common.
+- name: Shut off nova common docker service
+  service:
+    name: docker-novacommon
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove novacommon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacommon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacommon_{{ NOVA_COMMON_PREVIOUS_TAG }}" }
+
+- name: Remove nova common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_COMMON_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_COMMON_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove nova common Directory
+  file:
+    path: "{{ docker.nova_common.host_data_dir }}"
+    state: absent
+
+- name: Change permission of nova lib directory
+  shell: chown -R nova:nova /var/lib/nova
+  when: SKIP_UPGRADE is defined

@@ -1,0 +1,45 @@
+---
+- name: "Set backup_name fact for known Hosts"
+  connection: local
+  set_fact:
+    ssh_known_hosts_file: "{{ lookup('env','HOME') + '/.ssh/known_hosts' }}"
+
+- name: "Set backup_name fact of All-Maters"
+  connection: local
+  set_fact:
+    ssh_known_hosts: "{{ groups['all-servers'] }}"
+
+- name: "For each host, scan for its ssh public key"
+  connection: local
+  shell: "ssh-keyscan {{ item }},`dig +short {{ item }}`"
+  with_items: "{{ ssh_known_hosts }}"
+  register: ssh_known_host_results
+  ignore_errors: yes
+
+- name: Remove the public key in the '{{ ssh_known_hosts_file }}'
+  connection: local
+  known_hosts:
+    name: "{{ item.item }}"
+    state: "absent"
+    path: "{{ ssh_known_hosts_file }}"
+  with_items: "{{ ssh_known_host_results.results }}"
+
+- name: Add IP address of all hosts to all hosts
+  lineinfile:
+     dest: /etc/hosts
+     regexp: '.*{{ item }}$'
+     line: "{{ hostvars[item].ansible_usehost }} {{ item }}.{{ cvimmon_domain_suffix }} {{ item }}"
+     state: present
+  when: hostvars[item].ansible_usehost is defined
+  with_items: "{{ groups['all-servers']}}"
+
+- name: "Wait until ssh server is up on the remote servers"
+  wait_for:
+    port: 22
+    host: '{{ hostvars[item].ansible_usehost }}'
+    search_regex: OpenSSH
+    delay: 15
+    timeout: 1200
+  vars:
+    ansible_connection: local
+  with_items: "{{ groups['all-servers']}}"

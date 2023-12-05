@@ -1,0 +1,5 @@
+- name: Cleanup osd-maintenance data
+  file:
+    path: "/tmp/osd-maintenance"
+    state: absent
+  delegate_to: localhost

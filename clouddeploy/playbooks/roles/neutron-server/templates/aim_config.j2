@@ -1,0 +1,23 @@
+[DEFAULT]
+debug={{ AIM_DEBUG_LOGGING|default(False) }}
+rpc_backend=rabbit
+control_exchange=neutron
+default_log_levels=neutron.context=ERROR
+[oslo_messaging_rabbit]
+rabbit_hosts={{ RABBITMQ_CLUSTER }}
+rabbit_use_ssl=False
+rabbit_userid={{ RABBITMQ_USER }}
+rabbit_password={{ RABBITMQ_PASSWORD }}
+[database]
+connection = mysql+pymysql://{{ NEUTRON_DB_USER }}:{{ NEUTRON_DB_PASSWORD }}@{{ internal_lb_vip_address }}/{{ NEUTRON_DB_USER }}
+[aim]
+agent_down_time = 75
+poll_config = False
+aim_system_id = openstack_aid
+max_operation_retry=5
+unix_socket_path=/var/lib/aid/aid.sock
+[apic]
+apic_hosts = {{ APICINFO.apic_hosts | join(',') }}
+apic_username = {{ APICINFO.apic_username }}
+apic_password = {{ APICINFO.apic_password }}
+apic_use_ssl = true

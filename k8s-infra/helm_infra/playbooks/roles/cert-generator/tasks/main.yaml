@@ -1,0 +1,4 @@
+- include: create-certs.yaml
+  when: ACTION is undefined
+- include: regenerate-certs.yaml
+  when: ACTION is defined and ACTION == "regenerate"

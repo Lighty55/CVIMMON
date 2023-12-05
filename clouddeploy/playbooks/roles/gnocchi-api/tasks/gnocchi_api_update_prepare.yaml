@@ -1,0 +1,42 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Update | Create Gnocchi api docker staging folder
+  file:
+    path: "/docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG }}"
+    state: directory
+    mode: "0755"
+
+# Back up the gnocchi api volume contents
+- name: Update | Back up gnocchi api volume contents
+  shell: cp /docker/gnocchi_api/* /docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG}}/.
+
+- name: Update | Back up the gnocchi api systemd file
+  command: cp /usr/lib/systemd/system/docker-gnocchi-api.service /docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG }}/docker-gnocchi-api.service
+
+####################################################
+# Shut down the old gnocchi api container
+####################################################
+- name: Update | Shut off gnocchi api docker service
+  service:
+    name: docker-gnocchi-api
+    enabled: no
+    state: stopped
+
+- name: Update | Remove gnocchi api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-api.service"
+    state: absent
+
+- name: Update | Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Update | List gnocchi api volume contents
+  shell: ls -A1 /docker/gnocchi_api/
+  register: contents
+
+- name: Update | Remove gnocchi api volume contents
+  file:
+    path: /docker/gnocchi_api/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

@@ -1,0 +1,13 @@
+{% for host in groups['host_power_all']  %}
+{% if hostvars[host]['server_role'] is defined
+      and hostvars[host]['server_role']|intersect(['control','compute','block_storage']) %}
+{{ hostvars[host]['hostname'] }}:
+    ip: {{ host }}
+    user: root
+    role: {{ hostvars[host]['server_role']|join(' ') }}
+{% if 'control' in hostvars[host]['server_role'] %}
+    galerauser: {{ WSREP_USERNAME }}
+    galerapassword: {{ WSREP_PASSWORD }}
+{% endif %}
+{% endif %}
+{% endfor %}

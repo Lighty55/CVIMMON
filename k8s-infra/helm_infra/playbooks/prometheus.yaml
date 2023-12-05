@@ -1,0 +1,5 @@
+- hosts: ::1
+  connection: local
+  become: yes
+  roles:
+    - prometheus

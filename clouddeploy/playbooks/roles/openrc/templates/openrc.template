@@ -1,0 +1,41 @@
+unset OS_PROJECT_DOMAIN_ID
+unset OS_PROJECT_ID
+unset OS_INTERFACE
+{% if MGMTNODE_EXTAPI_REACH is defined and not MGMTNODE_EXTAPI_REACH|bool %}
+{# ######### ADMIN endpoint ########### #}
+{% set port = 35357 %}
+{% if internal_lb_vip_fqdn is defined and internal_lb_vip_fqdn != "" %}
+{% set hostname = internal_lb_vip_fqdn %}
+{% elif internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+{% set hostname = "[" + internal_lb_vip_ipv6_address + "]" %}
+{% else %}
+{% set hostname = internal_lb_vip_address %}
+{% endif %}
+export OS_ENDPOINT_TYPE=adminURL
+export OS_INTERFACE=admin
+{% set protocol = 'http' %}
+{% else %}
+{# ######### PUBLIC endpoint ########### #}
+{% set port = 5000 %}
+{% if external_lb_vip_fqdn is defined and external_lb_vip_fqdn != "" %}
+{% set hostname = external_lb_vip_fqdn %}
+{% elif external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+{% set hostname = "[" + external_lb_vip_ipv6_address + "]" %}
+{% else %}
+{% set hostname = external_lb_vip_address %}
+{% endif %}
+{% if external_lb_vip_tls is defined and external_lb_vip_tls %}
+{% set protocol = 'https' %}
+export OS_CACERT={{ external_lb_vip_cacert }}
+{% else %}
+{% set protocol = 'http' %}
+{% endif %}
+{% endif %}
+export OS_AUTH_URL={{ protocol }}://{{ hostname }}:{{ port }}/v{{ KEYSTONE_API_VERSION }}
+export OS_USERNAME={{ ADMIN_USER }}
+export OS_PASSWORD={{ ADMIN_USER_PASSWORD }}
+export OS_REGION_NAME={{ REGION_NAME }}
+export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }}
+export OS_PROJECT_DOMAIN_NAME=default
+export OS_USER_DOMAIN_NAME=default
+export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }}

@@ -1,0 +1,38 @@
+# This playbook handles scenarios for deploy,
+# full and paritial reconfiguration of CA certs
+
+- name: Check if cacert exists on management node
+  local_action: stat path={{ HAPROXY_CACERT }}
+  register: cacert
+
+- name: Copy cacert from management node
+  copy:
+    src: "{{ HAPROXY_CACERT }}"
+    dest: "{{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}_reconfigure"
+    mode: "0644"
+  when: cacert.stat.exists
+
+# This scenario takes into account if it is a deploy or a full reconfiguration and if
+# the CA cert does not exist at all on the target container volume
+- name: Compare old and new CA certificate
+  command: diff {{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}_reconfigure {{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  register: command_result_cacert
+  failed_when: False
+  when: cacert.stat.exists
+
+- set_fact: push_cacert=True
+  when: command_result_cacert is defined and (command_result_cacert.rc in [1, 2])
+
+- name: Copy the new CA cert if different or non-existent
+  command: mv {{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}_reconfigure {{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}
+  when: push_cacert is defined
+
+- name: Update cacert within the container if different or non-existent
+  command: docker cp {{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }} cinderbackup_{{ docker.cinder_backup.image_tag }}:{{ CACERT_LOCATION }}/{{ CACERT_FILE }}
+  when: push_cacert is defined
+
+- name: Remove reconfigure CA cert file if it was the same
+  file: path={{ docker.cinder_backup.host_data_dir }}/{{ CACERT_FILE }}_reconfigure state=absent
+  when: command_result_cacert is defined and command_result_cacert.stdout == "" and command_result_cacert.stderr == ""

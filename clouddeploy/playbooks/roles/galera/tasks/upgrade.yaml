@@ -1,0 +1,2 @@
+- include: galera_service_upgrade_prepare.yaml
+- include: galera_service_install.yaml

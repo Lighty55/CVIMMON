@@ -1,0 +1,124 @@
+---
+#openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout cielo.key -out cielo.crt -subj "/CN=${HOSTNAME}/O=${HOSTNAME}"
+#kubectl create secret tls ingresscert --key cielo.key --cert cielo.crt
+- name: "{{ metro_name }}->Check for any historic cert/key files in the path"
+  stat:
+    path: "{{ item }}"
+  register: fpath
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+    - "{{ efk_key_out_path }}"
+    - "{{ efk_cert_out_path }}"
+
+- name: "{{ metro_name }}->Delete any past cert files if exists in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+    - "{{ efk_key_out_path }}"
+    - "{{ efk_cert_out_path }}"
+#TO_DO: Add register and With_Items
+
+- name: "{{ metro_name }}->Check for Namespace-Metro if it exists"
+  shell: kubectl get namespace cvimmon-{{ metro_name }} | cat
+  register: ns_exist
+
+- name: "{{ metro_name }}->Render Metro Namespace Template | Kubernetes Namespace"
+  become: true
+  template: { src: "metronamespace.yaml", dest: "/tmp/metronamespace.yaml" }
+  register: "rendering"
+  when: "'cvimmon-{{ metro_name }}' not in ns_exist.stdout"
+
+- name: "{{ metro_name }}->Kubernetes Apps | Create a Metro Namespace"
+  kube:
+    name: "metro-namespace"
+    kubectl: "kubectl"
+    filename: "/tmp/metronamespace.yaml"
+    state: "{{ rendering.changed | ternary('latest', 'present') }}"
+  when: "'cvimmon-{{ metro_name }}' not in ns_exist.stdout"
+
+# TO_DO-Investigate Failures for Json Output
+#- name: "Ensure Metro Namespace Created is Active."
+#  register: "ns_state"
+#  command: "kubectl get ns {{ metro_name }} --output=json"
+#  changed_when: false
+#  vars:
+#    ns_state: { stdout: "{}" }
+#    ns: "{{ ns_state.stdout|from_json|json_query(\"status.phase\") }}"
+#  until: "ns == 'Active'"
+#  retries: 10
+#  delay: 5
+
+- name: "{{ metro_name }}->Delete temporary namespace manifest file"
+  file:
+    path: /tmp/metronamespace.yaml
+    state: absent
+
+- name: "{{ metro_name }}->Get secrets form the namespace and check Prometheus Ingress Secret exists"
+  shell: kubectl get secrets -n {{ metro_name }} | grep cvimmon-ingresscert-{{ metro_name }} | cat
+  register: prom_secret
+
+- name: "{{ metro_name }}->Get secrets form the namespace and check ElsticSearch Ingress Secret exists"
+  shell: kubectl get secrets -n {{ metro_name }} | grep efk-ingresscert-{{ metro_name }} | cat
+  register: efk_secret
+
+- name: "{{ metro_name }}->Create Self Signed Certs with OpenSSL for Prometheus and Grafana"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ cvimmon_key_out_path }}
+    -out {{ cvimmon_cert_out_path }}
+    -subj "/CN=cvimmon-{{ metro_name }}.{{ cvimmon_domain_suffix }}/O=cvimmon-{{ metro_name }}.{{ cvimmon_domain_suffix }}"
+
+#- name: "{{ metro_name }}->Create Self Signed Certs with OpenSSL for ElasticSearch and Kibana"
+#  become: yes
+#  command: >
+#    openssl req -x509 -nodes -days {{ validity_days }}
+#    -newkey rsa:{{ bits }}
+#    -keyout {{ efk_key_out_path }}
+#    -out {{ efk_cert_out_path }}
+#    -subj "/CN=cvimmon-{{ metro_name }}.{{ cvimmon_domain_suffix }}/O=cvimmon-{{ metro_name }}.{{ cvimmon_domain_suffix }}"
+
+- name: "{{ metro_name }}->Create Kubernetes TLS Secret for Prometheus and Grafana"
+  command: kubectl create secret tls cvimmon-ingresscert-{{ metro_name }} -n {{ metro_name }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ cvimmon_key_out_path }}']
+    - ['{{ cvimmon_cert_out_path }}']
+  when: "'cvimmon-ingresscert-{{ metro_name }}' not in prom_secret.stdout"
+
+#- name: "{{ metro_name }}->Create Kubernetes TLS Secret for ElasticSearch and Kibana"
+#  command: kubectl create secret tls efk-ingresscert-{{ metro_name }} -n {{ metro_name }} --key {{ item.0 }} --cert {{ item.1 }}
+#  with_nested:
+#    - ['{{ efk_key_out_path }}']
+#    - ['{{ efk_cert_out_path }}']
+#  when: "'efk-ingresscert-{{ metro_name }}' not in efk_secret.stdout"
+
+- name: "{{ metro_name }}->Replace CVIM-MON Ingress Certs With Kubectl"
+  shell: |
+     kubectl create secret tls {{ item.0 }} -n {{ metro_name }} --key {{ item.1 }} --cert {{ item.2 }} -o yaml --dry-run | kubectl replace -f -
+  with_nested:
+    - ['cvimmon-ingresscert-{{ metro_name }}']
+    - ['{{ cvimmon_key_out_path }}']
+    - ['{{ cvimmon_cert_out_path }}']
+
+#- name: "{{ metro_name }}->Replace EFK Ingress Certs With Kubectl"
+#  shell: |
+#     kubectl create secret tls {{ item.0 }} -n {{ metro_name }} --key {{ item.1 }} --cert {{ item.2 }} -o yaml --dry-run | kubectl replace -f -
+#  with_nested:
+#    - ['efk-ingresscert-{{ metro_name }}']
+#    - ['{{ efk_key_out_path }}']
+#    - ['{{ efk_cert_out_path }}']
+
+- name: "{{ metro_name }}->Delete all Cert Sensitive files in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+    - "{{ efk_key_out_path }}"
+    - "{{ efk_cert_out_path }}"

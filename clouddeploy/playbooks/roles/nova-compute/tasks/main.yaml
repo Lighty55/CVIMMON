@@ -1,0 +1,12 @@
+- include: deploy.yaml
+  when: ACTION is undefined
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: commit.yaml
+  when: ACTION is defined and ACTION == "commit"
+- include: rollback.yaml
+  when: ACTION is defined and ACTION == "rollback"
+- include: upgrade.yaml
+  when: ACTION is defined and ACTION == "upgrade"
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure"

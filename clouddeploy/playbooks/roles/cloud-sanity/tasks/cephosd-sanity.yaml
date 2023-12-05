@@ -1,0 +1,170 @@
+############################################################################################################################
+# Important Note: If you want to report a test to cloud-sanity, please make sure that the test name as the following syntax
+#
+# - name: CephOSD - <Test Name>
+#
+# if you don't want to report the test to cloud sanity, please use the following syntax for name:
+#
+# - name: <Test Name with no "-" >
+#
+############################################################################################################################
+
+#Ping all Storage nodes
+# NOTE: If dual stack, this check will be skipped since IPv4 might not be reachable
+#       from Management node.
+- name: CephOSD - IPv4 Ping All Storage Nodes from Management Node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['ceph_osd_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: ansible_host | ipv4 and osdinfo is undefined
+
+- name: CephOSD - IPv4 Ping All Storage Nodes from one of Storage Node
+  shell: ping -c 2 {{ item }}
+  with_items:
+    - "{{ groups['ceph_osd_all'] }}"
+  run_once: True
+  when: osdinfo is undefined and item != inventory_hostname
+
+- name: CephOSD - IPv6 Ping All Storage Nodes from Management Node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['ceph_osd_all'] }}"
+  delegate_to: localhost
+  run_once: True
+  when: ansible_host | ipv6 and hostvars[item]['management_ipv6'] is defined and osdinfo is undefined
+
+- name: CephOSD - IPv6 Ping All Storage Nodes from one of Storage Node
+  shell: ping6 -c 2 {{ hostvars[item]['management_ipv6'] }}
+  with_items:
+    - "{{ groups['ceph_osd_all'] }}"
+  run_once: True
+  when: hostvars[item]['management_ipv6'] is defined and osdinfo is undefined and item != inventory_hostname
+
+#Copy the file for check check to /tmp/
+- name: copy ceph check file to /tmp
+  copy: src="ceph-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+# Get the tag for CEPH mon running container
+- name: Check cephmon is running
+  shell: docker ps -a | grep cephmon | grep Up | awk '{print $NF}' | cut -f2 -d '_'
+  register: cephmon_tag
+  failed_when: cephmon_tag.stdout == ""
+
+#Ceph OSD sanity
+- name: Ceph OSD Sanity
+  shell: docker exec cephmon_{{ cephmon_tag.stdout }} ceph osd tree | grep host | awk '{print $4}'
+  register: cephosd_details
+
+- name: Check Ceph OSD Details Output with osdinfo
+  shell: python /tmp/ceph-check.py check_cephosd_status "{{  cephosd_details.stdout_lines | join (" ")   }}" "{{   groups['storage']|default('') or groups['cephosd']|default('') | join (" " )  }}" "{{   osdinfo  }}"
+  delegate_to: localhost
+  run_once: True
+  register: ceph_osd_result_osdinfo
+  when: osdinfo is defined
+
+- name: CephOSD - Check OSD result with osdinfo
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ ceph_osd_result_osdinfo.stdout }}"
+  when: (osdinfo is defined) and (ceph_osd_result_osdinfo.stdout.find('FAIL') != -1)
+
+#- debug: msg="{{ groups['storage']|default('') or groups['cephosd']|default('') | join (' ')  }}"
+
+- name: Check Ceph OSD Details Output without osdinfo
+  shell: python /tmp/ceph-check.py check_cephosd_status "{{  cephosd_details.stdout_lines | join (" ")   }}" "{{ groups['storage']|default('') or groups['cephosd']|default('') | join (' ')  }}"
+  delegate_to: localhost
+  run_once: True
+  register: ceph_osd_result
+  when: osdinfo is undefined
+
+- name: CephOSD - Check OSD result without osdinfo
+  delegate_to: localhost
+  run_once: True
+  fail: msg="{{ ceph_osd_result.stdout }}"
+  when: (osdinfo is undefined) and (ceph_osd_result.stdout.find('FAIL') != -1)
+
+- name: remove ceph check file
+  file:  path=/tmp/ceph-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+
+- name: Copy osd.check.py to /tmp
+  copy: src="osd-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Run OSD maintenance for results data
+  shell: python /tmp/osd-check.py create overall-osd-status {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: osd_status
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: CephOSD - OSD Overall status
+  shell: python /tmp/osd-check.py reuse overall-osd-status {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: overall_osd_status
+  when: "'SKIP' not in osd_status.stdout"
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove osd.check.py from /tmp
+  file: path=/tmp/osd-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove osdmgmt check OSDs results json file
+  file: path=/tmp/osd-maintenance/.osd-maintenance.check-osds.json state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Copy disk.check.py to /tmp
+  copy: src="disk-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Run Disk maintenance for results data
+  shell: python /tmp/disk-check.py create control raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: dm_status
+  when: ("{{ RUN_DISK_CHECK }} == True") and PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: CephOSD - Disk maintenance RAID Health
+  shell: python /tmp/disk-check.py reuse storage raid-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: raid_health
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ("(dm_status is defined and 'SKIP' not in dm_status.stdout)")
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: CephOSD - Disk maintenance VD Health
+  shell: python /tmp/disk-check.py reuse storage vd-health {{ install_dir }}
+  delegate_to: localhost
+  run_once: True
+  register: vd_health
+  when: (PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))) and ("(dm_status is defined and 'SKIP' not in dm_status.stdout)")
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+
+- name: Remove disk.check.py from /tmp
+  file: path=/tmp/disk-check.py state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))
+
+- name: Remove diskmgmt check disks results json file
+  file: path=/tmp/disk-maintenance/.disk-maintenance.check-disks.json state=absent
+  delegate_to: localhost
+  run_once: True
+  ignore_errors: "{{ IGNORE_INSTALL_TIME_ERRORS }}"
+  when: PODTYPE is undefined or (PODTYPE is defined and (PODTYPE != "ceph"))

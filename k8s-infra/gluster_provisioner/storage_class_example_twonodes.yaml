@@ -1,0 +1,14 @@
+#The URL should point to the Heketi Service
+#This Storage Class is required for single
+#node and two node clusters
+#There is no replication in this model
+---
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: glusterfs-st
+provisioner: kubernetes.io/glusterfs
+parameters:
+  resturl: "http://10.97.91.126:8080"
+  volumetype: "none"
+#https://github.com/gluster/gluster-kubernetes/issues/454

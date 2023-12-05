@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ironic DNSMASQ Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}"
+
+# Back up the Ironic DNSMASQ volume contents
+- name: Back up the Ironic DNSMASQ volume contents
+  shell: "cp -r {{ docker.ironic_dnsmasq.host_data_dir }}/. {{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}/"
+
+# Backup the systemd file
+- name: Back up the Ironic DNSMASQ systemd file
+  command: "cp /usr/lib/systemd/system/docker-ironicdnsmasq.service {{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}/"
+
+#####################################################
+# Shut down the old Ironic DNSMASQ containers
+####################################################
+- name: Shut off Ironic DNSMASQ docker service
+  service:
+    name: docker-ironicdnsmasq
+    enabled: no
+    state: stopped
+
+- name: Remove Ironic DNSMASQ service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicdnsmasq.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove Ironic DNSMASQ volume contents
+- name: List Ironic DNSMASQ volume contents
+  shell: ls -A1 {{ docker.ironic_dnsmasq.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic DNSMASQ volume contents
+  file:
+    path: "{{ docker.ironic_dnsmasq.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

@@ -1,0 +1,16 @@
+- name: Cleanup all dangling volumes after update commit or rollback
+  hosts:
+    host_all
+    localhost
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Get list of dangling docker volumes
+      command: docker volume ls -q -f dangling=true
+      register: dangling_volumes
+    - name: Remove dangling docker volumes post update commit or rollback
+      command: docker volume rm {{ item }}
+      with_items: "{{ dangling_volumes.stdout_lines }}"
+      when: dangling_volumes is defined and dangling_volumes.stdout_lines != []
+      ignore_errors: True

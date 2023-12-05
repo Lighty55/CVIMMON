@@ -1,0 +1,19 @@
+- name: "Get the cluster status"
+  register: pwx_status
+  command: "/opt/pwx/bin/pxctl status --json"
+
+- name: "Get the node status for the replace node"
+  vars: { cluster_query: "cluster.Nodes[?Hostname=='{{ node_operation_host }}'].Status|[0]" }
+  set_fact:
+    remove_node_status: "{{ pwx_status.stdout|from_json|json_query(cluster_query)|string }}"
+
+- name: "Get the node status for the replace node"
+  vars: { cluster_query: "cluster.Nodes[?Hostname=='{{ node_operation_host }}'].Id|[0]" }
+  set_fact:
+    remove_node_id: "{{ pwx_status.stdout|from_json|json_query(cluster_query) }}"
+
+- name: "Remove the node from the cluster"
+  ignore_errors: true
+  failed_when: false
+  command: "/opt/pwx/bin/pxctl cluster delete {{ remove_node_id }}"
+  when: remove_node_status == '7' or remove_node_status == '3'

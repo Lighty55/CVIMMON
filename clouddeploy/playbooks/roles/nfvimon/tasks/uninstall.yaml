@@ -1,0 +1,14 @@
+# Uninstall NFVIMON
+- name: Uninstall | Check if nfvimon key is present
+  stat: path=/root/.ssh/zenoss_id_rsa.pub
+  register: pub_file
+  delegate_to: localhost
+  run_once: True
+
+- name: "Run NFVIMON uninstall steps for root user"
+  include: nfvimon_root_user_uninstall.yaml
+  when: pub_file.stat.exists
+
+- name: "Run NFVIMON uninstall steps for other admin users"
+  include: nfvimon_admin_users_uninstall.yaml
+  when: pub_file.stat.exists == False

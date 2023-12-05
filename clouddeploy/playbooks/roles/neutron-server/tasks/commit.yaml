@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron server directory
+  file:
+    path: "/docker/neutron_server_{{ NEUTRON_SERVER_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron server docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_server_{{ NEUTRON_SERVER_PREVIOUS_TAG }}" }
+
+- name: Remove neutron server docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_server.name }}"
+    tag: "{{ NEUTRON_SERVER_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

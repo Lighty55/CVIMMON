@@ -1,0 +1,4 @@
+- hosts: all-servers
+  become: yes
+  roles:
+    - flexvol

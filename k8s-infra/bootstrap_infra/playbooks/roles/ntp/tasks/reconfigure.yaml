@@ -1,0 +1,38 @@
+- name: Reconf | Copy the new ntp configuration file
+  template:
+    src: "ntp.conf.j2"
+    dest: "/tmp/ntp_reconfig"
+
+- name: Reconf | Compare old and new rendered template
+  shell: diff /tmp/ntp_reconf /etc/ntp.conf
+  ignore_errors: True
+  failed_when: False
+  register: diff_result
+
+- name: Reconf | Stop ntpd service if running
+  service:
+    name: ntpd
+    state: stopped
+  when: diff_result.rc
+
+- name: Reconf | Copy the new rendered config if there is a change
+  command: mv /tmp/ntp_reconfig /etc/ntp.conf
+  when: diff_result.rc
+
+- name : Reconf | Restore selinux permissions
+  command: chcon system_u:object_r:net_conf_t:s0 /etc/ntp.conf
+  when: diff_result.rc
+
+- name: Reconf | Remove reconfigure file if there is no change
+  file: path=/tmp/ntp_reconfig state=absent
+  when: not diff_result.rc
+
+- include: ntp_date.yaml
+  when: diff_result.rc
+
+- name: Reconf | Enable ntpd service
+  service:
+    name: ntpd
+    enabled: yes
+    state: started
+  when: diff_result.rc

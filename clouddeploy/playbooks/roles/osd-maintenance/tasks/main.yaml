@@ -1,0 +1,45 @@
+- name: Create osd-maintenance
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "/tmp/osd-maintenance"
+  delegate_to: localhost
+  run_once: True
+  tags: [osd-pre-check]
+
+- include: osd_tree_check.yaml
+  name: Get status of OSD tree from cephmon
+  tags: [osd-pre-check]
+
+- include: storage_osd_data_setup.yaml
+  name: Setup OSD data dict
+  when: ACTION is defined and ACTION != "cleanup"
+  tags: [osd-check]
+
+- include: storage_osd_check.yaml
+  name: Obtain status of existing OSDs
+  when: ACTION is defined and ACTION == "osd-check"
+  tags: [osd-check]
+
+- include: storage_locator.yaml
+  name: Perform OSD disk location action
+  when: LOCATOR_ACTION is defined and LOCATOR_ACTION != None
+  tags: [osd-locate]
+
+- include: storage_osd_replace.yaml
+  name: Replace down OSD
+  tags: [osd-replace]
+  when: ACTION is defined and ACTION == "osd-replace"
+
+- include: storage_replace_dedicated_journal.yaml
+  name: Replace down Journal
+  tags: [replace-dedicated-journal]
+  when: ACTION is defined and ACTION == "replace-dedicated-journal"
+
+- include: storage_cleanup.yaml
+  name: cleanup operations after osd check
+  run_once: True
+  tags: [cleanup]
+  when: ACTION is defined and ACTION == "cleanup"

@@ -1,0 +1,100 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias lbaasagent='in_container neutron_lbaas_agent_"
+    line: "{{ item }}"
+  with_items:
+    - alias lbaasagent='in_container neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag}}'
+
+- name: Start the Neutron Lbaas Agent (linuxbridge) Docker Service
+  docker_container:
+    name: "neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_lbaas_agent.name }}:{{ docker.neutron_lbaas_agent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_lbaas_agent.host_data_dir }}:{{ docker.neutron_lbaas_agent.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (MECHANISM_DRIVERS == "linuxbridge" and command_result.stdout == "" and ACTION is undefined) or (MECHANISM_DRIVERS == "linuxbridge" and command_result.stdout == "" and ACTION is defined and ACTION == "update") or (MECHANISM_DRIVERS == "linuxbridge" and command_result.stdout == "" and ACTION is defined and ACTION == "upgrade") or (MECHANISM_DRIVERS == "linuxbridge" and command_result.stdout == "" and ACTION is defined and ACTION == "reconfigure")
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Start the Neutron Lbaas Agent (ovs) Docker Service
+  docker_container:
+    name: "neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_lbaas_agent.name }}:{{ docker.neutron_lbaas_agent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_lbaas_agent.host_data_dir }}:{{ docker.neutron_lbaas_agent.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+      - /run:/run:shared
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (MECHANISM_DRIVERS == "openvswitch" and command_result.stdout == "" and ACTION is undefined) or (MECHANISM_DRIVERS == "openvswitch" and command_result.stdout == "" and ACTION is defined and ACTION == "update") or (MECHANISM_DRIVERS == "openvswitch" and command_result.stdout == "" and ACTION is defined and ACTION == "upgrade") or (MECHANISM_DRIVERS == "openvswitch" and command_result.stdout == "" and ACTION is defined and ACTION == "reconfigure")
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Start the Neutron Lbaas Agent (vpp) Docker Service
+  docker_container:
+    name: "neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_lbaas_agent.name }}:{{ docker.neutron_lbaas_agent.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_lbaas_agent.host_data_dir }}:{{ docker.neutron_lbaas_agent.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+      - /run:/run:shared
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: (MECHANISM_DRIVERS == "vpp" and command_result.stdout == "" and ACTION is undefined) or (MECHANISM_DRIVERS == "vpp" and command_result.stdout == "" and ACTION is defined and ACTION == "update") or (MECHANISM_DRIVERS == "vpp" and command_result.stdout == "" and ACTION is defined and ACTION == "upgrade") or (MECHANISM_DRIVERS == "vpp" and command_result.stdout == "" and ACTION is defined and ACTION == "reconfigure")
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron Lbaas Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Neutron Lbaas Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_lbaas_agent_{{ docker.neutron_lbaas_agent.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron Lbaas Agent Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutronlbaas
+  tags:
+    - reboot-on-failure

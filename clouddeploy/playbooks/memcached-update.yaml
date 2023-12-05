@@ -1,0 +1,8 @@
+- name: Update Memcached Containarized service.
+  hosts: host_control
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "memcached", tags: [ "memcached" ] }
+  serial: "30%"

@@ -1,0 +1,23 @@
+# By default when openstack-lbaas-ui rpm installs, it deploys the
+# lbaas panel module into the enabled folder instead of providing
+# the option to configure it.  This step ensures it remains disabled
+# if lbaas is not defined in OPTIONAL_SERVICE_LIST
+
+- name: Check lbaas panels exist
+  command: docker exec -u root horizon_{{ docker.horizon.image_tag }} bash -c "ls /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/_*loadbalancersv2_panel*"
+  register: lbaas_panel
+  ignore_errors: True
+  failed_when: False
+
+- name: Ensure lbaas panel remains disabled if lbaas is not an optional service
+  command: docker exec -u root horizon_{{ docker.horizon.image_tag }} bash -c "/usr/bin/rm -f /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/_*loadbalancersv2_panel*"
+  register: command_result_no_lbaas
+  when: optional_service_lbaas is not defined and lbaas_panel.stdout != ""
+
+- name: Copy lbaas modules if lbaas is enabled
+  command: docker exec -u root horizon_{{ docker.horizon.image_tag }} bash -c "cp /usr/lib/python2.7/site-packages/neutron_lbaas_dashboard/enabled/_*loadbalancersv2_panel* /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/; /usr/share/openstack-dashboard/manage.py collectstatic --noinput; /usr/share/openstack-dashboard/manage.py compress --force"
+  register: command_result_lbaas
+  when: optional_service_lbaas is defined and lbaas_panel.stdout == ""
+
+- set_fact: horizon_lbaas=True
+  when: command_result_no_lbaas|changed or command_result_lbaas|changed

@@ -1,0 +1,54 @@
+---
+- name: Create /etc/kubernetes/pki/ directory
+  file:
+    path: /etc/kubernetes/pki
+    state: directory
+
+- name: Create /etc/kubernetes/pki/etcd directory
+  file:
+    path: /etc/kubernetes/pki/etcd
+    state: directory
+
+- name: "Copying all required files from masster0 to master1 and master2"
+  synchronize:
+    src: "{{ item.source}}"
+    dest: "{{ item.dest }}"
+  delegate_to: "{{ groups['all-masters'][0] }}"
+  with_items:
+    - { source: '/etc/kubernetes/pki/ca.crt', dest: '/etc/kubernetes/pki/ca.crt' }
+    - { source: '/etc/kubernetes/pki/ca.key', dest: '/etc/kubernetes/pki/ca.key' }
+    - { source: '/etc/kubernetes/pki/sa.key', dest: '/etc/kubernetes/pki/sa.key' }
+    - { source: '/etc/kubernetes/pki/sa.pub', dest: '/etc/kubernetes/pki/sa.pub' }
+    - { source: '/etc/kubernetes/pki/front-proxy-ca.crt', dest: '/etc/kubernetes/pki/front-proxy-ca.crt' }
+    - { source: '/etc/kubernetes/pki/front-proxy-ca.key', dest: '/etc/kubernetes/pki/front-proxy-ca.key' }
+    - { source: '/etc/kubernetes/pki/etcd/ca.crt', dest: '/etc/kubernetes/pki/etcd/ca.crt' }
+    - { source: '/etc/kubernetes/pki/etcd/ca.key', dest: '/etc/kubernetes/pki/etcd/ca.key' }
+    - { source: '/etc/kubernetes/admin.conf', dest: '/etc/kubernetes/admin.conf' }
+
+- name: "Check if kubeadm has already run"
+  stat:
+    path: "/etc/kubernetes/manifests/kube-apiserver.yaml"
+  register: kubeadm_ca
+
+- name: "Kubeadm Join"
+  shell: "{{ kubeadm_join_cmd }} --control-plane --apiserver-advertise-address {{ hostvars[inventory_hostname]['ansible_usehost'] }}"
+  when: ( not kubeadm_ca.stat.exists ) and ( DHCP_MODE is defined and DHCP_MODE != "v6" )
+
+- name: "Kubeadm Join v6"
+  shell: "{{ kubeadm_join_cmd }} --control-plane --apiserver-advertise-address {{ hostvars[inventory_hostname]['ansible_use_api_v6'] }}"
+  when: ( not kubeadm_ca.stat.exists ) and ( DHCP_MODE is defined and DHCP_MODE == "v6" )
+
+- name: "Create .kube folder"
+  file:
+    path: "~{{ ansible_ssh_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+
+- name: "Copy admin.conf to .kube folder"
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "~{{ ansible_ssh_user }}/.kube/config"
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+    remote_src: yes

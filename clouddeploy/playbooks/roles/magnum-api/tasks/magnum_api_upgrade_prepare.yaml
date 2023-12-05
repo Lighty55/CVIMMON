@@ -1,0 +1,38 @@
+#####################################################
+# Shut down the old magnum api containers
+####################################################
+# Magnum API.
+- name: Shut off magnum api docker service
+  service:
+    name: docker-magnumapi
+    enabled: no
+    state: stopped
+
+- name: Remove magnumapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-magnumapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove magnum api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "magnumapi_{{ MAGNUM_API_PREVIOUS_TAG }}" }
+
+- name: Remove magnum api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ MAGNUM_API_PREVIOUS_NAME }}"
+    tag: "{{ MAGNUM_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Magnum api Directory
+  file:
+    path: "{{ docker.magnum_api.host_data_dir }}"
+    state: absent

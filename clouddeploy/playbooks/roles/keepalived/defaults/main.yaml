@@ -1,0 +1,6 @@
+IPV6_VIP_ENABLED: "{{ external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != '' }}"
+IPV4_VIP_ENABLED: "{{ external_lb_vip_address is defined and external_lb_vip_address != '' and IPV6_VIP_ENABLED != true }}"
+IPV6_VIP_ADDRESS: "{{ external_lb_vip_ipv6_address | default('') }}"
+IPV4_VIP_ADDRESS: "{{ external_lb_vip_address | default('') }}"
+VIP_TLS_CERT: "{{ external_lb_vip_cert | default('/root/openstack-configs/haproxy.crt') }}"
+VIP_TLS_KEY: "{{ external_lb_vip_key | default('/root/openstack-configs/haproxy.key') }}"

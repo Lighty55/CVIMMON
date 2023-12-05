@@ -1,0 +1,47 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_common_{{ docker.neutron_common.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias neutroncommon='in_container neutron_common_"
+    line: "{{ item }}"
+  with_items:
+    - alias neutroncommon='in_container neutron_common_{{ docker.neutron_common.image_tag }}'
+
+- name: Start the Neutron common Docker container
+  docker_container:
+    name: "neutron_common_{{ docker.neutron_common.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_common.name }}:{{ docker.neutron_common.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_common.host_data_dir }}:{{ docker.neutron_common.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron common Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_common_{{ docker.neutron_common.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron common Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutroncommon
+  tags:
+    - reboot-on-failure
+

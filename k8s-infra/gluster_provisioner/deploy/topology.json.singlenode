@@ -1,0 +1,24 @@
+{
+  "clusters": [
+    {
+      "nodes": [
+        {
+          "node": {
+            "hostnames": {
+              "manage": [
+                "kube1"
+              ],
+              "storage": [
+                "23.23.4.51"
+              ]
+            },
+            "zone": 1
+          },
+          "devices": [
+            "/dev/sdd"
+          ]
+                }
+            ]
+        }
+    ]
+}

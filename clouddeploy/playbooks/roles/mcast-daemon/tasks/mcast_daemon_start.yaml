@@ -1,0 +1,44 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep mcast_daemon_{{ docker.mcast_daemon.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias mcastdaemon='in_container mcast_daemon_"
+    line: "{{ item }}"
+  with_items:
+    - alias mcastdaemon='in_container mcast_daemon_{{ docker.mcast_daemon.image_tag }}'
+
+- name: Start the multicast daemon Service
+  docker_container:
+    name: "mcast_daemon_{{ docker.mcast_daemon.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.mcast_daemon.name }}:{{ docker.mcast_daemon.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if mcast daemon container has started running
+  shell: docker ps -a | grep Up | grep mcast_daemon_{{ docker.mcast_daemon.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="mcast daemon Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-mcast-daemon
+  tags:
+    - reboot-on-failure

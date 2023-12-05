@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ironic Nova Compute docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}"
+
+# Back up the Ironic Nova Compute volume contents
+- name: Back up the Ironic Nova Compute volume contents
+  shell: "cp -r {{ docker.ironic_nova_compute.host_data_dir }}/. {{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}/"
+
+# Backup the systemd file
+- name: Back up the Ironic Nova Compute systemd file
+  command: "cp /usr/lib/systemd/system/docker-ironicnovacpu.service {{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}/"
+
+#####################################################
+# Shut down the old Ironic Nova Compute containers
+####################################################
+# Ironic Nova Compute.
+- name: Shut off Ironic Nova Compute docker service
+  service:
+    name: docker-ironicnovacpu
+    enabled: no
+    state: stopped
+
+- name: Remove ironicnovacpu service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicnovacpu.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of Ironic Nova Compute volume
+- name: List the contents of Ironic Nova Compute volume
+  shell: "ls -A1 {{ docker.ironic_nova_compute.host_data_dir }}/"
+  register: contents
+
+- name: Remove the contents of Ironic Nova Compute volume
+  file:
+    path: "{{ docker.ironic_nova_compute.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

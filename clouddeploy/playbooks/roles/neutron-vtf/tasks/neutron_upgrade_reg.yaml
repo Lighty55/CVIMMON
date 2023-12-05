@@ -1,0 +1,23 @@
+##############################################
+# Copy the Registration file
+##############################################
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "reg.py",
+        dest: "/tmp/reg.py" }
+  tags:
+    - reboot-on-failure
+
+# Copy the rg file to VTF container
+- name: copy th neutron vtf reg file to container
+  command: docker cp /tmp/reg.py neutron_vtf_{{ VTF_PREVIOUS_TAG }}:/opt/cisco/package/sr/VSOCRC-1.0.0/vsocrc/vpfa/.
+  failed_when: false
+
+# Execute the registration
+- name: Register the VTF
+  shell: docker exec neutron_vtf_{{ VTF_PREVIOUS_TAG }} python /opt/cisco/package/sr/VSOCRC-1.0.0/vsocrc/vpfa/reg.py
+  failed_when: false

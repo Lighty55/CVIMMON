@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old ironic conductor containers
+####################################################
+# Ironic conductor.
+- name: Shut off ironic conductor docker service
+  service:
+    name: docker-ironiccond
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove ironic conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironiccond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove ironic conductor docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_conductor_{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}" }
+
+- name: Remove ironic conductor docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ IRONIC_CONDUCTOR_PREVIOUS_NAME }}"
+    tag: "{{ IRONIC_CONDUCTOR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove ironic conductor Directory
+  file:
+    path: "{{ docker.ironic_conductor.host_data_dir }}"
+    state: absent

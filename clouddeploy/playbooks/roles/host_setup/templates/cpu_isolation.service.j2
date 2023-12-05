@@ -1,0 +1,10 @@
+[Unit]
+Description=Setting the CPU affinity for kthreads and IRQs
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sleep 10
+ExecStart=/usr/local/bin/cpu_isolation.sh
+
+[Install]
+WantedBy=multi-user.target

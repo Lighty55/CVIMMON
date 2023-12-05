@@ -1,0 +1,130 @@
+- name: Upgrade Ironic artifacts
+  hosts: localhost
+  max_fail_percentage: 0
+  connection: local
+  gather_facts: False
+  roles:
+    - { role: "ironic-artifacts", tags: [ "ironic", "ironic-artifacts" ], when: "optional_service_ironic is defined" }
+
+# "All ironic-conductor services should be upgraded first." Do reconfiguration first too
+# https://docs.openstack.org/ironic/queens/admin/upgrade-guide.html#during-maintenance-window
+- name: Upgrade Ironic-Conductor Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-conductor", tags: [ "ironic", "ironic-conductor"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic PXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-pxe", tags: [ "ironic", "ironic-pxe"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic iPXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-ipxe", tags: [ "ironic", "ironic-ipxe" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic API Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-api", tags: [ "ironic", "ironic-api" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic Nova Compute Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-nova-compute", tags: [ "ironic", "ironic-nova-compute"], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic-Inspector Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-inspector", tags: [ "ironic", "ironic-inspector" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+- name: Upgrade Ironic DNSMASQ Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  vars:
+    ironic_host_index: "{{ groups['ironic_all'].index(inventory_hostname) }}"
+  roles:
+    - { role: "ironic-dnsmasq", tags: [ "ironic", "ironic-dnsmasq" ], when: "optional_service_ironic is defined" }
+  serial: "30%"
+
+# If –by-service is specified, this command will look in the appropriate
+# cell(s) for any nova-compute services and ensure there are host mappings
+# for them. This is less efficient and is only necessary when using compute
+# drivers that may manage zero or more actual compute nodes at any given
+# time (currently only ironic).
+# https://docs.openstack.org/nova/latest/cli/nova-manage.html#nova-cells-v2
+- name: Discover the ironic compute hosts
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Discover the hosts
+      command: docker exec -t ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} nova-manage cell_v2 discover_hosts --by-service
+      run_once: True
+  tags:
+    - ironic
+    - ironic-nova-compute
+
+- name: Migrate Ironic data
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  gather_facts: False
+  tasks:
+#    online_data_migrations
+#                        Perform online data migrations for the release. If
+#                        --max-count is specified, at most max-count objects
+#                        will be migrated. If not specified, all objects will
+#                        be migrated (in batches to avoid locking the database
+#                        for long periods of time). The command returns code 0
+#                        (success) after migrations are finished or there are
+#                        no data to migrate. It returns code 1 (error) if there
+#                        are still pending objects to be migrated. Before
+#                        upgrading to a newer release, this command must be run
+#                        until code 0 is returned. It returns 127 (error) if
+#                        max-count is < 1. It returns 2 (error) if the database
+#                        is not compatible with this release. If this happens,
+#                        this command should be run using the previous release
+#                        of ironic, before upgrading and running this command.
+
+# https://docs.openstack.org/ironic/queens/admin/upgrade-guide.html#after-maintenance-window
+#   "Run the ironic-dbsync online_data_migrations command to make sure that data migrations are applied."
+    - name: "Migrate Ironic data"
+      command: >
+        docker exec -t ironic_conductor_{{ docker.ironic_conductor.image_tag }}
+        ironic-dbsync online_data_migrations
+      run_once: True
+      register: command_result
+      until: command_result.rc == 0
+      when: command_result is not defined or command_result.rc == 1
+      failed_when: command_result.rc != 0
+      retries: 100
+      delay: 1

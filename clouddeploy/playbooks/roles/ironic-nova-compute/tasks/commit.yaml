@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove Ironic Nova Compute directory
+  file:
+    path: "{{ docker.ironic_nova_compute.host_data_dir }}_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old Ironic Nova Compute docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ironic_novacompute_{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}" }
+
+- name: Remove Ironic Nova Compute image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ironic_nova_compute.name  }}"
+    tag: "{{ IRONIC_NOVA_COMPUTE_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

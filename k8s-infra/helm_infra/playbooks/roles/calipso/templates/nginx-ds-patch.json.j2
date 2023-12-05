@@ -1,0 +1,17 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/args/-",
+    "value": "--tcp-services-configmap={{ calipso_namespace }}/mongo-tcp-configmap"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/ports/-",
+    "value": {
+      "name": "calipso-mongo",
+      "containerPort": {{ CALIPSO_MONGO_SERVICE_BIND_PORT }},
+      "hostPort": {{ CALIPSO_MONGO_SERVICE_BIND_PORT }},
+      "protocol":  "TCP"
+    }
+  }
+]

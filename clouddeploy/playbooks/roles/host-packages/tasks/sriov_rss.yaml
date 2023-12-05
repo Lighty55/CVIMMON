@@ -1,0 +1,61 @@
+- name: Get a list of SRIOV interfaces
+  shell: ls /sys/class/net/ | awk '/^{{ SRIOV_INTERFACE_NAME }}[0-9]+$/'
+  register: sriov_intfs
+
+- name: Log current state of UDP port numbers for RSS hashing
+  shell: ethtool -n {{ item.1 }} rx-flow-hash {{ item.0 }}
+  register: output
+  with_nested:
+    - ['udp4', 'udp6']
+    - "{{ sriov_intfs.stdout_lines }}"
+  when: sriov_intfs.stdout_lines | length > 0
+
+- debug: msg="{{ output }}"
+
+- name: Enable UDP v4 port numbers in RSS hashing
+  shell: ethtool -N {{ item.1 }} rx-flow-hash {{ item.0 }} sdfn
+  with_nested:
+    - ['udp4', 'udp6']
+    - "{{ sriov_intfs.stdout_lines }}"
+  when: sriov_intfs.stdout_lines | length > 0
+
+- name: Persistently enable UDP port numbers in RSS hashing
+  lineinfile:
+    dest: /etc/sysconfig/network-scripts/ifcfg-{{ item }}
+    state: present
+    regexp: '^ETHTOOL_OPTS=*'
+    line: 'ETHTOOL_OPTS=" -N ${DEVICE} rx-flow-hash udp4 sdfn; -N ${DEVICE} rx-flow-hash udp6 sdfn"'
+  with_items: "{{ sriov_intfs.stdout_lines }}"
+  when: sriov_intfs.stdout_lines | length > 0
+
+# TODO: For now, duplicate code from above except for N3000 card. Consider
+#       consolidating the code.
+- name: Get a list of FPGA interfaces
+  shell: ls /sys/class/net/ | awk '/^{{ FPGA_INTERFACE_NAME }}[0-9]+$/'
+  register: fpga_intfs
+
+- name: Log current state of UDP port numbers for RSS hashing
+  shell: ethtool -n {{ item.1 }} rx-flow-hash {{ item.0 }}
+  register: output
+  with_nested:
+    - ['udp4', 'udp6']
+    - "{{ fpga_intfs.stdout_lines }}"
+  when: fpga_intfs.stdout_lines | length > 0
+
+- debug: msg="{{ output }}"
+
+- name: Enable UDP v4 port numbers in RSS hashing
+  shell: ethtool -N {{ item.1 }} rx-flow-hash {{ item.0 }} sdfn
+  with_nested:
+    - ['udp4', 'udp6']
+    - "{{ fpga_intfs.stdout_lines }}"
+  when: fpga_intfs.stdout_lines | length > 0
+
+- name: Persistently enable UDP port numbers in RSS hashing
+  lineinfile:
+    dest: /etc/sysconfig/network-scripts/ifcfg-{{ item }}
+    state: present
+    regexp: '^ETHTOOL_OPTS=*'
+    line: 'ETHTOOL_OPTS=" -N ${DEVICE} rx-flow-hash udp4 sdfn; -N ${DEVICE} rx-flow-hash udp6 sdfn"'
+  with_items: "{{ fpga_intfs.stdout_lines }}"
+  when: fpga_intfs.stdout_lines | length > 0

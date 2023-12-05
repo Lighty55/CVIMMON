@@ -1,0 +1,22 @@
+- name: Copy Neutron Policy Files
+  template:
+    src: "{{ playbook_dir }}/roles/neutron-server/templates/{{ item }}"
+    dest: "{{docker.neutron_server.host_data_dir }}/{{ item }}"
+  with_items:
+    - "neutron_policy.json"
+  register: policy
+
+- name: Reset the SELinux labelling
+  command: chcon -R -t svirt_sandbox_file_t "{{ docker.neutron_server.host_data_dir }}"
+  when: policy.changed
+
+- name: Restart neutron server service
+  service:
+    name: "docker-neutronsrv"
+    enabled: yes
+    state: restarted
+  when: policy.changed
+
+- name: Wait for Neutron server to be alive
+  wait_for: host={{ control_bond }} port={{ NEUTRON_SERVER_PORT }}
+  when: policy.changed

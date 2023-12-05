@@ -1,0 +1,26 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove fluentd docker directory
+  file:
+    path: "/docker/fluentd_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Remove logrotate config directory
+  file:
+    name: "/docker/logrotate_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old fluentd docker container
+  docker_container:
+    image: ""
+    name: "fluentd_{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove fluentd docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.fluentd.name }}"
+    tag: "{{ FLUENTD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,2 @@
+- include: gnocchi_metricd_update_prepare.yaml
+- include: deploy.yaml

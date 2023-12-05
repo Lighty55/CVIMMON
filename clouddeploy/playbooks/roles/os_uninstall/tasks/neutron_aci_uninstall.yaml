@@ -1,0 +1,550 @@
+# Neutro dhcp agent.
+- name: Shut off neutron dhcp agent docker service
+  service:
+    name: docker-neutrondhcp
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove neutron dhcp agent  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutrondhcp.service"
+    state: absent
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Stop and remove dhcp agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_dhcp_agent_{{ docker.neutron_dhcp_agent.image_tag}}" }
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove neutron dhcp docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_dhcp_agent.name }}"
+    tag: "{{ docker.neutron_dhcp_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Remove Neutron DHCP Agent Directory
+  file:
+    path: "{{ docker.neutron_dhcp_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutrondhcp_uninstall
+
+- name: Cleanup OVS bridge br-int
+  command: docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl del-br br-int
+  ignore_errors: yes
+
+- name: Cleanup OVS bridge br-fabric
+  command: docker exec ovs_vswitch_{{ docker.ovs_vswitch.image_tag }} ovs-vsctl del-br br-fabric
+  ignore_errors: yes
+  tags:
+    - agentovs_uninstall
+
+# OVS vswitch service.
+- name: Shut off openvswtich service
+  service:
+    name: docker-ovs_vswitch
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove ovs vswitch service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_vswitch.service"
+    state: absent
+  tags:
+    - neutron_aci_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutron_aci_uninstall
+
+- name: Stop and remove remove ovs vswitch docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "",
+        name: "ovs_vswitch_{{ docker.ovs_vswitch.image_tag }}" }
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove neutron ovs vswitch docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ovs_vswitch.name }}"
+    tag: "{{ docker.ovs_vswitch.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove ovs vswitch Directory
+  file:
+    path: "{{ docker.ovs_vswitch.host_data_dir }}"
+    state: absent
+  tags:
+    - neutron_aci_uninstall
+
+# OVS db service.
+- name: Shut off openvswtich service
+  service:
+    name: docker-ovs_dbserver
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove ovs dbservice file
+  file:
+    path: "/usr/lib/systemd/system/docker-ovs_dbserver.service"
+    state: absent
+  tags:
+    - neutron_aci_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutron_aci_uninstall
+
+- name: Stop and remove remove ovs dbserver docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "",
+        name: "ovs_dbserver_{{ docker.ovs_dbserver.image_tag }}" }
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove neutron ovs dbserver docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ovs_dbserver.name }}"
+    tag: "{{ docker.ovs_dbserver.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutron_aci_uninstall
+
+- name: Remove ovs dbserver Directory
+  file:
+    path: "{{ docker.ovs_dbserver.host_data_dir }}"
+    state: absent
+  tags:
+    - neutron_aci_uninstall
+
+# Neutron server
+- name: Shut off neutron server docker service
+  service:
+    name: docker-neutronsrv
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove neutron server  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronsrv.service"
+    state: absent
+  tags:
+    - neutronserver_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronserver_uninstall
+
+- name: Stop and remove neutron server docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_server_{{ docker.neutron_server.image_tag }}" }
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove neutron server docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_server.name }}"
+    tag: "{{ docker.neutron_server.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronserver_uninstall
+
+- name: Remove Neutron Server Directory
+  file:
+    path: "{{ docker.neutron_server.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronserver_uninstall
+
+# Neutron common.
+- name: Shut off neutron common docker service
+  service:
+    name: docker-neutroncommon
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutroncommon_uninstall
+
+- name: Stop and remove neutron common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_common_{{ docker.neutron_common.image_tag }}" }
+  tags:
+    - neutroncommon_uninstall
+
+- name: Remove neutron common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_common.name }}"
+    tag: "{{ docker.neutron_common.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutroncommon_uninstall
+
+- name: Remove Neutron common Directory
+  file:
+    path: "{{ docker.neutron_common.host_data_dir }}"
+    state: absent
+  tags:
+    - neutroncommon_uninstall
+
+
+# AIM Uninstall
+# aim event polling.
+- name: Shut off aim event polling service
+  service:
+    name: docker-aimeventpolling
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - aimeventpolling_uninstall
+
+- name: Stop and remove aim event polling docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimeventpolling_{{ docker.aim_event_polling.image_tag }}" }
+  tags:
+    - aimeventpolling_uninstall
+
+- name: Remove aim event polling docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}"
+    tag: "{{ docker.aim_event_polling.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - aimeventpolling_uninstall
+
+- name: Remove aim event polling Directory
+  file:
+    path: "{{ docker.aim_event_polling.host_data_dir }}"
+    state: absent
+  tags:
+    - aimeventpolling_uninstall
+
+# AIM RPC
+# aim event rpc.
+- name: Shut off aim event rpc service
+  service:
+    name: docker-aimeventrpc
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - aimeventrpc_uninstall
+
+- name: Stop and remove aim event rpc docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimeventrpc_{{ docker.aim_event_rpc.image_tag }}" }
+  tags:
+    - aimeventrpc_uninstall
+
+- name: Remove aim event rpc docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_event_rpc.name }}"
+    tag: "{{ docker.aim_event_rpc.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - aimeventrpc_uninstall
+
+- name: Remove aim event rpc Directory
+  file:
+    path: "{{ docker.aim_event_rpc.host_data_dir }}"
+    state: absent
+  tags:
+    - aimeventrpc_uninstall
+
+# aim aid.
+- name: Shut off aim aid service
+  service:
+    name: docker-aimaid
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - aimaid_uninstall
+
+- name: Stop and remove aim aid docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "aimaid_{{ docker.aim_aid.image_tag }}" }
+  tags:
+    - aimaid_uninstall
+
+- name: Remove aim aid docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.aim_aid.name }}"
+    tag: "{{ docker.aim_aid.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - aimaid_uninstall
+
+- name: Remove aim aid Directory
+  file:
+    path: "{{ docker.aim_aid.host_data_dir }}"
+    state: absent
+  tags:
+    - aimaid_uninstall
+
+# mcast daemon.
+- name: Shut off mcast daemon docker service
+  service:
+    name: docker-mcast-daemon
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - mcast_daemon_uninstall
+
+- name: Remove mcast daemon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-mcast-daemon.service"
+    state: absent
+  tags:
+    - mcast_daemon_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - mcast_daemon_uninstall
+
+- name: Stop and remove mcast daemon docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "mcast_daemon_{{ docker.mcast_daemon.image_tag}}" }
+  tags:
+    - mcast_daemon_uninstall
+
+- name: Remove mcast daemon docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.mcast_daemon.name }}"
+    tag: "{{ docker.mcast_daemon.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - mcast_daemon_uninstall
+
+# Agent OVS
+- name: Shut off agent ovs docker service
+  service:
+    name: docker-agentovs
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - agentovs_uninstall
+
+- name: Remove agent ovs service file
+  file:
+    path: "/usr/lib/systemd/system/docker-agentovs.service"
+    state: absent
+  tags:
+    - agentovs_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - agentovs_uninstall
+
+- name: Stop and remove agent ovs docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "agent_ovs_{{ docker.agent_ovs.image_tag}}" }
+  tags:
+    - agentovs_uninstall
+
+- name: Remove agent ovs docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.agent_ovs.name }}"
+    tag: "{{ docker.agent_ovs.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - agentovs_uninstall
+
+- name: Remove agent ovs Directory
+  file:
+    path: "{{ docker.agent_ovs.host_data_dir }}"
+    state: absent
+  tags:
+    - agentovs_uninstall
+
+# Neutron opflex agent
+- name: Shut off neutron opflex agent
+  service:
+    name: docker-neutronopflexagent
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - neutronopflex_uninstall
+
+- name: Remove neutron opflex agent  service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronopflexagent.service"
+    state: absent
+  tags:
+    - neutronopflex_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - neutronopflex_uninstall
+
+- name: Stop and remove neutron opflex docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_opflexagent_{{ docker.neutron_opflex_agent.image_tag}}" }
+  tags:
+    - neutronopflex_uninstall
+
+- name: Remove neutron opflex docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_opflex_agent.name }}"
+    tag: "{{ docker.neutron_opflex_agent.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - neutronopflex_uninstall
+
+- name: Remove Neutron opflex Agent Directory
+  file:
+    path: "{{ docker.neutron_opflex_agent.host_data_dir }}"
+    state: absent
+  tags:
+    - neutronopflex_uninstall
+
+# Remove the opflex-agent-ovs
+- name: Remove the opflex agent ovs
+  file:
+    path: "/var/lib/opflex-agent-ovs"
+    state: absent
+
+- name: Umount /var/run/opflex-agent-ovs
+  shell: umount /var/run/opflex-agent-ovs
+  ignore_errors: True
+
+# Remove the opflex agent run directory
+- name: Remove the opflex agent run dir
+  file:
+    path: "/var/run/opflex-agent-ovs"
+    state: absent
+
+# Remove the of-svc netns
+- name: Cleanup the of-svc netns
+  shell: ip netns delete of-svc
+  ignore_errors: True
+
+# Remove the aid socket file
+- name: Remove the aid socket file
+  file:
+    path: "/var/lib/docker/volumes/aid/_data/aid.sock"
+    state: absent
+
+# Remove the neutron volume
+- name: Remove the neutron volume
+  shell: docker volume rm neutron
+  ignore_errors: true
+  failed_when: false
+
+# Remove the ovsdbdata volume
+- name: Remove the ovsdbdata volume
+  shell: docker volume rm ovsdbdata
+  ignore_errors: true
+  failed_when: false
+
+- include: neutron_sriov_uninstall.yaml
+  when: intel_sriov is defined and intel_sriov == true
+
+- name: Get list of dangling docker volumes
+  command: docker volume ls -q -f dangling=true
+  register: dangling_volumes
+
+- name: Remove dangling docker volumes
+  command: docker volume rm {{ item }}
+  with_items: "{{ dangling_volumes.stdout_lines }}"
+  when: dangling_volumes is defined and dangling_volumes.stdout_lines != []
+  ignore_errors: True

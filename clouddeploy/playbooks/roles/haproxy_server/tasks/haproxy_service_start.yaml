@@ -1,0 +1,97 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep haproxy_{{ docker.haproxy.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias haproxy='in_container haproxy_"
+    line: "{{ item }}"
+  with_items:
+    - alias haproxy='in_container haproxy_{{ docker.haproxy.image_tag }}'
+
+- name: Set HAProxy IPv6 enable
+  delegate_to: localhost
+  run_once: true
+  set_fact:
+    ipv6_enable: true
+  when: (external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "") or
+        (internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "")
+
+# The ansible docker_container module does not support sysctl arguments
+# Hence using docker command to get past nonlocal bind issue
+- name: Start the haproxy docker container
+  shell: |
+    docker run -t -d --sysctl net.ipv4.ip_nonlocal_bind=1 \
+                     --sysctl net.ipv6.ip_nonlocal_bind='{% if ipv6_enable is defined and ipv6_enable == true %}1{% else %}0{% endif %}' \
+                     --sysctl net.ipv6.conf.all.accept_ra=0 \
+                     --sysctl net.ipv6.conf.all.autoconf=0 \
+                     --sysctl net.ipv6.conf.default.accept_ra=0 \
+                     --sysctl net.ipv6.conf.default.autoconf=0 \
+                     --sysctl net.ipv6.conf.all.disable_ipv6='{% if ipv6_enable is defined and ipv6_enable == true %}0{% else %}1{% endif %}' \
+                     --sysctl net.ipv6.conf.default.disable_ipv6='{% if ipv6_enable is defined and ipv6_enable == true %}0{% else %}1{% endif %}' \
+                     --net=none \
+                     --privileged=True \
+                     --cpuset-cpus "{{ hostcpus }}" \
+                     --volume=/lib/modules:/lib/modules:ro,z \
+                     --volume="{{ docker.haproxy.host_data_dir }}:{{ docker.haproxy.host_data_dir }}:ro,z" \
+                     --volume=/etc/localtime:/etc/localtime:ro \
+                     --volume=/var/log/haproxy:/var/log/haproxy:z \
+                     --interactive=True \
+                     -p 3306:3306 \
+                     -p 4444:4444 \
+                     -p 4567:4567 \
+                     -p 4568:4568 \
+                     -e MECHANISM_DRIVERS="{{ MECHANISM_DRIVERS }}" \
+                     -e external_lb_vip_address="{{ external_lb_vip_address }}" \
+                     -e external_lb_vip_ipv6_address='{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}{{ external_lb_vip_ipv6_address }}{% endif %}' \
+                     -e internal_lb_vip_address="{{ internal_lb_vip_address }}" \
+                     -e internal_lb_vip_ipv6_address='{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}{{ internal_lb_vip_ipv6_address }}{% endif %}' \
+                     -e VIRTUAL_ROUTER_ID="{{ VIRTUAL_ROUTER_ID }}" \
+                     --name "haproxy_{{ docker.haproxy.image_tag }}" \
+                     "{{ docker.common.registry }}/{{ docker.haproxy.name }}:{{ docker.haproxy.image_tag }}" /bin/bash
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+
+- name: Check if HAProxy Docker container has started running
+  shell: docker ps -a | grep Up | grep haproxy_{{ docker.haproxy.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="HAProxy Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-haproxy
+  tags:
+    - reboot-on-failure
+
+- name: Doing HAproxy and networking sanity check
+  shell: /docker/haproxy/haproxy_sanity.sh
+  register: sanity_result
+
+- name: Fail if container/networking fails.
+  fail: msg="HAProxy networking failed"
+  when: sanity_result.stdout != ""
+
+- name: Check whether internal VIP is reachable
+  shell: ping -c 2 {{ internal_lb_vip_address }}
+  register: int_ping
+  until: int_ping.rc == 0
+  retries: 10
+  delay: 5
+
+- name: Check whether internal VIP IPv6 is reachable
+  shell: ping6 -c 2 {{ internal_lb_vip_ipv6_address }}
+  register: int_ping6
+  until: int_ping6.rc == 0
+  retries: 10
+  delay: 5
+  when: internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != ""

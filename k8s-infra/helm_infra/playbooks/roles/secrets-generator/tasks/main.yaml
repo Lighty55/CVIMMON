@@ -1,0 +1,4 @@
+- include: create-secrets.yaml
+  when: ACTION is undefined
+- include: regenerate-secrets.yaml
+  when: ACTION is defined and ACTION == "regenerate"

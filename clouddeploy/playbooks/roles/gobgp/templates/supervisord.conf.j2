@@ -1,0 +1,14 @@
+[supervisord]
+nodaemon=true
+user=gobgp
+pidfile=/tmp/supervisord.pid
+logfile={{ GOBGP_LOGDIR }}/supervisord.log
+{% for net in overlays %}
+
+[program:gobgp_{{ net }}]
+startsecs=10
+autorestart=true
+redirect_stderr=true
+command=/opt/kolla/gobgp_{{ net }}.sh
+stdout_logfile={{ GOBGP_LOGDIR }}/gobgp-agent-{{ net }}.log
+{% endfor %}

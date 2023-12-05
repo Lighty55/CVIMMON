@@ -1,0 +1,63 @@
+############################################################################################################################
+# Important Note: If you want to report a test to cloud-sanity, please make sure that the test name as the following syntax
+#
+# - name: CephMon - <Test Name>
+#
+# if you don't want to report the test to cloud sanity, please use the following syntax for name:
+#
+# - name: <Test Name with no "-" >
+#
+############################################################################################################################
+
+# Get the tag for CEPH mon running container
+- name: CephMon - Check cephmon is running
+  shell: docker ps -a | grep cephmon | grep Up | awk '{print $NF}' | cut -f2 -d '_'
+  register: cephmon_tag
+  failed_when: cephmon_tag.stdout == ""
+
+# Wait for CEPH cluster to go into healthy state
+- name: CephMon - CEPH cluster check
+  command: docker exec cephmon_{{ cephmon_tag.stdout }} ceph -s
+  register: ceph_cluster_status
+  until: ceph_cluster_status.stdout.find('HEALTH_ERR') == -1
+  retries: 60
+  delay: 30
+  run_once:  True
+
+#Ceph mon sanity count
+- name: CephMon - Check Ceph Mon status
+  command: docker exec cephmon_{{ cephmon_tag.stdout }} ceph mon stat
+  register: cephmon_size
+  until: cephmon_size.stdout.find('3 mons at') != -1
+  retries: 10
+  delay: 2
+  run_once: True
+
+#Copy the file for check check to /tmp/
+- name: copy ceph check file to /tmp
+  copy: src="ceph-check.py" dest="/tmp/" owner=root mode=0544 force=yes
+  delegate_to: localhost
+  run_once: True
+
+#Get Ceph Mon Details
+- name: Ceph mon sanity details
+  command: docker exec cephmon_{{ cephmon_tag.stdout }} ceph mon stat
+  register: cephmon_size_details
+
+
+- name: Check Ceph Mon Details Output
+  shell: python /tmp/ceph-check.py check_cephmon_status "{{  cephmon_size_details.stdout_lines | join (" ")   }}" "{{   groups['controllers'] | join (" " )  }}"
+  delegate_to: localhost
+  run_once: True
+  register: ceph_mon_result
+
+- name: CephMon - Check Ceph Mon results
+  delegate_to: localhost
+  run_once: True
+  when: ceph_mon_result.stdout.find('FAIL') != -1
+  fail: msg="{{ ceph_mon_result.stdout }}"
+
+- name: remove ceph check file
+  file:  path=/tmp/ceph-check.py state=absent
+  delegate_to: localhost
+  run_once: True

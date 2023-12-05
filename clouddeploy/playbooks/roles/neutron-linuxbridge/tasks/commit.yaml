@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron linuxbridge directory
+  file:
+    path: "/docker/neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old neutron linuxbridge docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_linuxbridge_agent_{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron linuxbridge docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_linuxbridge_agent.name }}"
+    tag: "{{ LINUXBRIDGE_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

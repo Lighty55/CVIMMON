@@ -1,0 +1,83 @@
+- hosts: all-masters
+  become: yes
+  roles:
+    - kubeadm-init-prep
+
+# Bring up keepalived only on first master first since we perform kubeadm init there
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - keepalived
+
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - kubeadm-init-first-master
+
+# Now bring up keepalived on rest
+- hosts: all-masters
+  become: yes
+  roles:
+    - { role: keepalived, when: "groups['all-masters'][0] != inventory_hostname" }
+
+- hosts: localhost
+  connection: local
+  become: yes
+  roles:
+    - localhostprep
+
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - fetchfiles
+
+- hosts: localhost
+  become: yes
+  tasks:
+    - name: Set loadbalancer ipv4
+      set_fact:
+        LOADBALANCER_IP: 'https://{{ internal_loadbalancer_ip }}:6443'
+      when: DHCP_MODE is not defined or (DHCP_MODE is defined and DHCP_MODE != "v6")
+
+    - name: Set loadbalancer ipv6
+      set_fact:
+        LOADBALANCER_IP: 'https://[{{ external_loadbalancer_ip }}]:6443'
+      when: DHCP_MODE is defined and DHCP_MODE == "v6"
+
+    - replace:
+        dest: ~/.kube/config
+        regexp: '^\s*server:.*'
+        replace: '    server: {{ LOADBALANCER_IP }}'
+
+- hosts: all-masters[0]
+  become: yes
+  tasks:
+    - name: Get the join command from the master node
+      command: "kubeadm token create --print-join-command"
+      register: kubeadm_join
+      ignore_errors: yes
+      failed_when: False
+    - set_fact:
+        kubeadm_join_command: "{{ kubeadm_join.stdout }}"
+      when: kubeadm_join.rc == 0
+    - debug:
+        msg: "{{ kubeadm_join_command }}"
+
+
+- hosts: all-masters
+  serial: 1
+  vars:
+    kubeadm_join_cmd: "{{ hostvars[groups['all-masters'][0]]['kubeadm_join_command'] }}"
+  become: yes
+  roles:
+    - { role: kubeadm-init-other-masters, when: "groups['all-masters'][0] != inventory_hostname" }
+
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - calico
+
+- hosts: all-masters
+  become: yes
+  roles:
+    - config-scheduler-and-controller

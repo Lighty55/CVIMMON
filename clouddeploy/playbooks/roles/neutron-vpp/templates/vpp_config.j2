@@ -1,0 +1,48 @@
+{% if NETWORK_OPTIONS is defined %}
+{% if 'enable_ecmp' in NETWORK_OPTIONS %}
+{% if 'sr-mpls' in NETWORK_OPTIONS %}
+SR_PREFIX_SID: "{{ srmpls['sr']['prefix_sid'] }}"
+{% set ecmp = [] %}
+{% for link in srmpls['ecmp'] %}
+{{ ecmp.append(link.vpp_ip + ',' + link.vpp_mac) }}
+{% endfor %}
+ECMP_CONFIG: "{{ ecmp | join (';') }}"
+{% endif %}
+{% if 'vxlan' in NETWORK_OPTIONS %}
+{# multi vxlan placeholder #}
+{% endif %}
+{% endif %}
+{% endif %}
+UNDERLAY_IF: "{{ tenant_if }}"
+UNDERLAY_BOND_LIST: "{{ tenant_slave0 }} {{ tenant_slave1 }}"
+{% if not use_intel %}
+{% if provider_exists %}
+PROV_IF: "{{ prov_if }}"
+PROV_BOND_LIST: "{{ prov_slave0 }} {{ prov_slave1 }}"
+{% endif %}
+{% if "control" in server_role %}
+EXTERNAL_IF: "{{ external_if }}"
+EXTERNAL_BOND_LIST: "{{ external_slave0 }} {{ external_slave1 }}"
+{% endif %}
+{% endif %}
+VPP_INIT_DELAY: "{{ VPP_INIT_DELAY | default(10) }}"
+MAX_MTU_SIZE: "{{ MAX_MTU_SIZE }}"
+IS_NFV_HOST: "{{ is_nfv_host }}"
+HOSTCPUS: "{{ hostcpus }}"
+VPPCPUS: "{{ vswitchcpus }}"
+{% if is_nfv_host == true %}
+RES_HP_2M: "{{ res_hp_2m }}"
+RES_HP_1G: "{{ res_hp_1g }}"
+{% endif %}
+COMPUTE_HOST_NAME: {{ ansible_nodename }}
+VPP_ETCD_USER: "{{ VPP_ETCD_USER }}"
+VPP_IF_STATS_REST_PORT: "{{ VPP_IF_STATS_REST_PORT }}"
+{% if VAULT is defined and VAULT.enabled == True %}
+# VAULT
+VAULT_TOKEN: {{ TOKEN }}
+MGMT_IP: {{ build_node_ip | ipwrap }}
+PASSWORD_VARS: {{ PASSWORD_VARS }}
+{% else %}
+VPP_ETCD_PASSWORD: "{{ VPP_ETCD_PASSWORD }}"
+{% endif %}
+ENABLE_AVF: {{ VPP_ENABLE_AVF }}

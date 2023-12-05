@@ -1,0 +1,183 @@
+## Change The repository parameter as needed
+image:
+  repository: gcr.io/google-containers/fluentd-elasticsearch
+## Specify an imagePullPolicy (Required)
+## It's recommended to change this to 'Always' if the image tag is 'latest'
+## ref: http://kubernetes.io/docs/user-guide/images/#updating-images
+  tag: v2.3.1
+  pullPolicy: IfNotPresent
+
+## Configure resource requests and limits
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 500Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 200Mi
+
+elasticsearch:
+  host: 'elasticsearch-client.logging.svc.cluster.local'
+  port: 9200
+  buffer_chunk_limit: 256
+  buffer_queue_limit: 8
+
+rbac:
+  create: true
+
+serviceAccount:
+  # Specifies whether a ServiceAccount should be created
+  create: true
+  # The name of the ServiceAccount to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name:
+
+livenessProbe:
+  enabled: false
+
+annotations: {}
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "24231"
+
+tolerations: {}
+  # - key: node-role.kubernetes.io/master
+  #   operator: Exists
+  #   effect: NoSchedule
+
+
+# All Service ports are hardcoded to 7081
+# To change the port: templates/service.yaml
+# The same port accepts both TCP & UDP
+
+service:
+   type: NodePort
+
+# All the confiuration to fluentd.conf will be provided below
+
+configMaps:
+  system.conf: |-
+    <system>
+      root_dir /tmp/fluentd-buffers/
+    </system>
+  fluentd.conf: |-
+    #########################################
+    # INPUT PLUGINS
+    #########################################
+    <source>
+        @type forward
+        port 7081
+    </source>
+
+    <source>
+        @type tail
+        path /var/log/messages*
+        pos_file /var/log/var-messages.pos
+        tag hostlogs.var.messages
+        path_key file
+
+        format multiline
+        # Begin possible multiline match: "Mmm DD HH:MM:SS "
+        # Ex: Jul 13 13:45:13 storm-server-08 kernel: e820: BIOS-provided physical RAM
+        format_firstline /^[A-Z][a-z]{2}\s+[0-3]?[0-9]\s+[0-2][0-9]:[0-5][0-9]:[0-6][0-9]\s/
+        # extract metadata from same line that matched format_firstline
+        format1 /^(?<time>\S+\s+\S+\s+\S+)\s+(?<host>\S+)\s+(?<program>[\w\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?[^\:]*\:\s*(?<message>.*)$/
+        time_format %b %d %H:%M:%S
+    </source>
+
+    <source>
+        @id fluentd-containers.log
+        @type tail
+        path /var/log/containers/*.log
+        pos_file /var/log/fluentd-containers.log.pos
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+        tag raw.kubernetes.*
+        format json
+        read_from_head true
+    </source>
+    #########################################
+    # FILTER PLUGINS
+    #########################################
+    <filter hostlogs.var.*>
+        @type record_transformer
+        <record>
+            path /var/log/messages
+        </record>
+    </filter>
+    <filter kubernetes.**>
+        @type kubernetes_metadata
+    </filter>
+    #########################################
+    # OUTPUT PLUGINS
+    #########################################
+    <match hostlogs.**>
+        @type copy
+        <store>
+            @type elasticsearch
+            host elasticsearch-client.logging.svc.cluster.local
+            port 9200
+            logstash_format true
+            logstash_prefix hostlogs
+            utc_index false
+            flush_interval 15s
+        </store>
+    </match>
+    <match raw.kubernetes.**>
+        @id raw.kubernetes
+        @type detect_exceptions
+        remove_tag_prefix raw
+        message log
+        stream stream
+        multiline_flush_interval 5
+        max_bytes 500000
+        max_lines 1000
+    </match>
+    <match fluentdfwd.** openstack.**>
+        @type copy
+        <store>
+           @type elasticsearch
+           host elasticsearch-client.logging.svc.cluster.local
+           port 9200
+           logstash_format true
+           logstash_prefix openstack
+           utc_index false
+           flush_interval 15s
+        </store>
+    </match>
+    <match vmtp.**>
+        @type copy
+        <store>
+           @type elasticsearch
+           host elasticsearch-client.logging.svc.cluster.local
+           port 9200
+           logstash_format true
+           logstash_prefix vmtp
+           utc_index false
+           flush_interval 15s
+        </store>
+    </match>
+    <match **>
+      @id elasticsearch
+      @type elasticsearch
+      @log_level info
+      include_tag_key true
+      type_name fluentd
+      host elasticsearch-client.logging.svc.cluster.local
+      port 9200
+      logstash_format true
+      logstash_prefix kubernetes
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        retry_type exponential_backoff
+        flush_thread_count 2
+        flush_interval 5s
+        retry_forever
+        retry_max_interval 30
+        #chunk_limit_size 256
+        #queue_limit_length 8
+        overflow_action block
+      </buffer>
+    </match>

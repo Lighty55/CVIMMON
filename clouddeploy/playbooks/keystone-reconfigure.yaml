@@ -1,0 +1,21 @@
+- name: Keystone Reconfigure
+  hosts: keystone_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "keystone", tags: ["base", "keystone"] }
+  serial: "30%"
+
+- name: Reconfigure Keystone LDAP Identity driver
+  hosts: keystone_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tags:
+    - base
+    - keystone
+  tasks:
+    - name: Reconfig ldap if enabled
+      include: "{{ playbook_dir }}/roles/keystone/tasks/keystone_ldap_config.yaml"
+      when: LDAP is defined

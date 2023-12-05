@@ -1,0 +1,4 @@
+- include: deploy.yaml
+  when: ACTION is undefined
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure"

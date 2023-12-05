@@ -1,0 +1,59 @@
+- include: retrieve-tgt.yaml
+
+- name: Update /etc/hosts file with IPA servers
+  lineinfile:
+    dest: /etc/hosts
+    state: present
+    line: "{{ item.1 }} {{ item.0.hostname }}"
+  with_subelements:
+    - "{{ IPA_INFO.ipa_servers }}"
+    - ipaddresses
+    - skip_missing: True
+
+- name: Install ipa-client package
+  yum:
+    name: ipa-client
+    state: present
+
+- set_fact:
+    ipa_server_list: ""
+
+- set_fact:
+    ipa_server_list: "{{ ipa_server_list }} --server {{ item.hostname }}"
+  with_items:
+    - "{{ IPA_INFO.ipa_servers }}"
+
+# IPA client exit status
+# 0 if the installation was successful
+# 1 if an error occurred
+# 2 if uninstalling and the client is not configured
+# 3 if installing and the client is already configured
+# 4 if an uninstall error occurred
+- name: Enroll host as IPA client
+  shell: |
+    ipa-client-install --unattended --principal {{ IPA_INFO.enroller_user }} \
+     --password {{ IPA_INFO.enroller_password }} \
+    --no-ntp \
+    {{ ipa_server_list }} \
+    --domain {{ IPA_INFO.ipa_domain_name }} \
+    --fixed-primary \
+    --no-dns-sshfp \
+    --mkhomedir \
+    --hostname $(hostname) \
+    --force-join \
+    --debug
+  register: enrollment_result
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  failed_when: false
+
+- name: Verify that enrollment is successful
+  fail: msg="Enrollment is not successful please check logs"
+  when: enrollment_result is defined and enrollment_result.rc not in [0,3]
+
+- name: Verify enroller uid is present on the host
+  shell: id {{ IPA_INFO.enroller_user }}
+  register: enroller_id_result
+
+- name: Verify IPA host registration completed
+  fail: msg="Enrollment did not complete enroller missing"
+  when: enroller_id_result is defined and enroller_id_result.rc != 0

@@ -1,0 +1,29 @@
+---
+- name: Find the Corresponding ETCD Node_ID which is not Reachable
+  shell: "/usr/bin/etcdctl --endpoints=https://localhost:2379 --ca-file=/etc/kubernetes/pki/etcd/ca.crt --key-file=/etc/kubernetes/pki/etcd/peer.key --cert-file=/etc/kubernetes/pki/etcd/peer.crt member list  | grep {{ node_operation_host }} | awk '{print $1}' | cut -d':' -f1"
+  register: etcd_node
+
+- name: Delete the Corresponding ETCD Node
+  shell: "/usr/bin/etcdctl --endpoints=https://localhost:2379 --ca-file=/etc/kubernetes/pki/etcd/ca.crt --key-file=/etc/kubernetes/pki/etcd/peer.key --cert-file=/etc/kubernetes/pki/etcd/peer.crt member remove '{{ item }}'"
+  ignore_errors: yes
+  with_items:
+     - "{{ etcd_node.stdout_lines }}"
+
+- name: Get ClusterStatus config map for the kubeadm-config
+  shell: |
+     kubectl get configmap kubeadm-config -n kube-system -o \
+      jsonpath='{.data.ClusterStatus}' | \
+      sed -e "/{{ node_operation_host }}/,+2d" > /tmp/ClusterStatus
+
+- name: Get ClusterConfiguration config map for the kubeadm-config
+  shell: |
+     kubectl get configmap kubeadm-config -n kube-system -o \
+      jsonpath='{.data.ClusterConfiguration}' > /tmp/ClusterConfiguration
+
+- name: Remove the node from the clusterstatus and clusterconfiguration
+  shell: |
+     kubectl create configmap kubeadm-config -n kube-system \
+      --from-file /tmp/ClusterConfiguration \
+      --from-file /tmp/ClusterStatus \
+      -o yaml --dry-run | kubectl replace -f -
+

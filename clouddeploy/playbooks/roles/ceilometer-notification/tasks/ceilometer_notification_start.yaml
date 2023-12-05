@@ -1,0 +1,45 @@
+- name: Check if Ceilometer notification is already running
+  shell: docker ps -a | grep Up | grep ceilometernotification_{{ docker.ceilometer_notification.image_tag }}  | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ceilometernotification='in_container ceilometernotification_"
+    line: "{{ item }}"
+  with_items:
+    - alias ceilometernotification='in_container ceilometernotification_{{ docker.ceilometer_notification.image_tag }}'
+
+- name: Start the Ceilometer notification Docker
+  docker_container:
+    name: "ceilometernotification_{{ docker.ceilometer_notification.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.ceilometer_notification.name }}:{{ docker.ceilometer_notification.image_tag }}"
+    volumes:
+      - "{{ docker.ceilometer_notification.host_data_dir }}:{{ docker.ceilometer_notification.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ceilometer:/var/log/ceilometer:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Ceilometer notification Docker container has started running
+  shell: docker ps -a | grep Up | grep ceilometernotification_{{ docker.ceilometer_notification.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Ceilometer notification Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ceilometernotification
+  tags:
+    - reboot-on-failure

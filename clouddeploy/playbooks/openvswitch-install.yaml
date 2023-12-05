@@ -1,0 +1,15 @@
+- name: Install ovs dbserver.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_dbserver", tags: [ "ovs_dbserver", "neutron_install" ] }
+
+- name: Install ovs vswitchd.
+  hosts: ovs_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ovs_vswitch", tags: [ "ovs_vswitch", "neutron_install" ] }

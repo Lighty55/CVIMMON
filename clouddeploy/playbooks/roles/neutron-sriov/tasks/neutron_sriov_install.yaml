@@ -1,0 +1,101 @@
+
+- include: neutron_sriov_preinstall.yaml
+
+- name: Create Neutron sriov Agent Docker staging folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/neutron_sriov
+
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-neutron_sriov.service",
+        dest: "/usr/lib/systemd/system/docker-neutron_sriov.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Copy Neutron sriov Agent Files.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "neutron_config.j2",
+        dest: "{{ docker.neutron_sriov.host_data_dir }}/neutron_config" }
+
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_sriov_{{ docker.neutron_sriov.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    line: "{{ item }}"
+  with_items:
+    - alias sriovagent='in_container neutron_sriov_{{ docker.neutron_sriov.image_tag }}'
+
+- name: Start the Neutron sriov Agent Docker Service
+  docker_container:
+    name: "neutron_sriov_{{ docker.neutron_sriov.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_sriov.name }}:{{ docker.neutron_sriov.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.neutron_sriov.host_data_dir }}:{{ docker.neutron_sriov.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    ulimits: "nofile:{{ NEUTRON_AGENT_ULIMIT }}:{{ NEUTRON_AGENT_ULIMIT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or  (command_result.stdout == "" and ACTION is defined and ACTION == "update") or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- pause: seconds=10 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Neutron sriov Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_sriov_{{ docker.neutron_sriov.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron sriov Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_sriov
+  tags:
+    - reboot-on-failure
+
+- pause: seconds=45 prompt="Waiting for sometime to make sure sriov service is up"
+  when: command_result.stdout == ""
+
+# Use the extra restart needed for some reason for port bind to take place
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-neutron_sriov
+  tags:
+    - reboot-on-failure
+

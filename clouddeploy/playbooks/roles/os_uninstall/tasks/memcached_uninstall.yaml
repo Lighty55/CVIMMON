@@ -1,0 +1,35 @@
+- name: Shut off memcached docker service
+  service:
+    name: docker-memcached
+    enabled: no
+    state: stopped
+  ignore_errors: True
+
+- name: Remove memcached service file
+  file:
+    path: "/usr/lib/systemd/system/docker-memcached.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove memcached docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "memcached_{{ docker.memcached.image_tag }}" }
+
+- name: Remove Memcached docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.memcached.name }}"
+    tag: "{{ docker.memcached.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Memcached Directory
+  file:
+    path: "{{ docker.memcached.host_data_dir }}"
+    state: absent

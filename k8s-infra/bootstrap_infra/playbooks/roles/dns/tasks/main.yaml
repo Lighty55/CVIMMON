@@ -1,0 +1,4 @@
+- include: reconfigure.yaml
+  when: ((not ACTION is defined) or
+         (ACTION is defined and
+          (ACTION == "reconfigure" or ACTION == "upgrade" or ACTION == "update")))

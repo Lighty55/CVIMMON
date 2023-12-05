@@ -1,0 +1,87 @@
+- name: Check if docker service is already running
+  shell: docker ps -a | grep Up | grep neutron_vpp_{{ docker.neutron_vpp.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias vpp='in_container neutron_vpp_"
+    line: "{{ item }}"
+  with_items:
+    - alias vpp='in_container neutron_vpp_{{ docker.neutron_vpp.image_tag }}'
+
+- name: Start the Neutron VPP Docker Service
+  docker_container:
+    name: "neutron_vpp_{{ docker.neutron_vpp.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_vpp.name }}:{{ docker.neutron_vpp.image_tag }}"
+    cpuset_cpus: "{{ vswitch_container_cpus }}"
+    volumes:
+      - "{{ docker.neutron_vpp.host_data_dir }}:{{ docker.neutron_vpp.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /lib/modules:/lib/modules:ro,z
+      - /var/log/neutron-vpp:/var/log/neutron-vpp:z
+      - /tmp:/tmp:rw,z
+      - /var/crash:/var/crash
+      # /dev/vfio is needed to be mapped if vfio-pci is used as DPDK driver
+      - /dev/vfio:/dev/vfio
+      # /run/udev is needed for pyudev
+      - /run/udev:/run/udev:shared
+      - /run/vhostuser_socket:/run/vhostuser_socket:shared
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    privileged: yes
+    network_mode: "host"
+    pid_mode: "host"
+    ulimits: "nofile:{{ NEUTRON_VPP_ULIMIT }}:{{ NEUTRON_VPP_ULIMIT }}"
+  when: command_result.stdout == "" and (ACTION is undefined or (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "upgrade"))
+  register: vpp_start1
+
+- pause: seconds=10 prompt="Waiting for sometime to validate container status"
+
+- name: Check if Neutron VPP Docker container has started running
+  shell: docker ps -a | grep Up | grep neutron_vpp_{{ docker.neutron_vpp.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Neutron vpp Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-neutron_vpp
+  tags:
+    - reboot-on-failure
+
+# TODO: Remove when networking-vpp supports neutron-server recognizing new vpp-agents joining.
+- pause:
+    seconds="{{ NEUTRONSRV_RESTART_WAIT | default(45) }}"
+    prompt="Neutron-server workaround--Waiting for a bit to restart neutron-server"
+  when: vpp_start1.changed
+
+# assumes neutron_vpp_all contains nodes with neutron-server
+- name: Restart neutron-server Service
+  service:
+    name: "docker-neutronsrv"
+    enabled: yes
+    state: restarted
+  when: (vpp_start1.changed) and (inventory_hostname in "{{ groups['neutron_server_all'] }}")
+
+- name: Check if bond_lacp interface exist
+  shell: ip link show bond_lacp && teamdctl bond_lacp state
+  register: bond_lacp_exist
+  ignore_errors: true
+  failed_when: false
+
+- name: Restart bond_lacp-monitor.service
+  service:
+    name: bond_lacp-monitor.service
+    enabled: yes
+    state: restarted
+  when: bond_lacp_exist.rc == 0

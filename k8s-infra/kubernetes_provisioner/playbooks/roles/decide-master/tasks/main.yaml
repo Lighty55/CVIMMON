@@ -1,0 +1,29 @@
+- name: Force use vip for master name (MasterHA case)
+  set_fact: master_name={{ internal_loadbalancer_ip }}
+  when:
+    - groups['all-masters'] | length > 1
+    - DHCP_MODE == "v4"
+
+- name: Force use vip for master name (MasterHA case)
+  set_fact: master_name={{ external_loadbalancer_ip }}
+  when:
+    - groups['all-masters'] | length > 1
+    - DHCP_MODE == "v6"
+
+- debug:
+    msg: "{{ master_name }}"
+
+- set_fact:
+    master_ip: "{{ master_name }}"
+
+- name: Add host
+  add_host:
+    name: "{{master_name}}"
+    groups: ha_master
+
+- name: "Wait 300 seconds for master at {{ master_name }}:6443 to become open (MasterHA)"
+  wait_for:
+    port: "6443"
+    host: "{{ master_name }}"
+    delay: 1
+    timeout: 300

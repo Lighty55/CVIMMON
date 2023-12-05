@@ -1,0 +1,9 @@
+group ceph-osd {
+    cpuset {
+        cpuset.cpus = {{ ceph_osd_cpuset_cpus }};
+        cpuset.mems = {{ ceph_osd_cpuset_mems.stdout|trim }};
+    }
+    memory {
+        memory.limit_in_bytes = {{ ceph_osd_memory_limit }};
+    }
+}

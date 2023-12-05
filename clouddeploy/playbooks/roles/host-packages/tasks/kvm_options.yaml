@@ -1,0 +1,40 @@
+# Just copy the parameter change will be active on next reboot
+# of compute node
+- name: Generate nested KVM feature config
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "kvm.conf",
+        dest: "/etc/modprobe.d/kvm.conf" }
+
+- name: Add additional KVM options for edge compute node
+  lineinfile:
+    dest: /etc/modprobe.d/kvm.conf
+    state: present
+    regexp: "options kvm_intel ple_window=0"
+    line: "options kvm_intel ple_window=0"
+  when: ENABLE_RT_KERNEL
+
+- name: Determine if patching kvm options are needed
+  script: verify_ko_options.py kvm,kvm_intel /etc/modprobe.d/kvm.conf
+  register: command_result
+
+- name: Remove kvm_intel module
+  command: rmmod kvm_intel
+  when: (command_result.stdout_lines[0] != 'True')
+  failed_when: False
+
+- name: Remove kvm module
+  command: rmmod kvm
+  when: (command_result.stdout_lines[0] != 'True')
+  failed_when: False
+
+- name: Add kvm module to the kernel with the new options
+  command: modprobe kvm
+  when: (command_result.stdout_lines[0] != 'True')
+
+- name: Add kvm_intel module to the kernel with the new options
+  command: modprobe kvm_intel
+  when: (command_result.stdout_lines[0] != 'True')

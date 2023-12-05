@@ -1,0 +1,32 @@
+- name: Install Cinder API Containerized service.
+  hosts: cinder_api_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-api", tags: [ "base", "cinder-api" ] }
+
+- name: Install Cinder Scheduler Containerized service.
+  hosts: cinder_scheduler_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-scheduler", tags: [ "base", "cinder-scheduler" ] }
+
+- name: Install Cinder Volume Containerized service.
+  hosts: cinder_volume_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-volume", tags: [ "base", "cinder-volume" ] }
+  serial: "30%"
+
+- name: Install Cinder Backup Containerized service.
+  hosts: cinder_volume_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cinder-backup", tags: [ "cinder-backup" ] }

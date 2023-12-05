@@ -1,0 +1,67 @@
+- name: Gathering facts from all hosts
+  hosts: host_all
+  tasks: [ ]
+
+# Rabbitmq update may involve a major or minor version change
+# Make sure to handle this
+- hosts: rabbitmq_all
+  tasks:
+  - stat: path=/docker/rabbit_{{ RABBITMQ_PREVIOUS_TAG }}
+    register: rabbit_dir_check
+  - name: Shut off rabbitmq docker service
+    service:
+      name: docker-rabbitmq
+      state: stopped
+    when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "rollback" and rabbit_dir_check.stat.exists)
+  # Remove mnesia file
+  - name: Remove rabbitmq mnesia file
+    file:
+      path: "/var/lib/docker/volumes/rabbitmq/_data/mnesia"
+      state: absent
+    when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "rollback" and rabbit_dir_check.stat.exists)
+  serial: 30%
+  tags:
+    - rabbitmq_update
+    - rabbitmq
+
+- name: Install and start  RabbitMQ Containarized service.
+  hosts: rabbitmq_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  roles:
+    - { role: "rabbitmq", tags: [ "rabbitmq_update", "rabbitmq" ] }
+  serial: "30%"
+
+- name: Validate RabbitMQ cluster.
+  hosts: opsmonit_all{{server|default('')}}
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Execute RabbitMQ cluster cmd
+      rabbitmq_monit:
+        operation: check_cluster_size
+        username: "{{ RABBITMQ_USER }}"
+        password: "{{ RABBITMQ_PASSWORD }}"
+        image_tag: "{{ docker.rabbitmq.image_tag }}"
+        clust_sz: "{{ groups['rabbitmq_all'] | length }}"
+      register: validation_status
+      until: validation_status.result.status == 'PASS'
+      retries: 30
+      delay: 6
+      when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "reconfigure")
+    - name: Execute RabbitMQ cluster cmd
+      rabbitmq_monit:
+        operation: check_cluster_size
+        username: "{{ RABBITMQ_USER }}"
+        password: "{{ RABBITMQ_PASSWORD }}"
+        image_tag: "{{ RABBITMQ_PREVIOUS_TAG }}"
+        clust_sz: "{{ groups['rabbitmq_all'] | length }}"
+      register: validation_status
+      until: validation_status.result.status == 'PASS'
+      retries: 30
+      delay: 6
+      when: (ACTION is defined and ACTION == "rollback")
+  tags:
+    - rabbitmq_update
+    - rabbitmq

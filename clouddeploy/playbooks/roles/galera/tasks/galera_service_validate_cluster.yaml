@@ -1,0 +1,17 @@
+- set_fact:
+    DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Check cluster size
+  shell: mysql -h {{ inventory_hostname }} -uroot -p{{ DB_ROOT_PASSWORD }} -e "SHOW STATUS LIKE 'wsrep_cluster_size'" | grep wsrep_cluster_size | sed -e 's/wsrep_cluster_size\t//'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  register: cluster_size
+  until: cluster_size.stdout == "{{ groups['mariadb_mgmt_ip'] | length }}"
+  retries: 30
+  delay: 6
+  tags:
+    - mariadb-app
+    - galera_update
+

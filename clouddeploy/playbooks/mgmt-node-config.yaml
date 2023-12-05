@@ -1,0 +1,17 @@
+- name: Restart NFVbench container if exists
+  hosts: localhost
+  max_fail_percentage: 0
+  user: "root"
+  tags: [ "base", "nfvbench" ]
+  tasks:
+    - name: Check if NFVbench is enabled
+      shell: "systemctl list-unit-files | grep -q docker-nfvbench.service"
+      register: docker_nfvbench_service_exists
+      failed_when: False
+    - name: Restart NFVbench container
+      systemd:
+        name: docker-nfvbench
+        enabled: yes
+        state: restarted
+        masked: no
+      when: docker_nfvbench_service_exists.rc == 0

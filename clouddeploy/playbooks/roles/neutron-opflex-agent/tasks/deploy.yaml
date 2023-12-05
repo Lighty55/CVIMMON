@@ -1,0 +1,4 @@
+- include: neutron_opflex_agent_config.yaml
+  when: MECHANISM_DRIVERS == "aci"
+- include: neutron_opflex_agent_start.yaml
+  when: MECHANISM_DRIVERS == "aci"

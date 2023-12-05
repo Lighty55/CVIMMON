@@ -1,0 +1,2 @@
+- include: vtc_sanity.yaml
+  when: MECHANISM_DRIVERS == 'vts' and (execute is undefined or (execute is defined and (execute == "all" or execute == "compute_check")))

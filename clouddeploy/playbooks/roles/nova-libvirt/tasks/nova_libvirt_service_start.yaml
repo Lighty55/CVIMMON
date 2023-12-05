@@ -1,0 +1,169 @@
+- name: Check if Nova Libvirt Docker container is already running
+  shell: docker ps -a | grep Up | grep novalibvirt_{{ docker.nova_libvirt.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias libvirt='in_container novalibvirt_"
+    line: "{{ item }}"
+  with_items:
+    - alias libvirt='in_container novalibvirt_{{ docker.nova_libvirt.image_tag }}'
+
+- name: Start the Nova Libvirt Docker Service
+  docker_container:
+    name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ docker.nova_libvirt.image_tag }}"
+    cpuset_cpus: "{{ libvirtcpus }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /tmp:/tmp:rw,z
+        - /lib/modules:/lib/modules:ro
+        - /var/log/nova:/var/log/nova:z
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+    privileged: yes
+    ulimits: "nofile:{{ NOVA_LIBVIRT_ULIMIT }}:{{ NOVA_LIBVIRT_ULIMIT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and not MECHANISM_DRIVERS in ["openvswitch", "vts", "vpp", "aci"]
+
+- name: Start the Nova Libvirt Docker Service
+  docker_container:
+    name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ docker.nova_libvirt.image_tag }}"
+    cpuset_cpus: "{{ libvirtcpus }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /tmp:/tmp:rw,z
+        - /lib/modules:/lib/modules:ro
+        - /var/log/nova:/var/log/nova:z
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+    privileged: yes
+    ulimits: "nofile:{{ NOVA_LIBVIRT_ULIMIT }}:{{ NOVA_LIBVIRT_ULIMIT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and not MECHANISM_DRIVERS in ["openvswitch", "vts", "vpp"]
+
+- name: Start the Nova Libvirt Docker Service
+  docker_container:
+    name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ docker.nova_libvirt.image_tag }}"
+    cpuset_cpus: "{{ libvirtcpus }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /tmp:/tmp:rw,z
+        - /lib/modules:/lib/modules:ro
+        - /var/log/nova:/var/log/nova:z
+        - /etc/localtime:/etc/localtime:ro
+        - /run:/run:shared
+        - /var/log/libvirt
+    privileged: yes
+    ulimits: "nofile:{{ NOVA_LIBVIRT_ULIMIT }}:{{ NOVA_LIBVIRT_ULIMIT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and MECHANISM_DRIVERS == "openvswitch"
+
+- name: Start the Nova Libvirt Docker Service for VPP
+  docker_container:
+    name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ docker.nova_libvirt.image_tag }}"
+    cpuset_cpus: "{{ libvirtcpus }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /lib/modules:/lib/modules:ro
+        - /var/log/nova:/var/log/nova:z
+        - /var/tmp:/var/tmp:rw,z
+        - /tmp:/tmp:rw,z
+        - /run/vhostuser_socket:/run/vhostuser_socket:shared
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+    privileged: yes
+    ulimits: "nofile:{{ NOVA_LIBVIRT_ULIMIT }}:{{ NOVA_LIBVIRT_ULIMIT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and MECHANISM_DRIVERS in ["vts", "vpp"]
+
+- name: Start the Nova Libvirt Docker Service for ACI
+  docker_container:
+    name: "novalibvirt_{{ docker.nova_libvirt.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_libvirt.name }}:{{ docker.nova_libvirt.image_tag }}"
+    cpuset_cpus: "{{ libvirtcpus }}"
+    volumes:
+        - "{{ docker.nova_libvirt.host_data_dir }}:{{ docker.nova_libvirt.host_data_dir }}:ro,z"
+        - "{{ NOVA_VOLUME }}:{{ NOVA_VOLUME }}:shared"
+        - "{{ LIBVIRT_VOLUME }}:{{ LIBVIRT_VOLUME }}"
+        - "{{ QEMU_VOLUME }}:{{ QEMU_VOLUME }}"
+        - "{{ RUN_VOLUME }}:{{ RUN_VOLUME }}"
+        - "{{ CGROUP_VOLUME }}:{{ CGROUP_VOLUME }}"
+        - /dev:/dev
+        - /tmp:/tmp:rw,z
+        - /lib/modules:/lib/modules:ro
+        - /var/log/nova:/var/log/nova:z
+        - /etc/localtime:/etc/localtime:ro
+        - /var/log/libvirt
+        - /run:/run:shared
+    privileged: yes
+    ulimits: "nofile:{{ NOVA_LIBVIRT_ULIMIT }}:{{ NOVA_LIBVIRT_ULIMIT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    pid_mode: "host"
+  when: command_result.stdout == "" and MECHANISM_DRIVERS == "aci"
+
+
+  # Waiting longer so that post start tasks can be executed
+- pause: seconds=60 prompt="Waiting for sometime"
+  when: command_result.stdout == ""
+
+- name: Check if Nova Libvirt  Docker container has started running
+  shell: docker ps -a | grep Up | grep novalibvirt_{{ docker.nova_libvirt.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Libvirt Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novalibv
+  tags:
+    - reboot-on-failure

@@ -1,0 +1,54 @@
+
+- name: Check if bad disks are reported
+  stat:
+    path: "{{ BAD_DISKS_FILE}}_{{ inventory_hostname }}"
+  register: bad_disk_file
+  delegate_to: localhost
+
+- name: End play if no bad disks reported
+  meta: end_play
+  when: bad_disk_file.stat.exists == False
+
+- name: Check if raid_status was previously determined
+  stat:
+    path: "{{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+  register: raid_status_file
+  delegate_to: localhost
+
+- name: End play if this is Micropod - avoiding re-running
+  meta: end_play
+  when: raid_status_file.stat.exists == False
+
+- name: Get bad disks details file name
+  set_fact:
+    bad_disk_file_name: "{{ BAD_DISKS_FILE  }}_{{ inventory_hostname }}"
+  delegate_to: localhost
+
+- name: Get bad disks details data
+  set_fact:
+    bad_disks: "{{ lookup('file', bad_disk_file_name ).split('\n') }}"
+  delegate_to: localhost
+
+- debug:
+    msg: "Bad disks: {{ bad_disks }}"
+  delegate_to: localhost
+
+- name: Get RAID Status data
+  include_vars:
+    file: "{{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+    name: raid_status_data
+  delegate_to: localhost
+
+- debug:
+    msg: "RAID Status vars: {{ raid_status_data }}"
+
+- name: Obtain bad disk slot list
+  set_fact: bad_slots="[{% for i in bad_disks %}{{ i.split(':')[1].split()[0] }}, {%endfor%}]"
+
+- debug:
+    msg: "Bad slots: {{ bad_slots }}"
+
+- name: Perform locator action
+  shell:
+    cmd: "/opt/MegaRAID/storcli/storcli64 /c{{ raid_status_data.controller_num }}/e{{ raid_status_data.Enclosure_ID }}/s{{ item }} {{ LOCATOR_ACTION }} locate"
+  with_items: "{{ bad_slots }}"

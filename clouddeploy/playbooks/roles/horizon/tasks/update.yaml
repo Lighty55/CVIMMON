@@ -1,0 +1,4 @@
+- include: horizon_service_update_prepare.yaml
+- include: horizon_service_install.yaml
+- include: horizon_service_config.yaml
+- include: horizon_service_start.yaml

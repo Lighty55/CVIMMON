@@ -1,0 +1,6 @@
+- include: heat_engine_install.yaml
+- include: heat_engine_config.yaml
+- include: heat_engine_bootstrap.yaml
+  when: server is undefined
+- include: heat_engine_start.yaml
+

@@ -1,0 +1,41 @@
+---
+- name: "Check if kubeadm has already run"
+  stat:
+    path: "/etc/kubernetes/pki/ca.key"
+  register: kubeadm_ca
+
+- name: "Kubeadm init- First Master"
+  shell: kubeadm init --config=/tmp/kubeadm-ha/kubeadm-config.yaml --ignore-preflight-errors=all
+  when: not kubeadm_ca.stat.exists
+  register: rslt
+
+- name: "Store init output"
+  action: copy content="{{ rslt.stdout }}" dest="/etc/kubernetes/kubeadm-init.stdout"
+  when: not kubeadm_ca.stat.exists
+  ignore_errors: yes
+  failed_when: false
+
+- name: "Check for existing Kubernetes Config Directory"
+  stat:
+   path: "/root/.kube"
+  register: config_stats
+
+- name: "Create .kube folder"
+  file:
+    path: "~{{ ansible_ssh_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+
+- name: "Check for existing Kubernetes Admin Configuration"
+  stat:
+   path: "/root/.kube/config"
+  register: conf_stats
+
+- name: "Copy admin.conf to .kube folder"
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "~{{ ansible_ssh_user }}/.kube/config"
+    owner: "{{ ansible_ssh_user }}"
+    group: "{{ ansible_ssh_user }}"
+    remote_src: yes

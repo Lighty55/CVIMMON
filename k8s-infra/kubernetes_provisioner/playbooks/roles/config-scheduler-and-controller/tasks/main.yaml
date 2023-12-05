@@ -1,0 +1,37 @@
+---
+- name: "Check if Scheduler and Controller are already configured"
+  shell: grep "address=0.0.0.0" /etc/kubernetes/manifests/kube-scheduler.yaml | awk '{$1=$1};1'
+  register: scheduler_conf
+
+- name: "Check if Scheduler and Controller are already configured"
+  shell: grep "address=0.0.0.0" /etc/kubernetes/manifests/kube-controller-manager.yaml | awk '{$1=$1};1'
+  register: manager_conf
+
+- name: change k8s scheduler and controller config
+  become: yes
+  replace:
+    dest: "{{item}}"
+    regexp: '--address=127.0.0.1'
+    replace: '--address=0.0.0.0'
+  with_items:
+    - /etc/kubernetes/controller-manager.conf
+    - /etc/kubernetes/scheduler.conf
+    - /etc/kubernetes/manifests/kube-scheduler.yaml
+    - /etc/kubernetes/manifests/kube-controller-manager.yaml
+  when: ('- --address=0.0.0.0' not in scheduler_conf.stdout) and ('- --address=0.0.0.0' not in manager_conf.stdout)
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when: ('- --address=0.0.0.0' not in scheduler_conf.stdout) and ('- --address=0.0.0.0' not in manager_conf.stdout)
+
+- name: restart kubelet
+  systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when: ('- --address=0.0.0.0' not in scheduler_conf.stdout) and ('- --address=0.0.0.0' not in manager_conf.stdout)

@@ -1,0 +1,23 @@
+#############################################
+# Remove the old cinder backup docker volume
+#############################################
+- name: Remove old cinderbackup docker volume Directory
+  file:
+    path: "/docker/cinder_backup_{{ CINDER_BACKUP_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Remove old cinderbackup docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "cinderbackup_{{ CINDER_BACKUP_PREVIOUS_TAG }}" }
+
+- name: Remove cinder backup volume docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.cinder_backup.name }}"
+    tag: "{{ CINDER_BACKUP_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

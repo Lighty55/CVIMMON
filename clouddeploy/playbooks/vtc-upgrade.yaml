@@ -1,0 +1,298 @@
+- name: Add VTC to inventory
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - add_host:
+        name: "vtc"
+        ansible_host: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        ansible_ssh_user: "{{ VTS_PARAMETERS.VTC_SSH_USERNAME | default('admin') }}"
+        ansible_ssh_pass: "{{ VTS_PARAMETERS.VTC_SSH_PASSWORD | default('cisco123') }}"
+        ansible_become_pass: "{{ VTS_PARAMETERS.VTC_SSH_PASSWORD | default('cisco123') }}"
+        groups: vtc
+      when: MECHANISM_DRIVERS == 'vts' and VTS_PARAMETERS is defined
+      ignore_errors: yes
+      failed_when: false
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+- include: drop_cisco_controller.yaml
+# Following will be skipped if VTC hosts were not added to inventory
+- name: Apply VTC day0 config
+  hosts: vtc
+  gather_facts: no
+  vars:
+    ADMIN_DOMAIN_GROUP: "{{ VTS_PARAMETERS.ADMIN_DOMAIN_GROUP | default('NFVI') }}"
+    vts_day0: "{{VTS_PARAMETERS.VTS_DAY0 | default (false)}}"
+    # BGP_ASN value on XRVRs. It is also default for all switches if not specified.
+    BGP_ASN: "{{ VTS_PARAMETERS.BGP_ASN | default(23) }}"
+    # Default loopback interface for all XRVRs and switches
+    LOOPBACK_IF_NUM: 0
+    # Appeared on the Host Inventory page
+    VMTP_NODE_NAME: "vmtp"
+    VMM_ID: "{{ VTS_PARAMETERS.VTS_VMM_ID | default('237CB330-1381-4D9D-9A11-233D10245E55') }}"
+    UNMANAGED_TOR: "unmanaged"
+  tasks:
+    - name: Change VTC UI password
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "config"
+          - "set aaa authentication users user {{ VTS_PARAMETERS.VTS_USERNAME }} uid 1000"
+          - "set aaa authentication users user {{ VTS_PARAMETERS.VTS_USERNAME }} gid 1000"
+          - "set aaa authentication users user {{ VTS_PARAMETERS.VTS_USERNAME }} password {{ VTS_PARAMETERS.VTS_PASSWORD }}"
+          - "set aaa authentication users user {{ VTS_PARAMETERS.VTS_USERNAME }} ssh_keydir /var/ncs/homes/{{ VTS_PARAMETERS.VTS_USERNAME }}/.ssh"
+          - "set aaa authentication users user {{ VTS_PARAMETERS.VTS_USERNAME }} homedir /var/ncs/homes/{{ VTS_PARAMETERS.VTS_USERNAME }}"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Set vni-pool range
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "config"
+          - "set resource-pools vni-pool vnipool range 4096 65535"
+          - "set resource-pools vni-pool vnipool ranges range 4875a1c5-f298-4df1-b058-57417304284d start 5000 end 16777210"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: SouthBound lock the device
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "config"
+          - "set devices devices * state admin-state southbound-locked"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Set VMM Parameters  parameters
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set cisco-vts global-settings anycast-gateway anycast-gw-address AA:BB:CC:DD:EE:FF"
+          - "set cisco-vts global-settings vtf-mode-config vtf-mode vtep"
+          - "set cisco-vts global-settings route-reflector-mode global-rr"
+          - "set cisco-vts vmms vmm {{ VMM_ID }} type openstack version openstack-newton name nfvipod"
+          - "commit"
+          - "set cisco-vts vmms vmm {{ VMM_ID }} status vmm-registration-completed"
+          - "set cisco-vts vmms vmm {{ VMM_ID }} ip-address [ 1.1.1.1 ]"
+          - "set cisco-vts vmms vmm {{ VMM_ID }} mode trusted"
+          - "commit"
+          - "set openstack vmm {{ VMM_ID }}"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Set Openstack VMM Parameters  parameters
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set openstack vmm {{ VMM_ID }}"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Create authgroup for unmanaged switch
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set devices authgroups group {{ UNMANAGED_TOR }} umap admin remote-name {{ UNMANAGED_TOR }}"
+          - "set devices authgroups group {{ UNMANAGED_TOR }} umap admin remote-password {{ UNMANAGED_TOR }}"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Create a unmanaged switch
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set devices device {{ UNMANAGED_TOR }} address 1.1.1.1"
+          - "set devices device {{ UNMANAGED_TOR }} port 80"
+          - "set devices device {{ UNMANAGED_TOR }} authgroup {{ UNMANAGED_TOR }}"
+          - "set devices device {{ UNMANAGED_TOR }} device-type cli"
+          - "set devices device {{ UNMANAGED_TOR }} device-type cli ned-id cisco-nx"
+          - "set devices device {{ UNMANAGED_TOR }} device-type cli protocol telnet"
+          - "set devices device {{ UNMANAGED_TOR }} ned-settings cisco-nx-connection method nxapi"
+          - "set devices device {{ UNMANAGED_TOR }} state admin-state southbound-locked"
+          - "set devices device {{ UNMANAGED_TOR }} n9k-extension:device-info"
+          - "set devices device {{ UNMANAGED_TOR }} n9k-extension:device-info platform NOTAPPLICABLE"
+          - "set devices device {{ UNMANAGED_TOR }} n9k-extension:device-info device-use unmanaged"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Create a unmanaged VTS inventory
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 connection-type server"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} type virtual-server"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} interface-name {{ hostvars[item]['tenant_if_name'] }}"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} ip {{ hostvars[item]['control_bond'] }} "
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} vmm-id {{ VMM_ID }}"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} virtual-switch vtf-vtep-st"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} vtf-link vtf-tor-link"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} install-status vtf-installed"
+          - "set cisco-vts devices device {{ UNMANAGED_TOR }}  ports port eth0 servers server {{ hostvars[item]['hostname'] }} vtf_ip {{ hostvars[item]['tenant_bond'] }}"
+          -  "commit"
+      with_items:
+        -  "{{ groups['neutron_vtf_all'] }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - pause: seconds=60 prompt="Waiting for sometime"
+      when: vts_day0 == true
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+#Adding this Step to cleanup Stale VTF which may register with VTC2.5 as soon as VTSR gets registered.
+#Stale VTF leads to registrtaion issues when VTF is upgraded to 2.5 version.
+    - name: Delete Stale VTF
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "delete cisco-vts vtfs vtf"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+- include: vtf-reg.yaml
+
+- name: Apply VTC day0 config Part2
+  hosts: vtc
+  gather_facts: no
+  vars:
+    ADMIN_DOMAIN_GROUP: "{{ VTS_PARAMETERS.ADMIN_DOMAIN_GROUP | default('NFVI') }}"
+    vts_day0: "{{VTS_PARAMETERS.VTS_DAY0 | default (false)}}"
+    # BGP_ASN value on XRVRs. It is also default for all switches if not specified.
+    BGP_ASN: "{{ VTS_PARAMETERS.BGP_ASN | default(23) }}"
+    # Default loopback interface for all XRVRs and switches
+    LOOPBACK_IF_NUM: 0
+    # Appeared on the Host Inventory page
+    VMTP_NODE_NAME: "vmtp"
+    VMM_ID: "{{ VTS_PARAMETERS.VTS_VMM_ID | default('237CB330-1381-4D9D-9A11-233D10245E55') }}"
+    UNMANAGED_TOR: "unmanaged"
+  tasks:
+    - pause: seconds=60 prompt="Waiting for sometime"
+      when: vts_day0 == true
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+    - name: Set admin-domain parameters
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 policy-parameters distribution-mode decentralized-l2"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 policy-parameters control-plane-protocol bgp-evpn"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 policy-parameters arp-suppression"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 policy-parameters packet-replication ingress-replication"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l3-gateway-groups l3-gateway-group L3GW-0 policy-parameters distribution-mode decentralized-l3"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l3-gateway-groups l3-gateway-group L3GW-0 policy-parameters control-plane-protocol bgp-evpn"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l3-gateway-groups l3-gateway-group L3GW-0 policy-parameters arp-suppression"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l3-gateway-groups l3-gateway-group L3GW-0 policy-parameters packet-replication ingress-replication"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 ad-l3-gw-parent L3GW-0"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Get XRVR devices names
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        check_output: no
+        command: "show devices device-module cisco-vtsr devices"
+      register: vtc_devices
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+    - set_fact:
+        vtc_xrvr_devices: "{{ item | regex_replace('^devices \\[ (?P<device>.+) \\]$', '\\g<device>') }}"
+      when: "{{ vts_day0 == true }}"
+      with_items: "{{ vtc_devices.stdout_lines }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - set_fact:
+        vtc_xrvr_devices: "{{ vtc_xrvr_devices.split(' ') }}"
+      when: "{{ vts_day0 == true }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Set XRVR parameters
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "set devices device {{ item }} vtsr-extension:device-info device-use leaf"
+          - "set devices device {{ item }} vtsr-extension:device-info bgp-peering-info bgp-asn {{ BGP_ASN }}"
+          - "set devices device {{ item }} vtsr-extension:device-info bgp-peering-info loopback-if-num {{ VTS_PARAMETERS.XRVR_LOOPBACK_IF_NUM | default(LOOPBACK_IF_NUM) }}"
+          - "set devices device {{ item }} state admin-state southbound-locked"
+          - "commit"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l2-gateway-groups l2-gateway-group L2GW-0 devices device {{ item }}"
+          - "set cisco-vts infra-policy admin-domains admin-domain {{ ADMIN_DOMAIN_GROUP }} l3-gateway-groups l3-gateway-group L3GW-0 devices device {{ item }}"
+          - "set cisco-vts global-settings global-route-reflectors global-route-reflector {{ item }}"
+          - "commit"
+      with_items: "{{ vtc_xrvr_devices }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+- name: Update Network,SUBNET,PORT
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Network Update.
+      shell: bash -c "{{ install_dir }}/tools/net-update.sh"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+    - name: Subnet Update.
+      shell: bash -c "{{ install_dir }}/tools/subnet-update.sh"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+    - name: Port Update.
+      shell: bash -c "{{ install_dir }}/tools/port-update.sh"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+
+- name: Apply VTC day0 config
+  hosts: vtc
+  gather_facts: no
+  vars:
+   vts_day0: "{{VTS_PARAMETERS.VTS_DAY0 | default (false)}}"
+  tasks:
+    - name: Unlock the device
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "config"
+          - "set devices device * state admin-state unlocked"
+          - "commit"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Set XRVR parameters
+      when: vts_day0 == true
+      vtc_ncs_cli:
+        commands:
+          - "configure"
+          - "request devices device {{ item }} sync-to"
+          - "commit"
+      with_items: "{{ vtc_xrvr_devices }}"
+      tags: [ "vts", "neutron-vtf", "neutron-install" ]
+      ignore_errors: yes
+      failed_when: false

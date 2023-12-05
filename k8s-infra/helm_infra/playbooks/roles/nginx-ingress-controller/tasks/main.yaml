@@ -1,0 +1,9 @@
+- include: check-helm.yaml
+- include: nginx-deploy.yaml
+  when: ACTION is undefined
+- include: nginx-update.yaml
+  when: ACTION is defined and ACTION == "update"
+- include: nginx-rollback.yaml
+  with_fileglob: "{{ nginx_helm_upgrade_path }}/nginx-old-version"
+  loop_control: { loop_var: "old_version_file" }
+  when: ACTION is defined and ACTION == "rollback"

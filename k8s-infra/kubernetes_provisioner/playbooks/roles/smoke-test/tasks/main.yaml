@@ -1,0 +1,56 @@
+- name: Wait for all of the nodes to register
+  shell: kubectl get nodes
+  register: result
+  until: result.stdout.find("NotReady") == -1
+  retries: 20
+  delay: 10
+
+- name: Login to cloud-docker
+  shell: docker login cloud-docker.cisco.com:8443 --username=installer --password=B4c0n
+
+- name: Fetch K8S Infra images from registry
+  shell: docker pull cloud-docker.cisco.com:8443/{{ item }}
+  with_items:
+    - "nginx:latest"
+
+- name: Retag Fetched Docker Images
+  shell: docker tag cloud-docker.cisco.com:8443/{{ item }} {{ item }}
+  with_items:
+    - "nginx:latest"
+
+- name: Remove fetched images
+  shell: docker rmi cloud-docker.cisco.com:8443/{{ item }}
+  with_items:
+    - "nginx:latest"
+
+- name: Copy smoke test manifest
+  template:
+    src: nginx.yml.j2
+    dest: "/tmp/nginx.yml"
+    mode: 0644
+
+- name: Deploy smoke test manifest
+  shell: kubectl apply -f /tmp/nginx.yml
+
+- name: Wait for smoke test app to be ready
+  shell: kubectl get po | grep nginx
+  register: result
+  until: result.stdout.find("Running") != -1
+  retries: 20
+  delay: 10
+
+- name: Pausing for 1 minute
+  pause:
+    minutes: 1
+
+- name: Access smoke test app
+  shell: "curl http://{{ item }}:{{ smoke_test_node_port }}"
+  register: result
+  until: result.stdout.find("nginx") != -1
+  with_items: "{{ groups['all-workers'] }}"
+
+- name: Get kubernetes no, po, svc
+  shell: kubectl get no,po,svc --all-namespaces
+  register: rslt
+
+- debug: var=rslt.stdout_lines

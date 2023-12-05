@@ -1,0 +1,5 @@
+- hosts: all-masters[0]
+  become: yes
+  roles:
+    - master-post-tasks
+    - helm

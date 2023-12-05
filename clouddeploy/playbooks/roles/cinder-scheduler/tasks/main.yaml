@@ -1,0 +1,12 @@
+- include: deploy.yaml
+  when: ACTION is undefined and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+- include: update.yaml
+  when: ACTION is defined and ACTION == "update" and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+- include: commit.yaml
+  when: ACTION is defined and ACTION == "commit" and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+- include: rollback.yaml
+  when: ACTION is defined and ACTION == "rollback" and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+- include: upgrade.yaml
+  when: ACTION is defined and ACTION == "upgrade" and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])
+- include: reconfigure.yaml
+  when: ACTION is defined and ACTION == "reconfigure" and (PODTYPE is undefined or PODTYPE is defined and PODTYPE not in ["edge", "nano"])

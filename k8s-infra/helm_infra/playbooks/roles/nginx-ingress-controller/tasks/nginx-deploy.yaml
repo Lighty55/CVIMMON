@@ -1,0 +1,62 @@
+---
+- name: "Render Nginx Helm Values File | Helm Values File"
+  become: true
+  template: { src: "nginx-values.yaml", dest: "{{ directory_matched.stdout }}/{{ helm_app_directory }}/values.yaml" }
+
+- name: "nginx: copy the file in upgrade path"
+  become: true
+  template: { src: "nginx-values.yaml", dest: "{{ nginx_helm_upgrade_path }}/nginx-values.yaml" }
+
+- name: Install Nginx Ingress_Controller with Helm.
+  command: >
+    /usr/bin/helm install --name "{{ nginx_deployment_name }}" --set controller.publishService.enabled=true,controller.reportNodeInternalIp=true --namespace "{{ nginx_namespace }}" "{{ directory_matched.stdout }}"/"{{ helm_app_directory }}"
+  when: "'nginx' not in helm_list_results.stdout and DHCP_MODE == 'v6'"
+
+
+- name: Install Nginx Ingress_Controller with Helm.
+  command: >
+    /usr/bin/helm install --name "{{ nginx_deployment_name }}" --namespace "{{ nginx_namespace }}" "{{ directory_matched.stdout }}"/"{{ helm_app_directory }}"
+  when: "'nginx' not in helm_list_results.stdout and DHCP_MODE != 'v6'"
+
+
+- name: Check Rollout Status of Nginx Backend Deployment
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s deployment "{{ nginx_default_backend_deployment }}"
+
+- name: Check Rollout Status of Nginx Daemonsets
+  command: kubectl -n "{{ nginx_namespace }}" rollout status --timeout=600s daemonset {{ nginx_ingress_controller_daemonset }} -n {{ nginx_namespace }}
+
+- name: Ensure nginx-ingress daemonsets have started
+  shell: |
+    # Loop until the daemonset exists
+    until kubectl -n "{{ nginx_namespace }}" get daemonset {{ item }}
+    do
+      sleep 1
+    done
+  with_items:
+    - "{{ nginx_ingress_controller_daemonset }}"
+
+- name: "Ensure if Nginx Daemonset Rolled out Properly."
+  register: "daemonset_state"
+  command: "kubectl get daemonset {{ nginx_ingress_controller_daemonset }} --output=json --ignore-not-found=true --namespace={{ nginx_namespace }}"
+  changed_when: false
+  vars:
+    daemonset_state: { stdout: "{}" }
+    ready: "{{ daemonset_state.stdout|from_json|json_query(\"status.numberReady\") }}"
+    desired: "{{ daemonset_state.stdout|from_json|json_query(\"status.desiredNumberScheduled\") }}"
+  until: "ready >= 3"
+  retries: 10
+  delay: 5
+
+- name: "Ensure Nginx Default Backend Deployment and pods are up and running."
+  changed_when: false
+  register: "nginx_state"
+  vars:
+    nginx_state: { stdout: "{}" }
+    pods_query: "items[?kind=='Pod'].status.conditions|[0][?type=='Ready'].status|[0]"
+    deployments_query: "items[?kind=='Deployment'].status.conditions|[0][?type=='Available'].status|[0]"
+  command: "kubectl get deployments,pods --selector=app=nginx-ingress --output=json --namespace={{ nginx_namespace }}"
+  until:
+      - "nginx_state.stdout|from_json|json_query(pods_query) == 'True'"
+      - "nginx_state.stdout|from_json|json_query(deployments_query) == 'True'"
+  retries: 10
+  delay: 5

@@ -1,0 +1,5 @@
+NEUTRON_NODE_ADDRESS: "{{ control_bond }}"
+NEUTRON_PRIMARY_NODE: "{{ groups['neutron_server_mgmt_ip'][0] }}"
+NEUTRON_HOST: "{{ control_bond }}"
+API_BIND_PORT: 9696
+NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG:

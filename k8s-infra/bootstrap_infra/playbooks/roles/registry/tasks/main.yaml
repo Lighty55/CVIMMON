@@ -1,0 +1,4 @@
+- include: registry_start.yaml
+  when: ACTION is undefined
+- include: registry_populate.yaml
+  when: ACTION is undefined or (ACTION is defined and ACTION == 'update') or (ACTION is defined and ACTION == "upgrade")

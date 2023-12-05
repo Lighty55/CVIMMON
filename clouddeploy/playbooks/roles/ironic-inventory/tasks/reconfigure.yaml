@@ -1,0 +1,3 @@
+- include: configure-switches.yaml
+  when: "{{ IRONIC_INVENTORY is defined and IRONIC_INVENTORY | json_query('SERVERS.*.portgroups') }}"
+- include: ironic_inventory_populate.yaml

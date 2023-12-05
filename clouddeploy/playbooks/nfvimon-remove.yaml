@@ -1,0 +1,34 @@
+- name: NFVIMON removal
+  hosts: host_power_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nfvimon", tags: [ "remove-nfvimon" ] }
+
+- name: Ceilometer central removal
+  hosts: ceilometer_central_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-central", tags: [ "remove-nfvimon" ] }
+  serial: "30%"
+
+- name: Ceilometer notification removal
+  hosts: ceilometer_notification_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-notification", tags: [ "remove-nfvimon" ] }
+  serial: "30%"
+
+- name: Ceilometer compute removal
+  hosts: ceilometer_compute_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ceilometer-compute", tags: [ "remove-nfvimon" ] }
+  serial: "30%"

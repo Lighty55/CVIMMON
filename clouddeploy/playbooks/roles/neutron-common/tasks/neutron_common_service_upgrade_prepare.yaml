@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old neutron common containers
+####################################################
+# Neutron Common.
+- name: Shut off neutron common docker service
+  service:
+    name: docker-neutroncommon
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove neutroncommon service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutroncommon.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_common_{{ NEUTRON_COMMON_PREVIOUS_TAG }}" }
+
+- name: Remove neutron common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NEUTRON_COMMON_PREVIOUS_NAME }}"
+    tag: "{{ NEUTRON_COMMON_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Neutron common Directory
+  file:
+    path: "{{ docker.neutron_common.host_data_dir }}"
+    state: absent

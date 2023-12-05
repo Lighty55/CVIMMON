@@ -1,0 +1,45 @@
+- set_fact:
+    ETCD_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ETCD_ROOT_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: "Reset result and set default status_code"
+  set_fact:
+    result: {'status': -1}
+    expected_status_code: "{{ status_code | default([200, 201]) }}"
+
+# The REST requests will go to all etcd servers sequentially. Whichever the
+# first returns the expected status code, the loop will break. The following
+# checks will fail if all etcd servers returned unexpected status_code.
+- name: "{{ name if name is defined else 'uri'}}"
+  uri:
+    url: "{{ INTERNAL_PROTOCOL }}://{{ cur_server }}:{{ ETCD_LISTEN_PORT }}/v2/{{ url }}"
+    method: "{{ method | default('PUT') }}"
+    body: "{{ body | default('') }}"
+    force_basic_auth: "yes"
+    user: "{{ user | default('root') }}"
+    password: "{{ password | default(ETCD_ROOT_PASSWORD) }}"
+    return_content: "{{ return_content | default('no') }}"
+    status_code: "{{ expected_status_code | join(',') }}"
+    body_format: json
+    follow_redirects: all
+  with_items: "{{ groups['etcd_all'] }}"
+  loop_control:
+    loop_var: cur_server
+  register: result
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: result.status not in expected_status_code
+  failed_when: False
+
+# Get a list of status for each request
+- name: "Get all status"
+  set_fact:
+    all_status:
+      "{{ result.results|selectattr('status', 'defined')|map(attribute='status')|list }}"
+
+# Failed only if all servers are returning unexpected status_code
+- name: "Check result to see if requests failed on all servers"
+  fail:
+    msg: "Requests failed on all servers, cluster seems to be in unhealthy state."
+  when: "{{ all_status|unique|intersect(expected_status_code)|length == 0 }}"

@@ -1,0 +1,148 @@
+- name: Gathering facts from all hosts
+  hosts: host_all
+  tasks: [ ]
+
+# Galera has to be in good shape before an update operation
+# So go ahead and ensure that is the case
+# Renable galera backend
+- hosts: mariadb_all
+  tasks:
+  - name: Renable galera backend in haproxy
+    file:
+      path: "/var/tmp/clustercheck.disabled"
+      state: absent
+  tags:
+    - galera_update
+    - mariadb-app
+
+- name: galera cluster failure recovery
+  hosts: mariadb_all
+  user: "{{ remote_user }}"
+  max_fail_percentage: 0
+  roles:
+    - { role: "galera_recovery", tags: ["galera_update", "mariadb-app"] }
+
+# Disable galera backend in haproxy
+- hosts: mariadb_all
+  tasks:
+  - name: Disable galera backend in haproxy
+    file:
+      path: "/var/tmp/clustercheck.disabled"
+      state: touch
+    tags:
+      - galera_update
+      - mariadb-app
+
+# Make sure that internal vip is non responsive
+- hosts: mariadb_all
+  tasks:
+  - set_fact:
+      DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+    token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+    when: VAULT is defined and VAULT.enabled == True
+
+  - name: Check cluster status
+    shell: mysql -h {{ internal_lb_vip_address }} -uroot -p{{ DB_ROOT_PASSWORD }} -e "SHOW STATUS LIKE 'wsrep_cluster_size'"
+    no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+    ignore_errors: True
+    failed_when: False
+    register: cluster_status
+    until: cluster_status.stderr | search("Lost connection to MySQL server")
+    retries: 30
+    delay: 6
+    tags:
+      - mariadb-app
+      - galera_update
+
+- name: Pause for sometime for mariadb pending transactions to sync.
+  hosts: mariadb_all
+  tasks:
+    - pause: seconds=60 prompt="Waiting for sometime for in-transit transactions"
+  tags:
+    - galera_update
+    - mariadb-app
+
+# Shut down in reverse order of bring up
+- hosts: mariadb_all
+  tasks:
+  - stat: path=/docker/mariadb_{{ MARIADB_PREVIOUS_TAG }}
+    register: dir_check
+    when: ACTION is defined and ACTION == "rollback"
+
+  - name: set fact for mariadb reverse host list
+    set_fact:
+      galera_list: "[{% for host in groups['mariadb_mgmt_ip'] | reverse %}'{{ host }}',{% endfor %}]"
+    run_once: True
+    when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "rollback" and dir_check is defined and dir_check.stat.exists)
+
+  - name: Shut off mariadb docker service
+    service:
+      name: docker-mariadb
+      enabled: no
+      state: stopped
+    ignore_errors: True
+    failed_when: false
+    delegate_to: "{{ item }}"
+    with_items: "{{ galera_list | default([]) }}"
+    run_once: True
+    when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "rollback" and dir_check is defined and dir_check.stat.exists)
+
+  - name: Remove the grastate.dat file so we dont get into a case of higher transaction id
+    file:
+      path: "/var/lib/docker/volumes/mariadbdata/_data/grastate.dat"
+      state: absent
+    when: (ACTION is defined and ACTION == "update") or (ACTION is defined and ACTION == "rollback" and dir_check is defined and dir_check.stat.exists)
+  tags:
+    - galera_update
+    - mariadb-app
+
+- name: Install and Start Galera-MariaDB Containarized service.
+  hosts: mariadb_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  roles:
+    - { role: "galera", tags: [ "galera_update", "mariadb-app" ] }
+  serial: "30%"
+
+# Bring back the galera backend
+- hosts: mariadb_all
+  tasks:
+  - name: Bring galera backend into service
+    file:
+      path: "/var/tmp/clustercheck.disabled"
+      state: absent
+    tags:
+      - galera_update
+      - mariadb-app
+      - rollback
+
+# Perform the xinetd check
+- hosts: mariadb_all
+  tasks:
+  - include: roles/galera/tasks/galera_service_clustercheck.yaml
+
+- hosts: mariadb_all
+  tasks:
+  - set_fact:
+      DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/DB_ROOT_PASSWORD:data
+    token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+    no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+    when: VAULT is defined and VAULT.enabled == True
+    tags:
+      - mariadb-app
+      - galera_update
+      - rollback
+
+  - name: Check cluster size
+    shell: mysql -h {{ internal_lb_vip_address }} -uroot -p{{ DB_ROOT_PASSWORD }} -e "SHOW STATUS LIKE 'wsrep_cluster_size'" | grep wsrep_cluster_size | sed -e 's/wsrep_cluster_size\t//'
+    no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+    register: cluster_size
+    until: cluster_size.stdout == "{{ groups['mariadb_mgmt_ip'] | length }}"
+    retries: 30
+    delay: 6
+    tags:
+      - mariadb-app
+      - galera_update
+      - rollback

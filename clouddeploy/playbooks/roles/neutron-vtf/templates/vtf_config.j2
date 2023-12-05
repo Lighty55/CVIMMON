@@ -1,0 +1,36 @@
+tenant_cidr: "{{ tenant_cidr }}"
+tenant_if: "{{ tenant_if }}"
+prov_if: "{{ prov_if }}"
+VTS_ADDRESS: {{ VTS_PARAMETERS.VTS_NCS_IP }}
+VTS_REGISTRATION_API: "https://{{ VTS_PARAMETERS.VTS_NCS_IP }}:8888/api/running/vts-service/sites/site/{{ VTS_PARAMETERS.VTS_SITE_UUID }}/cisco-vts/vtfs/vtf"
+VTS_USERNAME: {{ VTS_PARAMETERS.VTS_USERNAME }}
+VTS_PASSWORD: {{ VTS_PARAMETERS | vts_encrypt }}
+VTS_VMM_ID: "{{ VTS_PARAMETERS.VTS_VMM_ID | default('237CB330-1381-4D9D-9A11-233D10245E55') }}"
+VTSR_IP_ADDRESS_LIST: "{{ VTS_XRNC_TENANT_IPS | join(",") }}"
+NETWORK_IP_ADDRESS: {{ LOCAL_IP }}
+NETWORK_IP_GATEWAY: {{ tenant_gw }}
+{% set underlay = [LOCAL_IP,tenant_cidr] | join("/") %}
+NETWORK_IP_NETMASK: {{ underlay | ipaddr('netmask') }}
+VTS_TEN_NET: {{ vts_tenant_network }}
+USERNAME: {{ VTS_PARAMETERS.VTS_USERNAME }}
+COMPUTE_HOST_NAME: {{ ansible_nodename }}
+PASSWORD_HASH: "NOT_REALLY_USED"
+UNDERLAY_IF_NAME: "bond0"
+BOND_IF_LIST: "{{ tenant_if_slave0 }} {{ tenant_if_slave1 }}"
+ENABLE_JUMBO_FRAMES: "{{ ENABLE_JUMBO_FRAMES | default(False) }}"
+MAX_MTU_SIZE: "{{ MAX_MTU_SIZE }}"
+HEADERS_FOR_VPP: "{{ HEADERS_FOR_VPP }}"
+{% if "control" in server_role %}
+VIF_TYPE: "tap"
+{% else %}
+VIF_TYPE: "vhostuser"
+{% endif %}
+USE_INTEL: "{{ use_intel }}"
+VTS_TENANT_VLAN: {{ vts_tenant_vlan }}
+IS_NFV_HOST: "{{ is_nfv_host }}"
+HOSTCPUS: "{{ hostcpus }}"
+{% if is_nfv_host == true %}
+VPPCPUS: "{{ vswitchcpus }}"
+RES_HP_2M: "{{ res_hp_2m }}"
+RES_HP_1G: "{{ res_hp_1g }}"
+{% endif %}

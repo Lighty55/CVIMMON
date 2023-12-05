@@ -1,0 +1,46 @@
+- name: Common Update Tasks
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "update", tags: ["update", "mgmt_setup"] }
+
+- name:  Bootstrap iptables tasks.
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "iptables", tags: ["iptables", "mgmt_setup"] }
+
+- name: Local registry tasks.
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "registry", tags: ["registry", "mgmt_setup"] }
+
+- name: Set Alias for Management Node Containers
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "set_aliases", tags: ["set_aliases", "mgmt_setup"] }
+
+- name: Repo Containers Update
+  hosts: ::1
+  connection: local
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "cobbler", tags: ["cobbler", "mgmt_setup"] }
+
+- name: Update Packages in the servers
+  hosts: all-servers{{server|default('')}}
+  max_fail_percentage: 0
+  become: yes
+  roles:
+    - { role: "update-packages", tags: ["sync-repofiles", "common_setup"] }

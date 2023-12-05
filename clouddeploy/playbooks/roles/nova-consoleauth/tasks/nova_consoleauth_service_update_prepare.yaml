@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova consoleauth Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}
+
+# Backup the nova config
+- name: backup the nova config
+  command: cp /docker/nova_consoleauth/nova_config /docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}/nova_config
+
+# Backup the systemd file
+- name: back up the nova consoleauth systemd file
+  command: cp /usr/lib/systemd/system/docker-novaconsoleauth.service /docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}/docker-novaconsoleauth.service
+
+#####################################################
+# Shut down the old nova consoleauth containers
+####################################################
+# Nova consoleauth.
+- name: Shut off nova console auth docker service
+  service:
+    name: docker-novaconsoleauth
+    enabled: no
+    state: stopped
+
+- name: Remove nova-consoleauth service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaconsoleauth.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove nova console auth volume contents
+- name: List nova console auth volume contents
+  shell: ls -A1 /docker/nova_consoleauth/
+  register: contents
+
+- name: Remove nova console auth volume contents
+  file:
+    path: /docker/nova_consoleauth/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

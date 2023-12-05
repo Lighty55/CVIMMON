@@ -1,0 +1,72 @@
+---
+#Global Prometheus TIme Intervals
+## How frequently to scrape targets by default
+prometheus_scrape_interval: 30s
+## How long until a scrape request times out
+prometheus_scrape_timeout: 10s
+## How frequently to evaluate rules
+prometheus_evaluation_interval: 15s
+
+#Helm Directory Information
+helm_parent_directory: "application-charts"
+prometheus_app_directory: "prometheus"
+prometheus_deployment_name: "prometheus-cvimmon-monitor"
+prometheus_namespace: "cvimmon-monitor"
+conf_bin_path: "/opt/cisco/cvimmon-k8s"
+prometheus_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor"
+prometheus_helm_upgrade_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/prometheus"
+prometheus_metro_values_path: "/opt/cisco/cvimmon-k8s/k8s-cluster-monitor/prometheus/prometheus-values.yaml"
+
+#Prometheus AlertManager Image Tag
+prometheus_alertmanager_image: "prom/alertmanager"
+prometheus_alertmanager_tag: "v0.15.3"
+
+#Prometheus Alertmanager Ingress
+ingress_class_alertmanager: "nginx"
+ingress_cert_alertmanager: "cvimmon-monitor/cvimmon-alertmgr-cert"
+ingress_secret_alertmanager: "cvimmon-alertmgr-cert"
+ingress_authsecret_alertmanager: "prometheus-auth-k8s"
+ingress_host_alertmanager: "{{ CLUSTER_NAME }}-cvimmon-alertmanager.{{ cvimmon_domain_suffix }}"
+
+#Prometheus Server Ingress
+ingress_class_server: "nginx"
+ingress_cert_server: "cvimmon-monitor/cvimmon-prometheus-cert"
+ingress_secret_server: "cvimmon-prometheus-cert"
+ingress_authsecret_server: "prometheus-auth-k8s"
+ingress_host_server: "{{ CLUSTER_NAME }}-cvimmon-prometheus.{{ cvimmon_domain_suffix }}"
+
+#Prometheus Certificates
+stackcert_pemfile: "{{ stack_ca_cert | default('') }}"
+domaincert_pemfile: "{{ cvimmon_domain_ca_cert | default('') }}"
+
+#Access Modes for Alertmanager and Server
+alertmanager_pv_accessmode: ReadWriteMany
+server_pv_accessmode: ReadWriteOnce
+
+#Prometheus Server and Alertmanaget PV Sizes
+alertmanager_pv_size: 50Gi
+server_pv_size: 50Gi
+
+#Prometheus Server and Alertmanager Storage Class
+alertmanager_storage_class: portworx-sc
+server_storage_class: portworx-sc
+
+##Certificate Specific
+validity_days: 365
+bits: 2048
+
+##Temporary Cert File Paths
+cvimmon_key_out_path: /tmp/cvimmon.key
+cvimmon_cert_out_path: /tmp/cvimmon.crt
+cvimmon_alertmgr_cert_out_path: /tmp/cvimmon_alertmgr.crt
+cvimmon_alertmgr_key_out_path: /tmp/cvimmon_alertmgr.key
+
+##Temporary Key File Paths
+efk_key_out_path: /tmp/efk.key
+efk_cert_out_path: /tmp/efk.crt
+
+##Passwords File Path
+password_file_path: /root/openstack-configs/secrets.yaml
+
+# Cluster Monitor Namespace
+clustermon_namespace: "cvimmon-monitor"

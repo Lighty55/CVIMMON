@@ -1,0 +1,55 @@
+- name: Reconfigure Horizon Container Policy
+  hosts: horizon_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "horizon", tags: [ "base" ] }
+
+- name: Reconfigure Cinder API Container Policy
+  hosts: cinder_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "cinder", tags: [ "base" ] }
+
+- name: Reconfigure Nova API Container Policy
+  hosts: nova_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "nova", tags: [ "base" ] }
+
+- name: Reconfigure Glance API Container Policy
+  hosts: glance_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "glance", tags: [ "base" ] }
+
+- name: Reconfigure Keystone Container Policy
+  hosts: keystone_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "keystone", tags: [ "base" ] }
+
+- name: Reconfigure Neutron Server Container Policy
+  hosts: neutron_server_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "neutron", tags: [ "base" ] }
+
+- name: Reconfigure Heat API Container Policy
+  hosts: heat_api_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "policy", service: "heat", tags: [ "base" ] }

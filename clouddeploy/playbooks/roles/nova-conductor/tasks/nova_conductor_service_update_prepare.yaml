@@ -1,0 +1,47 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova conductor Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_conductor_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}
+
+# Back up the nova conductor volume contents
+- name: back up the nova conductor volume contents
+  shell: cp /docker/nova_conductor/* /docker/nova_conductor_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova conductor systemd file
+  command: cp /usr/lib/systemd/system/docker-novacond.service /docker/nova_conductor_{{ NOVA_CONDUCTOR_PREVIOUS_TAG }}/docker-novacond.service
+
+#####################################################
+# Shut down the old nova conductor containers
+####################################################
+# Nova conductor.
+- name: Shut off nova conductor docker service
+  service:
+    name: docker-novacond
+    enabled: no
+    state: stopped
+
+- name: Remove nova-conductor service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacond.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove contents of nova conductor volume
+- name: List contents of nova conductor volume
+  shell: ls -A1 /docker/nova_conductor/
+  register: contents
+
+- name: Remove contents of nova conductor volume
+  file:
+    path: /docker/nova_conductor/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

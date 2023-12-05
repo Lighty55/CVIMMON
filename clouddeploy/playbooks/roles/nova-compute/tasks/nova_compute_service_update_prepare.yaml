@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create nova compute Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}
+
+# Back up the nova compute volume contents
+- name: back up the nova compute volume contents
+  shell: cp /docker/nova_compute/* /docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the nova compute systemd file
+  command: cp /usr/lib/systemd/system/docker-novacpu.service /docker/nova_compute_{{ NOVA_COMPUTE_PREVIOUS_TAG }}/docker-novacpu.service
+
+#####################################################
+# Shut down the old nova compute containers
+####################################################
+# Nova compute.
+- name: Shut off nova compute docker service
+  service:
+    name: docker-novacpu
+    enabled: no
+    state: stopped
+
+- name: Remove nova-compute service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novacpu.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of nova compute volume
+- name: List the contents of nova compute volume
+  shell: ls -A1 /docker/nova_compute/
+  register: contents
+
+- name: Remove the contents of nova compute volume
+  file:
+    path: /docker/nova_compute/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

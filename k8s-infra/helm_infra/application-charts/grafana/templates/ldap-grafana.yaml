@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-ldap
+  labels:
+    app: {{ template "grafana.name" . }}
+    chart: {{ template "grafana.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+{{ (.Files.Glob "ldap/*.toml").AsConfig | indent 2 }}

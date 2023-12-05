@@ -1,0 +1,13 @@
+- name: "{{ metro_name }} Uninstall | check if log-rotate manifest file exists"
+  stat:
+    path: "{{ LOG_ROTATE_STACK_PATH }}/log_rotate_manifest.yaml"
+  register: log_rotate_manifest
+
+- name: "{{ metro_name }} Uninstall | Delete log-rotate components from manifest"
+  shell: kubectl delete -f "{{ LOG_ROTATE_STACK_PATH }}"/log_rotate_manifest.yaml -n "{{ metro_name }}"
+  when: log_rotate_manifest.stat.exists
+
+- name: "{{ metro_name }} Uninstall | Remove staging for log-rotate container"
+  file:
+    path: "{{ LOG_ROTATE_STACK_PATH }}"
+    state: absent

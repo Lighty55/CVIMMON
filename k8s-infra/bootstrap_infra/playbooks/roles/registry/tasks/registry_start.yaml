@@ -1,0 +1,84 @@
+---
+- shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+# Extract either registry internal or public image
+- name: Check registry tarfile exists
+  stat:
+    path: "{{ ARTIFACT_PATH }}/registry-2.6.2-{{ image_tag }}.tar"
+  register: registry_tar
+
+- name: Extract registry image
+  shell: docker load < "{{ ARTIFACT_PATH }}/registry-2.6.2-{{ image_tag }}.tar"
+  when: registry_tar.stat.exists
+
+- name: Check registry internal tarfile exists
+  stat:
+    path: "{{ ARTIFACT_PATH }}/registry-2.6.2-internal-{{ image_tag }}.tar"
+  register: registry_internal_tar
+
+- name: Extract registry image
+  shell: docker load < "{{ ARTIFACT_PATH }}/registry-2.6.2-internal-{{ image_tag }}.tar"
+  when: registry_internal_tar.stat.exists
+
+- name: Check if container_registry is already running
+  shell: docker ps -a | grep Up | grep container_registry | cut -f1 -d " "
+  register: command_result
+
+- name: Start the registry Docker
+  docker_container:
+    name: "container_registry"
+    image: "{{ registry }}/redstone/registry-2.6.2:{{ image_tag }}"
+    privileged: yes
+    interactive: yes
+    timeout: 420
+    network_mode: "host"
+    state: started
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - container_registry:/var/lib/registry:z
+    env:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
+      REGISTRY_HTTP_ADDR: "{{ MGMT_IP.stdout }}:5000"
+  when: command_result.stdout == ""
+
+- name: Wait for registry container to be alive
+  wait_for: host={{ MGMT_IP.stdout }} port=5000
+
+- name: Check if container registry started running
+  shell: docker ps -a | grep Up | grep container_registry | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Container registry does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-container-registry.service",
+        dest: "/usr/lib/systemd/system/docker-container-registry.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - reboot-on-failure
+
+- name: Restart Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-container-registry
+  tags:
+    - reboot-on-failure
+
+- name: Wait for registry container to be alive
+  wait_for: host={{ MGMT_IP.stdout }} port=5000

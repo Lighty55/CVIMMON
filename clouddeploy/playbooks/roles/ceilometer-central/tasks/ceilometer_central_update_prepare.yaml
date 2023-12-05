@@ -1,0 +1,48 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ceilometer central docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}
+
+# Backup the ceilometer central volume
+- name: backup the ceilometer central volume
+  shell: cp /docker/ceilometer_central/* /docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the ceilometer central systemd file
+  command: cp /usr/lib/systemd/system/docker-ceilometercentral.service /docker/ceilometer_central_{{ CEILOMETER_CENTRAL_PREVIOUS_TAG }}/docker-ceilometercentral.service
+
+#####################################################
+# Shut down the old ceilometer central containers
+####################################################
+# ceilometer central.
+- name: Shut off ceilometer central docker service
+  service:
+    name: docker-ceilometercentral
+    enabled: no
+    state: stopped
+
+- name: Remove ceilometer central service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercentral.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now remove the contents of ceilometer central volume
+- name: List the ceilometer central files
+  shell: ls -A1 /docker/ceilometer_central/
+  register: contents
+
+- name: Remove ceilometer central files
+  file:
+    path: /docker/ceilometer_central/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"
+

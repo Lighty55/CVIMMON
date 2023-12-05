@@ -1,0 +1,24 @@
+[Unit]
+Description=MariaDB Docker
+{% if STANDALONE_MODE == "False" %}
+Requires=docker-iptables.service
+Wants=docker-iptables.service docker-haproxy.service
+After=docker-iptables.service docker-haproxy.service
+{% else %}
+Requires=docker.service
+Wants=docker.service
+After=docker.service
+{% endif %}
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a mariadb_{{ docker.mariadb.image_tag }}
+ExecStop=/usr/bin/docker exec mariadb_{{ docker.mariadb.image_tag }} /bin/sh -c '/bin/kill -SIGTERM $(/bin/cat /var/run/mariadb/mariadb.pid)'
+ExecStop=/bin/sh -c 'while [[ -n $(/usr/bin/docker ps | /bin/grep " mariadb_{{ docker.mariadb.image_tag }}$") ]]; do sleep 1; done'
+
+[Install]
+WantedBy=multi-user.target

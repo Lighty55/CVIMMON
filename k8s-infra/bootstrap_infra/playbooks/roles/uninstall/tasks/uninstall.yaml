@@ -1,0 +1,82 @@
+- name: Stop and Remove container_registry and repo_mirror
+  docker_container:
+    name: "{{ item }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - container_registry
+    - "repo_mirror_{{ docker.repo_mirror.image_tag }}"
+
+- name: Remove repo_mirror image
+  docker_image:
+    name: "{{ item.name }}"
+    tag: "{{ item.tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { name: "{{ docker.common.registry }}/{{ docker.repo_mirror.name }}", tag: "{{ docker.repo_mirror.image_tag }}" }
+
+- include_vars: roles/cobbler/vars/main.yaml
+
+- name: Stop and remove http data containers
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ CURRENT_REPO_CONTAINERS | list}}"
+
+- name: Remove http data container images
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ item.name }}"
+    tag: "{{ item.tag }}"
+    force: True
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ CURRENT_REPO_IMAGES | list }}"
+
+- name: Remove docker container registry and cobbler web service service files
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /usr/lib/systemd/system/docker-cobbler-web.service
+    - /usr/lib/systemd/system/docker-container-registry.service
+
+- name: Daemon Reload
+  command: systemctl daemon-reload
+
+- name: Get list of docker volumes
+  shell: docker volume ls -q
+  register: docker_volumes
+
+- name: Remove docker volumes
+  shell: docker volume rm {{ item }}
+  with_items: "{{ docker_volumes.stdout_lines }}"
+  when: docker_volumes is defined and docker_volumes.stdout_lines != []
+  ignore_errors: True
+
+- name: Clean yum cache
+  shell: yum clean all
+  register: version
+  ignore_errors: yes
+  failed_when: false
+
+- name: Revert httpd YUM update changes
+  lineinfile:
+    dest: /etc/yum.conf
+    regexp: '^exclude='
+    state: absent
+
+- name: Remove yum repo files
+  file: path=/etc/yum.repos.d/*.repo state=absent
+
+- name: Cleanup cvimmonha log directories
+  file:
+    path: /var/log/cvimmonha
+    state: absent
+
+- name: Cleanup calipso config directory
+  file:
+    path: /var/lib/calipso
+    state: absent

@@ -1,0 +1,221 @@
+# This playbook is called as part of the replace-controller operation
+# to prevent cluster disruption of infra services such as
+# rabbitmq by attempting graceful shutdown of all services
+
+- name: Discover and shutdown services except rabbitmq
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  gather_facts: False
+  tasks:
+    - name: Discover all services except rabbitmq
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item }} systemctl list-unit-files | awk '! (match($1,/^docker-storage-setup.service$/) || match($1,/^docker-iptables.service$/) || match($1,/^docker-rabbitmq.service$/)) && match($1,/^docker-.*?\.service$/) && match($2,/enabled/) {print $1}'
+      ignore_errors: yes
+      register: results
+      failed_when: results and results.rc != 255 and results.rc != 0
+      with_items: "{{ replace_controller_ip }}"
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+    - set_fact:
+        all_services: "{{ results }}"
+      run_once: true
+      when: results is defined
+
+    - name: Shutdown and disable all services
+      local_action: shell ssh -o StrictHostKeyChecking=no root@{{ item.1 }} "systemctl disable {{ item.0 }}; systemctl stop {{ item.0 }}"
+      with_nested:
+        - "{{ all_services.results[0].stdout_lines }}"
+        - "{{ replace_controller_ip }}"
+      ignore_errors: yes
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: all_services is defined
+
+
+# This part of the playbook is called to prevent cluster
+# disruption of infra services such as rabbitmq.
+- name: Stop rabbit app and take it out of cluster locally
+  hosts:  "{{ replace_controller_ip }}"
+  gather_facts: False
+  tasks:
+    - name: Check if host is reachable
+      local_action: shell ssh -o StrictHostKeyChecking=no {{ replace_controller_ip }} "echo success"
+      register: reachable
+      ignore_errors: yes
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      failed_when: reachable and reachable.rc != 255 and reachable.rc != 0
+
+    - name: Determine current rabbitmq container
+      shell: systemctl cat docker-rabbitmq | awk '/ExecStart=.*docker.* start / {print $NF}' | awk -F '_' '{print $NF}'
+      register: cur_rabbitmq
+      when: reachable.stdout=="success"
+      ignore_errors: yes
+      failed_when: False
+
+    - name: Stop the rabbit app
+      shell: docker exec rabbitmq_{{ cur_rabbitmq.stdout }} rabbitmqctl stop_app
+      when: reachable.stdout=="success"
+      ignore_errors: yes
+      failed_when: False
+
+    - name: Reset rabbit node
+      shell: docker exec rabbitmq_{{ cur_rabbitmq.stdout }} rabbitmqctl reset
+      when: reachable.stdout=="success"
+      ignore_errors: yes
+      failed_when: False
+
+    - name: Stop and disable docker-rabbitmq.service
+      service:
+        name: docker-rabbitmq
+        state: stopped
+        enabled: no
+      failed_when: false
+      when: reachable.stdout=="success"
+      ignore_errors: yes
+
+    - name: Wait for services to stop
+      wait_for:
+        host: "{{ inventory_hostname }}"
+        port: "{{ RABBITMQ_PORT }}"
+        delay: 10
+        state: stopped
+        timeout: 120
+      when: reachable.stdout=="success"
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      ignore_errors: yes
+
+    # Remove the mnesia file
+    - name: Remove rabbitmq mnesia file
+      file:
+        path: "/var/lib/docker/volumes/rabbitmq/_data/mnesia"
+        state: absent
+      failed_when: false
+      when: reachable.stdout=="success"
+      ignore_errors: yes
+
+- name: Create the remainder rabbit node group
+  hosts: rabbitmq_mgmt_ip
+  gather_facts: false
+  tasks:
+    - name: Create group for remainder rabbit nodes
+      add_host:
+        hostname: "{{ item }}"
+        groupname: remainder_rabbitmq
+      with_items: "{{ groups['rabbitmq_mgmt_ip'] }}"
+      when:  item != replace_controller_ip
+
+- name: Ensure node is removed from cluster or remove remotely
+  hosts: remainder_rabbitmq
+  tasks:
+
+    - name: Get current rabbitmq container
+      shell: systemctl cat docker-rabbitmq | awk '/ExecStart=.*docker.* start / {print $NF}' | awk -F '_' '{print $NF}'
+      register: cur_rabbitmq
+      ignore_errors: yes
+      failed_when: False
+
+    - set_fact:
+        removed_node: "rabbit@{{ replace_controller_host }}"
+
+    - set_fact:
+        RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    - name: Query rabbitmq nodes status
+      script: /usr/bin/python ../../tools/rabbit_api.py --hostname {{ RABBITMQ_SERVICE_HOST | ipwrap }} --username {{ RABBITMQ_USER }} --password {{ RABBITMQ_PASSWORD }}
+      register: rabbitmq_status
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      retries: 3
+      delay: 10
+      until: rabbitmq_status.rc == 0 and 'OVERALL RESULT:' in rabbitmq_status.stdout
+      delegate_to: localhost
+
+    - name: Remove node remotely if node still in cluster
+      shell: docker exec rabbitmq_{{ cur_rabbitmq.stdout }} rabbitmqctl forget_cluster_node {{ removed_node }}
+      when: rabbitmq_status.stdout is defined and removed_node in rabbitmq_status.stdout
+      ignore_errors: yes
+      run_once: True
+      failed_when: False
+
+- name: Stop neutron dhcp agents on controller node
+  hosts:  "{{ replace_controller_ip }}"
+  gather_facts: False
+  tasks:
+    - name: Check if host is reachable
+      local_action: shell ssh -o StrictHostKeyChecking=no {{ replace_controller_ip }} "echo success"
+      register: reachable
+      ignore_errors: yes
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      failed_when: reachable and reachable.rc != 255 and reachable.rc != 0
+    - name: Stop and disable docker-neutrondhcp.service
+      service:
+        name: docker-neutrondhcp
+        state: stopped
+        enabled: no
+      failed_when: false
+      ignore_errors: yes
+      when: reachable.stdout=="success"
+
+- name: Remove all bound ports on the controller node
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Remove all bound ports on the controller node
+      command: bash -c "python {{ install_dir }}/tools/clean_dhcp_ports_on_host.py {{ replace_controller_host }}"
+      ignore_errors: yes
+      failed_when: False
+
+- name: Remove vtf from vtc on the management node
+  hosts: localhost
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: call script
+      command: bash -c "python {{ install_dir }}/tools/vtc_remove_vtf_from_inventory.py {{ item }}"
+      register: results
+      delay: 6
+      retries: 10
+      until: results.rc == 0
+      environment:
+        INSTALL_DIR: "{{ install_dir }}"
+        VTC_IP: "{{ VTS_PARAMETERS.VTS_NCS_IP }}"
+        VTC_USERNAME: "{{ VTS_PARAMETERS.VTS_USERNAME }}"
+        VTC_PASSWORD: "{{ VTS_PARAMETERS.VTS_PASSWORD }}"
+        VTS_SITE_UUID: "{{ VTS_PARAMETERS.VTS_SITE_UUID }}"
+      with_items: "{{ replace_controller_host }}"
+      ignore_errors: yes
+      failed_when: False
+      when: MECHANISM_DRIVERS == "vts"
+
+- name: Now delete all queues associated with this node
+  hosts: remainder_rabbitmq[0]
+  tasks:
+    - set_fact:
+       RABBITMQ_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/RABBITMQ_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    # First fetch the rabbitmqadmin tool
+    - name: Get the rabbitmq admin tool v6 POD
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "curl -g 6 -u guest:{{ RABBITMQ_PASSWORD }} -S http://{{ ansible_host | ipwrap }}:15672/cli/rabbitmqadmin > /opt/kolla/rabbitmqadmin"
+      when: hostvars[inventory_hostname]['management_ipv6'] is defined
+
+    - name: Get the rabbitmq admin tool v4 POD
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "curl -u guest:{{ RABBITMQ_PASSWORD }} -S http://{{ ansible_host | ipwrap }}:15672/cli/rabbitmqadmin > /opt/kolla/rabbitmqadmin"
+      when: hostvars[inventory_hostname]['management_ipv6'] is not defined
+
+    # Now change the permission of the tool
+    - name: Change permission of tool
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /bin/sh -c "chmod +x /opt/kolla/rabbitmqadmin"
+
+    # Now delete all queues for controller node in question
+    - name: Delete the queues for this controller node
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} rabbitmqctl list_queues | awk '{print $1}' | grep '.*{{ item }}$' | xargs -I % docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} /opt/kolla/rabbitmqadmin --username=guest --password={{ RABBITMQ_PASSWORD}} -H {{ ansible_host }} delete queue name=%
+      with_items: "{{ replace_controller_host }}"
+
+    # Now remove the rabbitmqadmin binary
+    - name: Remove the rabbitmqadmin binary
+      shell: docker exec rabbitmq_{{ docker.rabbitmq.image_tag }} rm -rf /opt/kolla/rabbitmqadmin

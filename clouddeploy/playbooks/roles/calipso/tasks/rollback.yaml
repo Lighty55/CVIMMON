@@ -1,0 +1,9 @@
+# Execute the rollback playbook only if the pre-install stage of update began
+- include_vars: "{{ playbook_dir }}/../../openstack-configs/update.yaml"
+
+- name: Rollback | Check if there is a previous calipso version
+  stat: path=/opt/cisco/update/calipso_mongo_{{ CALIPSO_MONGO_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback-start.yaml
+  when: dir_check.stat.exists and host_control

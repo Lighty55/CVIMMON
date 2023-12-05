@@ -1,0 +1,70 @@
+- name: Check if Magnum Conductor is already running
+  shell: docker ps -a | grep Up | grep magnumconductor_{{ docker.magnum_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias magnumconductor='in_container magnumconductor_"
+    line: "{{ item }}"
+  with_items:
+    - alias magnumconductor='in_container magnumconductor_{{ docker.magnum_conductor.image_tag }}'
+
+- name: Start the Magnum Conductor Docker Container
+  docker_container:
+    name: "magnumconductor_{{ docker.magnum_conductor.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}:{{ docker.magnum_conductor.image_tag }}"
+    volumes:
+      - "{{ docker.magnum_conductor.host_data_dir }}:{{ docker.magnum_conductor.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is undefined) or (command_result.stdout == "" and ACTION is defined and ACTION == "update" and file_status.rc == 0) or (command_result.stdout == "" and ACTION is defined and ACTION == "upgrade")
+
+- name: Start the Magnum Conductor Docker Container
+  docker_container:
+    name: "magnumconductor_{{ docker.magnum_conductor.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.magnum_conductor.name }}:{{ docker.magnum_conductor.image_tag }}"
+    volumes:
+      - "{{ docker.magnum_conductor.host_data_dir }}:{{ docker.magnum_conductor.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    privileged: yes
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: (command_result.stdout == "" and ACTION is defined and ACTION == "update" and file_status.rc!=0)
+
+- name: Wait for Magnum Conductor to be alive
+  wait_for: host={{ MAGNUM_HOST }} port={{ MAGNUM_API_PORT }}
+
+- name: Check if Magnum Conductor Agent Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumconductor_{{ docker.magnum_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Try starting the container again in case it has failed.
+  command: docker start magnumconductor_{{ docker.magnum_conductor.image_tag }}
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime to validate container status"
+  when: command_result.stdout == ""
+
+- name: Check if Magnum Conductor Docker container has started running
+  shell: docker ps -a | grep Up | grep magnumconductor_{{ docker.magnum_conductor.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Magnum Conductor Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-magnumconductor
+  tags:
+    - reboot-on-failure

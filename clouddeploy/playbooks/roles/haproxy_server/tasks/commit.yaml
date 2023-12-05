@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove haproxy Directory
+  file:
+    path: "/docker/haproxy_{{ HAPROXY_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old haproxy docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "haproxy_{{ HAPROXY_PREVIOUS_TAG }}" }
+
+- name: Remove haproxy docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.haproxy.name }}"
+    tag: "{{ HAPROXY_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

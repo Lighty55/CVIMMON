@@ -1,0 +1,38 @@
+- name: Cisco Controller drop tables
+  hosts: controllers
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  tags: [ "vts", "neutron-vtf", "neutron-install" ]
+  become: "{{ sudo_required }}"
+  tasks:
+     - name: Drop neutron ciscocontroller_maintenance table
+       shell: mysql -h {{ internal_lb_vip_address }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'drop tables neutron.ciscocontroller_maintenance'
+       register: mysql_response
+       delegate_to: localhost
+       run_once: True
+       tags: [ "vts", "neutron-vtf", "neutron-install" ]
+       failed_when:
+                  - "'Unknown table' not in mysql_response.stderr"
+                  - "mysql_response.rc == 1"
+
+
+     - name: Drop neutron ciscocontrollerjournal table
+       shell: mysql -h {{ internal_lb_vip_address }} -uroot -p{{ DB_ROOT_PASSWORD }} -e 'drop tables neutron.ciscocontrollerjournal'
+       register: mysql_response
+       delegate_to: localhost
+       run_once: True
+       tags: [ "vts", "neutron-vtf", "neutron-install" ]
+       failed_when:
+                  - "'Unknown table' not in mysql_response.stderr"
+                  - "mysql_response.rc == 1"
+
+     # Now restart the service
+     - name: Restart neutron server
+       service:
+          name: "{{ item }}"
+          enabled: yes
+          state: restarted
+       with_items:
+           - docker-neutronsrv
+       tags:
+           - reboot-on-failure

@@ -1,0 +1,169 @@
+# Telegraf Configuration
+#
+###############################################################################
+#                       AGENT CONFIGURATION                                   #
+###############################################################################
+# Configuration for telegraf agent
+[agent]
+  collection_jitter = "0s"
+  precision = ""
+  round_interval = true
+  flush_interval = "10s"
+  logfile = ""
+  omit_hostname = false
+  metric_batch_size = 1000
+  interval = "10s"
+  quiet = false
+  debug = false
+  metric_buffer_limit = 10000
+  flush_jitter = "0s"
+  ## Override default hostname, if empty use os.Hostname()
+  hostname = ""
+###############################################################################
+#                            OUTPUT PLUGINS                                   #
+###############################################################################
+#   ## Debug true - Prints OpenTSDB communication
+#   debug = false
+
+# # Configuration for the Prometheus client to spawn
+[[outputs.prometheus_client]]
+  listen = "0.0.0.0:9273"
+  path = "/metrics"
+  expiration_interval = "5m"
+
+
+###############################################################################
+#                            PROCESSOR PLUGINS                                #
+###############################################################################
+
+# # Print all metrics that pass through this filter.
+# [[processors.printer]]
+#[[processors.override]]
+#[processors.override.tags]
+#node_type = "CVIM-MON"
+
+#[[processors.override]]
+#namepass = [ "cpu",]
+#[processors.override.tags]
+#tag = "CVIM-MON"
+#[[inputs.net]]
+#  interfaces = ["br_mgmt"]
+###############################################################################
+#                            AGGREGATOR PLUGINS                               #
+###############################################################################
+
+# # Keep the aggregate min/max of each metric passing through.
+# [[aggregators.minmax]]
+#   ## General Aggregator Arguments:
+#   ## The period on which to flush & clear the aggregator.
+#   period = "30s"
+#   ## If true, the original metric will be dropped by the
+#   ## aggregator and will not get sent to the output plugins.
+#   drop_original = false
+
+###############################################################################
+#                            INPUT PLUGINS                                    #
+###############################################################################
+
+# Read metrics about cpu usage
+[[inputs.cpu]]
+  percpu = true
+  totalcpu = true
+  collect_cpu_time = false
+  report_active = false
+
+# Read metrics about disk usage by mount point
+[[inputs.disk]]
+  ignore_fs = ["tmpfs", "devtmpfs"]
+  fieldpass = ["used_percent"]
+  tagexclude = ["device","fstype"]
+
+# Get NTP Information
+[[inputs.ntpq]]
+  dns_lookup = false
+
+# Read metrics about disk IO by device
+[[inputs.diskio]]
+
+# Get kernel statistics from /proc/stat
+[[inputs.kernel]]
+
+# Read metrics about memory usage
+[[inputs.mem]]
+
+# Get the number of processes and group them by status
+[[inputs.processes]]
+
+# Read metrics about swap memory usage
+[[inputs.swap]]
+
+# Read metrics about system load & uptime
+[[inputs.system]]
+
+# # Read metrics about docker containers
+[[inputs.docker]]
+  endpoint = "unix:///var/run/docker.sock"
+  gather_services = false
+  container_names = []
+  container_name_include = []
+  container_name_exclude = []
+  timeout = "5s"
+  perdevice = true
+  docker_label_include = []
+  docker_label_exclude = []
+  interval= "10s"
+  namepass = ["docker_container_cpu", "docker_container_mem", "docker"]
+  fieldpass = ["usage_percent", "usage", "n_containers*"]
+  tagdrop = ["description"]
+
+# # Sysstat metrics collector
+#[[inputs.sysstat]]
+#  {% if ansible_os_family == "RedHat" %}
+#  fieldpass = ["pct_steal","pct_idle","pct_memused","ldavg-1","ldavg-5","ldavg-15","retrans_per_s","await","pct_util","rxkB_per_s","txkB_per_s"]
+#  {% elif ansible_os_family == "Debian" %}
+#  fieldpass = ["pct_pct_steal","pct_pct_idle","pct_pct_memused","ldavg-1","ldavg-5","ldavg-15","retrans_per_s","await","pct_util","rxkB_per_s","txkB_per_s"]
+#  {% endif %}
+#  {% if ansible_os_family == "RedHat" %}
+#      sadc_path = "/usr/lib64/sa/sadc"
+#  {% elif ansible_os_family == "Debian" %}
+#      sadc_path = "/usr/lib/sysstat/sadc"
+#  {% endif %}
+  #
+# activities = ["DISK","SNMP"]
+#  [inputs.sysstat.options]
+#    -C = "cpu"
+#    -B = "paging"
+#    -b = "io"
+#    -d = "disk"             # requires DISK activity
+#    "-n ALL" = "network"
+#    "-P ALL" = "per_cpu"
+#    -q = "queue"
+#    -R = "mem"
+#    -r = "mem_util"
+#    -S = "swap_util"
+#    -u = "cpu_util"
+#    -v = "inode"
+#    -W = "swap"
+#    -w = "task"
+#   #  -H = "hugepages"        # only available for newer linux distributions
+#   #  "-I ALL" = "interrupts" # requires INT activity
+#   #
+#   #
+#   ## Device tags can be used to add additional tags for devices.
+#   ## For example the configuration below adds a tag vg with value rootvg for
+#   ## all metrics with sda devices.
+#   # [[inputs.sysstat.device_tags.sda]]
+#   #  vg = "rootvg"
+
+###############################################################################
+#                            SERVICE INPUT PLUGINS                            #
+###############################################################################
+#[[inputs.exec]]
+#  commands = [ "bash /var/lib/cvim_mon/directory-plugin.sh /var/lib/prometheus",
+#               "bash /var/lib/cvim_mon/directory-plugin.sh /var/lib/docker/volumes/elasticsearch"]
+#  timeout = "5s"
+#  name_override = "directory_plugin"
+#  name_suffix = ""
+#  data_format = "json"
+#  tag_keys = [ "dudir" ]
+#  interval = "30m"

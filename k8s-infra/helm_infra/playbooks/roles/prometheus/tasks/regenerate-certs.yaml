@@ -1,0 +1,130 @@
+---
+- name: "CVIMMON-{{ metro_name }}->Check for any historic cert/key files in the path"
+  stat:
+    path: "{{ item }}"
+  register: fpath
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+
+- name: "CVIMMON-{{ metro_name }}->Delete any past cert files if exists in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+
+- name: "CVIMMON-{{ metro_name }}->Get secrets form the namespace and check Prometheus Ingress Secret exists"
+  shell: kubectl get secrets -n {{ metro_name }} | grep cvimmon-prometheus-{{ metro_name }} | cat
+  register: prom_secret
+
+- name: "CVIMMON-{{ metro_name }}->Get secrets form the namespace and check Alertmanager Ingress Secret exists"
+  shell: kubectl get secrets -n {{ metro_name }} | grep cvimmon-alertmanager-{{ metro_name }} | cat
+  register: alert_secret
+
+- name: "CVIMMON-{{ metro_name }}->Check if the domain based wildcard certificate is available"
+  stat:
+    path: "{{ domaincert_pemfile }}"
+  register: domaincert
+
+- name: "CVIMMON-{{ metro_name }}->Copy domain cert to temp location"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_cert_out_path }}"
+  when:
+    - domaincert.stat.exists == True
+
+- name: "CVIMMON-{{ metro_name }}->Copy domain cert to temp location for alertmanager"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_alertmgr_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ domaincert_pemfile }} -out {{ cvimmon_alertmgr_cert_out_path }}"
+  when:
+    - domaincert.stat.exists == True
+
+- name: "CVIMMON-{{ metro_name }}->Check if Stack Level certificate is available"
+  stat:
+    path: "{{ stackcert_pemfile }}"
+  register: stackcert
+
+- name: "CVIMMON-{{ metro_name }}->Copy stack cert to temp location"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_cert_out_path }}"
+  when:
+    - stackcert.stat.exists == True
+
+- name: "CVIMMON-{{ metro_name }}->Copy stack cert to temp location for alertmanager"
+  command: "{{ item }}"
+  with_items:
+  - "openssl pkey -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_alertmgr_key_out_path }}"
+  - "openssl x509 -outform pem -in {{ stackcert_pemfile }} -out {{ cvimmon_alertmgr_cert_out_path }}"
+  when:
+    - stackcert.stat.exists == True
+
+- name: "CVIMMON-{{ metro_name }}->Create Self Signed Certs with OpenSSL for Prometheus"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ cvimmon_key_out_path }}
+    -out {{ cvimmon_cert_out_path }}
+    -subj "/CN={{ ingress_host_server }}/O={{ ingress_host_server }}"
+  when:
+    - domaincert.stat.exists == False
+    - stackcert.stat.exists == False
+
+- name: "CVIMMON-{{ metro_name }}->Create Self Signed Certs with OpenSSL for Prometheus-Alertmanager"
+  become: yes
+  command: >
+    openssl req -x509 -nodes -days {{ validity_days }}
+    -newkey rsa:{{ bits }}
+    -keyout {{ cvimmon_alertmgr_key_out_path }}
+    -out {{ cvimmon_alertmgr_cert_out_path }}
+    -subj "/CN={{ ingress_host_alertmanager }}/O={{ ingress_host_alertmanager }}"
+  when:
+    - domaincert.stat.exists == False
+    - stackcert.stat.exists == False
+
+- name: "CVIMMON-{{ metro_name }}->Create Kubernetes TLS Secret for Prometheus"
+  command: kubectl create secret tls cvimmon-prometheus-{{ metro_name }} -n -{{ metro_name }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ cvimmon_key_out_path }}']
+    - ['{{ cvimmon_cert_out_path }}']
+  when: "'cvimmon-prometheus-{{ metro_name }}' not in prom_secret.stdout"
+
+- name: "CVIMMON-{{ metro_name }}->Replace CVIM-MON Ingress Certs With Kubectl"
+  shell: |
+     kubectl create secret tls {{ item.0 }} -n {{ metro_name }} --key {{ item.1 }} --cert {{ item.2 }} -o yaml --dry-run | kubectl replace -f -
+  with_nested:
+    - ['cvimmon-prometheus-{{ metro_name }}']
+    - ['{{ cvimmon_key_out_path }}']
+    - ['{{ cvimmon_cert_out_path }}']
+
+- name: "CVIMMON-{{ metro_name }}->Create Kubernetes TLS Secret for Prometheus-Alertmanager"
+  command: kubectl create secret tls cvimmon-alertmanager-{{ metro_name }} -n -{{ metro_name }} --key {{ item.0 }} --cert {{ item.1 }}
+  with_nested:
+    - ['{{ cvimmon_alertmgr_key_out_path }}']
+    - ['{{ cvimmon_alertmgr_cert_out_path }}']
+  when: "'cvimmon-alertmanager-{{ metro_name }}' not in alert_secret.stdout"
+
+- name: "CVIMMON-{{ metro_name }}->Replace CVIM-MON Ingress Certs With Kubectl"
+  shell: |
+     kubectl create secret tls {{ item.0 }} -n {{ metro_name }} --key {{ item.1 }} --cert {{ item.2 }} -o yaml --dry-run | kubectl replace -f -
+  with_nested:
+    - ['cvimmon-alertmanager-{{ metro_name }}']
+    - ['{{ cvimmon_alertmgr_key_out_path }}']
+    - ['{{ cvimmon_alertmgr_cert_out_path }}']
+
+- name: "CVIMMON-{{ metro_name }}->Delete all Cert Sensitive files in the path"
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ cvimmon_key_out_path }}"
+    - "{{ cvimmon_cert_out_path }}"
+    - "{{ cvimmon_alertmgr_key_out_path }}"
+    - "{{ cvimmon_alertmgr_cert_out_path }}"

@@ -1,0 +1,5 @@
+KEYSTONE_REGION: RegionOne
+MAGNUM_HOST: "{{ control_bond }}"
+MAGNUM_PRIMARY_NODE: "{{ groups['magnum_conductor_mgmt_ip'][0] }}"
+MAGNUM_CONDUCTOR_PREVIOUS_TAG:
+MAGNUM_CONDUCTOR_PREVIOUS_NAME:

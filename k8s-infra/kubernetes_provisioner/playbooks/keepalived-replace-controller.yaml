@@ -1,0 +1,16 @@
+- hosts: all-masters{{server|default('')}}
+  become: yes
+  roles:
+    - setup-cfssl
+
+- hosts: localhost
+  become: yes
+  roles:
+    - decide-master
+
+- hosts: all-masters{{server|default('')}}
+  become: yes
+  roles:
+    - keepalived-init
+    - keepalived
+    - kubeadm-init-prep

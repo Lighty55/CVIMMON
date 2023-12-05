@@ -1,0 +1,10 @@
+LOCAL_IP: "{{ tenant_bond }}"
+tenant_if: "t"
+prov_if: "p"
+tenant_bond: "{{ tenant_bond }}"
+tenant_cidr: "{{ tenant_cidr }}"
+tenant_slave0: "t0"
+tenant_slave1: "t1"
+# Internal headers VXLAN=50, MAC=14
+HEADERS_FOR_VPP: 64
+VTF_PREVIOUS_TAG:

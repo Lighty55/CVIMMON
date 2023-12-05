@@ -1,0 +1,79 @@
+- name: Copy the new Heat api cfn configuration file
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "heat_api_cfn_config.j2", dest: "{{docker.heat_api_cfn.host_data_dir }}/heat_api_cfn_reconfigure.j2" }
+
+- name: Compare old and new rendered template
+  command: diff /docker/heat_api_cfn/heat_api_cfn_config.j2 /docker/heat_api_cfn/heat_api_cfn_reconfigure.j2
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+# Now if there is a diff there is a need to reconfigure
+- name: Copy the new render config
+  command: mv /docker/heat_api_cfn/heat_api_cfn_reconfigure.j2 /docker/heat_api_cfn/heat_api_cfn_config.j2
+  when: command_result.stdout != ""
+
+# Remove the reconfigure file when there is no diff
+- name: Remove reconfigure file
+  file: path=/docker/heat_api_cfn/heat_api_cfn_reconfigure.j2 state=absent
+  when: command_result.stdout == ""
+
+# Now delete the template file inside the container
+- name: Delete the heat api cfn config file inside container to force a reconfigure
+  command: docker cp /docker/heat_api_cfn/heat_api_cfn_config.j2 heatapicfn_{{ docker.heat_api_cfn.image_tag }}:/opt/kolla/heat_api_cfn_config.j2
+  when: command_result.stdout != ""
+
+- name: Generate the reconfig credentials
+  command: docker exec heatapicfn_{{ docker.heat_api_cfn.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec heatapicfn_{{ docker.heat_api_cfn.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec heatapicfn_{{ docker.heat_api_cfn.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- name: Creating the heatcfn endpoints
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=endpoint_create
+           os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           os_username={{ ADMIN_USER }}
+           os_password={{ ADMIN_USER_PASSWORD }}
+           os_tenant_name={{ ADMIN_TENANT_NAME }}
+           service_name=heat-cfn
+           endpoint_region=RegionOne
+           endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ HEAT_API_CFN_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1
+           endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1
+           endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:{{ HEAT_API_CFN_PORT }}/v1"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+# Now restart the service
+- name: Restart heat api cfn service
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: restarted
+  with_items:
+    - docker-heatapicfn
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))
+
+- name: Wait for Heat API CFN to be alive
+  wait_for: host={{ HEAT_HOST }} port={{ HEAT_API_CFN_PORT }}
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))

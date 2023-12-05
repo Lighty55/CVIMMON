@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova consoleauth Directory
+  file:
+    path: "/docker/nova_consoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-consolaauth docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaconsoleauth_{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}" }
+
+- name: Remove nova docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_consoleauth.name }}"
+    tag: "{{ NOVA_CONSOLEAUTH_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

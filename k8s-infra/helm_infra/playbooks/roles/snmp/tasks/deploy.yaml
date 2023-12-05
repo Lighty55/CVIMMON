@@ -1,0 +1,13 @@
+- name: "{{ metro_name }} Deploy | Create staging for snmp container"
+  file:
+    path: "{{ SNMP_STACK_PATH }}"
+    recurse: yes
+    state: directory
+    mode: "0755"
+
+- name: "{{ metro_name }} Deploy | Render snmp manifest"
+  template:
+    src: snmp_manifest.yaml.j2
+    dest: "{{ SNMP_STACK_PATH }}/snmp_manifest.yaml"
+
+- include: snmp_start.yaml

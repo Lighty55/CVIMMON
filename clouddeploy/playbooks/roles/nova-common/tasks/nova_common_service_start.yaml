@@ -1,0 +1,67 @@
+- name: Check if Nova Common Docker container is already running
+  shell: docker ps -a | grep Up | grep novacommon_{{ docker.nova_common.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias novacommon='in_container novacommon_"
+    line: "{{ item }}"
+  with_items:
+    - alias novacommon='in_container novacommon_{{ docker.nova_common.image_tag }}'
+
+- stat: path={{ NOVA_VOLUME }}
+  register: nova_dir_check
+
+- name: Create nova directory
+  file:
+    path: "{{ NOVA_VOLUME }}"
+    state: directory
+    owner: nova
+    group: nova
+    mode: 0755
+    recurse: yes
+  when: nova_dir_check.stat.exists == False
+
+- name: Start the Nova common Docker Service
+  docker_container:
+    name: "novacommon_{{ docker.nova_common.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.nova_common.name }}:{{ docker.nova_common.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      - "{{ docker.nova_common.host_data_dir }}:{{ docker.nova_common.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- pause: seconds=5 prompt="Waiting for sometime"
+
+- name: Check if Nova Common Docker container has started running
+  shell: docker ps -a | grep Up | grep novacommon_{{ docker.nova_common.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if container is not UP.
+  fail: msg="Nova Common Container does not seem to be running"
+  when: command_result.stdout == ""
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-novacommon
+  tags:
+    - reboot-on-failure
+
+# Verify nova.conf is configured
+- name: Verify nova.conf configuration
+  shell: docker exec novacommon_{{ docker.nova_common.image_tag }} bash -c "grep ^executor_thread_pool_size.*128$ /etc/nova/nova.conf"
+  register: conf_done
+  until: conf_done.rc == 0
+  retries: 12
+  delay: 10
+

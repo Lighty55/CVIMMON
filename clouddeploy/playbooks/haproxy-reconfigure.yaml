@@ -1,0 +1,8 @@
+- name: Install HAProxy Containarized service.
+  hosts: haproxy_all
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "haproxy_server", tags: [ "base", "haproxy" ] }
+  serial: "30%"

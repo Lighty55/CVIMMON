@@ -1,0 +1,136 @@
+- name: Gathering facts from all hosts
+  hosts: host_power_all
+  tasks: [ ]
+  tags:
+    - host_setup
+
+- include: user_group_setup.yaml
+
+- name: Fix /etc/hosts
+  hosts: host_power_all
+  tasks:
+    - name: Update mgmt node entry in /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '[0-9A-Fa-f\.:]+\s+{{ groups["mgmt"]|join("") }}\s+{{ groups["mgmt"]|join("") }}$'
+        line: "{{ item }} {{ groups['mgmt']|join('') }} {{ groups['mgmt']|join('') }}"
+      when: item != "" and item != "0.0.0.0" and item != "::"
+      with_items:
+        - "{{ build_node_ip }}"
+
+    - name: Map hostnames to ipv4 addresses
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '.*\..*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+        line: "{{ item }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      with_items: "{{ groups['host_power_all'] }}"
+
+    - name: Map hostnames to ipv6 addresses
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        regexp: '.*:.*\s+{{ hostvars[item]["ansible_hostname"] }}\s+{{ hostvars[item]["ansible_nodename"] }}$'
+        line: "{{ hostvars[item]['management_ipv6'] }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['host_power_all'] }}"
+  tags:
+    - host_setup
+
+- name: Create new group
+  hosts: host_power_all
+  tasks:
+    - name: Create groups for adding OSD
+      local_action: add_host hostname={{ item }} groupname=new_osds
+      with_items:
+        - "{{ OSD }}"
+  tags:
+    - host_setup
+    - base
+
+- name: Check Ansible connectivity to all hosts
+  hosts: new_osds
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  tasks:
+    - name: check host connectivity
+      shell: echo " {{ hostvars[item]['ansible_hostname'] }}"
+      with_items: "{{ groups['host_power_all'] }}"
+      register: cmd_output
+  tags:
+    - host_setup
+
+- name: Initial Host setup for osds
+  hosts: new_osds
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+    - { role: host_setup, host_init: true, host_post_init: false }
+  tags:
+    - host_setup
+
+- include: ntp-setup.yaml
+
+- name: Basic host setup for osds
+  hosts: new_osds
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh
+  max_fail_percentage: 0
+  roles:
+    - { role: host_setup, host_init: false, host_post_init: true }
+  tags:
+    - host_setup
+
+- name: Set docker aliases.
+  hosts: new_osds
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  connection: ssh # or paramiko
+  max_fail_percentage: 0
+  roles:
+  - { role: set_aliases, tags: [ "host_setup" ] }
+
+- name: Install fluentd onto all nodes.
+  hosts: new_osds
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "fluentd", tags: [ "host_setup", "fluentd" ] }
+
+- name: Cloudpulse populate
+  hosts: cloudpulse_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "cloudpulse-populate", tags: [ "host_setup", "cloudpulse" ] }
+
+- name : NFVIMON operations if needed
+  hosts: new_osds
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "nfvimon", tags: [ "nfvimon"] }
+
+- include: cvim-mon-configure.yaml
+
+- name: Configure IPA client host integration
+  hosts: new_osds
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: ipa-config }
+  tags:
+    - base
+    - host_setup
+    - ipa-config
+

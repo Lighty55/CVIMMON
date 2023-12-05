@@ -1,0 +1,99 @@
+- name: "Looking for initramfs image"
+  stat:
+    path: "{{ IRONIC_DEPLOY_IMAGE_INITRAMFS }}"
+  register: initramfs_image_stat
+
+- name: "Looking for kernel image"
+  stat:
+    path: "{{ IRONIC_DEPLOY_IMAGE_KERNEL }}"
+  register: kernel_image_stat
+
+- fail:
+    msg: "Cannot find corresponding kernel {{ IRONIC_DEPLOY_IMAGE_KERNEL }} or initramfs {{ IRONIC_DEPLOY_IMAGE_INITRAMFS }} image"
+  when: "{{ not initramfs_image_stat.stat.exists or not kernel_image_stat.stat.exists }}"
+
+- set_fact:
+    IRONIC_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/IRONIC_KEYSTONE_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: "Check if image {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }} already added to glance"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image show {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }}
+  ignore_errors: True
+  failed_when: false
+  register: image_added
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: "Add kernel image {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }} to glance"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image create
+           --container-format aki
+           --disk-format aki
+           --file {{ IRONIC_DEPLOY_IMAGE_KERNEL }}
+           --protected
+           --private
+           {{ IRONIC_DEPLOY_IMAGE_KERNEL | basename }}
+  when: "{{ image_added.rc == 1 }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: "Check if image {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }} already added to glance"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image show {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }}
+  ignore_errors: True
+  failed_when: false
+  register: image_added
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: "Add initramfs image {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }} to glance"
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           openstack
+           --os-interface internal
+           --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+           --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+           --os-user-domain-name default
+           --os-project-domain-name default
+           --os-username {{ IRONIC_KEYSTONE_USER }}
+           --os-password {{ IRONIC_KEYSTONE_PASSWORD }}
+           --os-project-name {{ SERVICE_TENANT_NAME }}
+           image create
+           --container-format ari
+           --disk-format ari
+           --file {{ IRONIC_DEPLOY_IMAGE_INITRAMFS }}
+           --protected
+           --private
+           {{ IRONIC_DEPLOY_IMAGE_INITRAMFS | basename }}
+  when: "{{ image_added.rc == 1 }}"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"

@@ -1,0 +1,36 @@
+- name: Handle /etc/hosts file after power-on
+  hosts: host_power_all
+  tasks:
+    - name: Clear content of etc/hosts file
+      lineinfile:
+        dest: /etc/hosts
+        regexp: '.'
+        state: absent
+
+
+- name: Fix /etc/hosts file after power-on
+  hosts: host_power_all, localhost
+  tasks:
+    - name: Update mgmt node entry in /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        line: "{{ item }} {{ groups['mgmt']|join('') }} {{ groups['mgmt']|join('') }}"
+      when: item != "" and item != "0.0.0.0" and item != "::"
+      with_items:
+        - "{{ build_node_ip }}"
+
+    - name: Fix /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        line: "{{ item }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      with_items: "{{ groups['host_power_all'] }}"
+
+    - name: Fix /etc/hosts
+      lineinfile:
+        dest: /etc/hosts
+        state: present
+        line: "{{ hostvars[item]['management_ipv6'] }} {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_nodename'] }}"
+      when: hostvars[item]['management_ipv6'] is defined
+      with_items: "{{ groups['host_power_all'] }}"

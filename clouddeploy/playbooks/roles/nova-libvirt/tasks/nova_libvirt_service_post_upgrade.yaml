@@ -1,0 +1,19 @@
+- name: Remove libvirt container by looping
+  shell: docker ps -a | grep novalibvirt_{{ NOVA_LIBVIRT_PREVIOUS_TAG }} | cut -f1 -d ' ' | xargs docker rm -f
+  register: result
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  until: result.rc == 123
+  retries: 5
+  delay: 10
+
+- name: Removal of nova libvirt container failed
+  fail: msg="Nova Libvirt Container remove failed"
+  when: result.rc != 123
+
+- name: Remove nova libvirt docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ NOVA_LIBVIRT_PREVIOUS_NAME }}"
+    tag: "{{ NOVA_LIBVIRT_PREVIOUS_TAG }}"
+    state: absent

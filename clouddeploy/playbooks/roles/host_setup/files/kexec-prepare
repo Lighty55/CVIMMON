@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# By choice, the system owner can force a full hardware reboot instead
+# of a kexec by touching the file /reboot-full.
+
+if [ -f /reboot-full ] ; then
+    rm /reboot-full
+    # Simply not loading the kexec kernel will cause a full reboot
+else
+    TMP=$(mktemp)
+
+    KERNEL_IMG=$(grubby --default-kernel)
+
+    grubby --info="$KERNEL_IMG" >"$TMP"
+
+    get_val() {
+        egrep "^$1=" < "$TMP" | sed -e "s/^$1=//;s/\"\\(.*\\)\"/\\1/"
+    }
+
+    #  Load (prepare) the kernel for execution
+    kexec -l $(get_val kernel) --initrd="$(get_val initrd)" --command-line="root=$(get_val root) $(get_val args)"
+    rm $TMP
+fi
+

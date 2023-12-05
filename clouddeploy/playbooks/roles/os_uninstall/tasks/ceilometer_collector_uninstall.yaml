@@ -1,0 +1,48 @@
+# ceilometer collector
+- name: Shut off ceilometer collector docker service
+  service:
+    name: docker-ceilometercollector
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  tags:
+    - ceilometercollector_uninstall
+
+- name: Remove ceilometer collector service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ceilometercollector.service"
+    state: absent
+  tags:
+    - ceilometercollector_uninstall
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+  tags:
+    - ceilometercollector_uninstall
+
+- name: Stop and remove ceilometer collector docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "ceilometercollector_{{ docker.ceilometer_collector.image_tag }}" }
+  tags:
+    - ceilometercollector_uninstall
+
+- name: Remove ceilometer collector docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.ceilometer_collector.name }}"
+    tag: "{{ docker.ceilometer_collector.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  tags:
+    - ceilometercollector_uninstall
+
+- name: Remove ceilometer collector Directory
+  file:
+    path: "{{ docker.ceilometer_collector.host_data_dir }}"
+    state: absent
+  tags:
+    - ceilometercollector_uninstall

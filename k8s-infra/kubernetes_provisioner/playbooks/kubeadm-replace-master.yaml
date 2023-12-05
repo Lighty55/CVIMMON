@@ -1,0 +1,20 @@
+- hosts: ha_master
+  become: yes
+  tasks:
+    - name: Get the join command from the master node
+      command: "kubeadm token create --print-join-command"
+      register: kubeadm_join
+      ignore_errors: yes
+      failed_when: False
+    - set_fact:
+        kubeadm_join_command: "{{ kubeadm_join.stdout }}"
+      when: kubeadm_join.rc == 0
+    - debug:
+        msg: "{{ kubeadm_join_command }}"
+
+- hosts: all-masters{{server|default('')}}
+  vars:
+    kubeadm_join_cmd: "{{ hostvars[groups['ha_master'][0]]['kubeadm_join_command'] }}"
+  become: yes
+  roles:
+    - kubeadm-replace-master

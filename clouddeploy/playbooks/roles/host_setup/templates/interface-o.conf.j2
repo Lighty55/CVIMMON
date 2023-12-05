@@ -1,0 +1,13 @@
+PERSISTENT_DHCLIENT=1
+DHCPRELEASE=1
+MACADDR={{ host_mac }}
+TYPE=Ethernet
+BOOTPROTO=dhcp
+PEERDNS=yes
+DEVICE={{ opflex_intf_name }}
+ONBOOT=yes
+MTU=1600
+NM_CONTROLLED=no
+BONDING_OPTS="mode=balance-xor miimon=50 xmit_hash_policy=layer3+4 updelay=0 downdelay=0"
+VLAN=yes
+ONPARENT=yes

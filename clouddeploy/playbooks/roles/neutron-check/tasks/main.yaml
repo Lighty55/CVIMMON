@@ -1,0 +1,7 @@
+- include: neutron_agents_restart.yaml
+  when: |
+    (service_name == 'neutron-openvswitch-agent' and MECHANISM_DRIVERS == "openvswitch") or
+    (service_name == 'neutron-opflex-agent' and MECHANISM_DRIVERS == 'aci') or
+    (service_name == 'neutron-linuxbridge-agent' and MECHANISM_DRIVERS == "linuxbridge") or
+    (service_name == 'neutron-l3-agent' and MECHANISM_DRIVERS not in ['vts', 'aci']) or
+    (service_name in ['neutron-dhcp-agent', 'neutron-metadata-agent', 'neutron-sriov-nic-agent'])

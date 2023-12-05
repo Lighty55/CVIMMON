@@ -1,0 +1,129 @@
+- name: Check if Ironic Inspector Docker container is already running
+  shell: docker ps -a | grep Up | grep ironic_inspector_{{ docker.ironic_inspector.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Add aliases to bashrc.
+  lineinfile:
+    dest: /root/.bashrc
+    state: present
+    regexp: "alias ironicinspector='in_container ironic_inspector_"
+    line: "{{ item }}"
+  with_items:
+    - alias ironicinspector='in_container ironic_inspector_{{ docker.ironic_inspector.image_tag }}'
+
+- name: Create log directories
+  file: path=/var/log/ironic state=directory owner=root group=500 mode=0770 recurse=yes
+
+- name: Start the Ironic Inspector Docker Service
+  docker_container:
+    name: "ironic_inspector_{{ docker.ironic_inspector.image_tag }}"
+    privileged: True
+    image: "{{ docker.common.registry }}/{{ docker.ironic_inspector.name }}:{{ docker.ironic_inspector.image_tag }}"
+    cpuset_cpus: "{{ hostcpus }}"
+    volumes:
+      -  "{{ docker.ironic_inspector.host_data_dir }}:{{ docker.ironic_inspector.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/ironic:/var/log/ironic:z
+    ports: "{{ IRONIC_INSPECTOR_PORT }}:{{ IRONIC_INSPECTOR_PORT }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+  when: command_result.stdout == ""
+
+- name: Wait for Ironic Inspector to be alive
+  wait_for: host={{ IRONIC_INSPECTOR_HOST }} port={{ IRONIC_INSPECTOR_PORT }}
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-ironicinspector
+  tags:
+    - reboot-on-failure
+
+- block:
+      - name: Check whether staging_secrets exist
+        stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+        register: staging_exists
+
+      - name: Find if the IRONIC_INSPECTOR_DB_PASSWORD has changed
+        shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep IRONIC_INSPECTOR_DB_PASSWORD
+        register: ironic_inspector_db_password
+        ignore_errors: True
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+        failed_when: false
+        when: staging_exists.stat.exists == True
+
+      - name: Modify the secrets yaml file
+        lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^IRONIC_INSPECTOR_DB_PASSWORD" line="IRONIC_INSPECTOR_DB_PASSWORD{{ ":" }} {{ IRONIC_INSPECTOR_DB_PASSWORD }}"
+        when:  staging_exists.stat.exists == True and ironic_inspector_db_password.stdout != ""
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+
+      - name: Find if the IRONIC_INSPECTOR_KEYSTONE_PASSWORD  has changed
+        shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep IRONIC_INSPECTOR_KEYSTONE_PASSWORD
+        register: ironic_inspector_keystone_password
+        ignore_errors: True
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+        failed_when: false
+        when: staging_exists.stat.exists == True
+
+      - name: Modify the secrets yaml file
+        lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^IRONIC_INSPECTOR_KEYSTONE_PASSWORD" line="IRONIC_INSPECTOR_KEYSTONE_PASSWORD{{ ":" }} {{ IRONIC_INSPECTOR_KEYSTONE_PASSWORD }}"
+        when:  staging_exists.stat.exists == True and ironic_inspector_keystone_password.stdout != ""
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+
+      ######### VAULT #########
+      # Read new passwords
+      - set_fact:
+          IRONIC_INSPECTOR_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/IRONIC_INSPECTOR_DB_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+          IRONIC_INSPECTOR_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/IRONIC_INSPECTOR_KEYSTONE_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: VAULT is defined and VAULT.enabled == True
+
+      # Lookup plugin doesn't ignore_error. Following is the workaround
+      - name: Fetch old ironic password
+        environment:
+          VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+        shell: vault kv get -field=value secret/cvim-secrets/IRONIC_INSPECTOR_DB_PASSWORD
+        register: IRONIC_INSPECTOR_DB_OLD_PASSWORD
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        ignore_errors: True
+        failed_when: False
+        when: VAULT is defined and VAULT.enabled == True
+
+      - name: Fetch old ironic password
+        environment:
+          VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+        shell: vault kv get -field=value secret/cvim-secrets/IRONIC_INSPECTOR_KEYSTONE_PASSWORD
+        register: IRONIC_INSPECTOR_KEYSTONE_OLD_PASSWORD
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        ignore_errors: True
+        failed_when: False
+        when: VAULT is defined and VAULT.enabled == True
+
+      - name: Write new password to engine
+        environment:
+          VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+        shell: vault kv put secret/cvim-secrets/IRONIC_INSPECTOR_DB_PASSWORD value={{ IRONIC_INSPECTOR_DB_PASSWORD }}
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when:
+          - VAULT is defined and VAULT.enabled == True
+          - inventory_hostname == "{{ groups['ironic_all'][0] }}"
+          - IRONIC_INSPECTOR_DB_OLD_PASSWORD.stdout == "" or IRONIC_INSPECTOR_DB_OLD_PASSWORD.stdout != IRONIC_INSPECTOR_DB_PASSWORD
+
+      - name: Write new password to engine
+        environment:
+          VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+        shell: vault kv put secret/cvim-secrets/IRONIC_INSPECTOR_KEYSTONE_PASSWORD value={{ IRONIC_INSPECTOR_KEYSTONE_PASSWORD }}
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when:
+          - VAULT is defined and VAULT.enabled == True
+          - inventory_hostname == "{{ groups['ironic_all'][0] }}"
+          - IRONIC_INSPECTOR_KEYSTONE_OLD_PASSWORD.stdout == "" or IRONIC_INSPECTOR_KEYSTONE_OLD_PASSWORD.stdout != IRONIC_INSPECTOR_KEYSTONE_PASSWORD
+
+  delegate_to: localhost
+  run_once: True

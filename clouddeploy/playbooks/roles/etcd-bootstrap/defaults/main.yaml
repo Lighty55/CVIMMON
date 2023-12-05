@@ -1,0 +1,2 @@
+ETCD_LISTEN_PORT: 2379
+ETCD_LOGDIR: /var/log/etcd

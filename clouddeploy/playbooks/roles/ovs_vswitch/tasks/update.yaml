@@ -1,0 +1,8 @@
+- include: ovs_vswitch_update_prepare.yaml
+  when: MECHANISM_DRIVERS == "openvswitch" or MECHANISM_DRIVERS == "aci"
+
+- include: ovs_vswitch_service_install.yaml
+  when: MECHANISM_DRIVERS == "openvswitch" or MECHANISM_DRIVERS == "aci"
+
+- include: ovs_vswitch_service_start.yaml
+  when: MECHANISM_DRIVERS == "openvswitch" or MECHANISM_DRIVERS == "aci"

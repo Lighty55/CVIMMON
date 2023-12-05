@@ -1,0 +1,143 @@
+- set_fact:
+    ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+  token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+# Note when multi-domain is configured during initial
+# install default domain will have to be created
+- name: Create the default domain if it does not exist
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=domain_create
+            domain_to_create=default
+            os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+            os_username={{ ADMIN_USER }}
+            os_password={{ ADMIN_USER_PASSWORD }}
+            os_tenant_name={{ ADMIN_TENANT_NAME }}"
+  run_once: true
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Create _member_ role
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep _member_ || openstack role create _member_"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Generate a token
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack token issue -f value -c id
+  register: token
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Find admin user
+  environment:
+    OS_AUTH_URL: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3"
+    OS_USERNAME: "{{ ADMIN_USER }}"
+    OS_PASSWORD: "{{ ADMIN_USER_PASSWORD }}"
+    OS_TENANT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_REGION_NAME: "RegionOne"
+    OS_PROJECT_NAME: "{{ ADMIN_TENANT_NAME }}"
+    OS_PROJECT_DOMAIN_NAME: "default"
+    OS_USER_DOMAIN_NAME: "default"
+    OS_IDENTITY_API_VERSION: 3
+  shell: openstack user list --domain default | grep -w " {{ ADMIN_USER }} " | awk '{print $2}'
+  register: user
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Ignore lockout for service accounts
+  uri:
+    method: PATCH
+    url: "{{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v3/users/{{ user.stdout }}"
+    headers:
+      Content-Type: "application/json"
+      X-Auth-Token: "{{ token.stdout }}"
+    body: '{"user": {"options": {
+            "ignore_lockout_failure_attempts": true,
+            "ignore_change_password_upon_first_use": true,
+            "ignore_password_expiry": true
+            }}}'
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+
+- name: Create vnfm role when ENABLE_ESC_PRIV is True
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep vnfm || openstack role create vnfm"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: ENABLE_ESC_PRIV is defined and ENABLE_ESC_PRIV == true
+
+- name: Create readonly role when OPENSTACK_READONLY_ROLE is True
+  shell: >
+        docker exec -u root vimconfig_{{ docker.vimconfig.image_tag }}
+        bash -c
+        "export OS_AUTH_URL={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }};
+        export OS_USERNAME={{ ADMIN_USER }};
+        export OS_PASSWORD={{ ADMIN_USER_PASSWORD }};
+        export OS_REGION_NAME=RegionOne;
+        export OS_PROJECT_NAME={{ ADMIN_TENANT_NAME }};
+        export OS_PROJECT_DOMAIN_NAME=default;
+        export OS_USER_DOMAIN_NAME=default;
+        export OS_IDENTITY_API_VERSION={{ KEYSTONE_API_VERSION }};
+        openstack role list | grep readonly || openstack role create readonly"
+  run_once: True
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: OPENSTACK_READONLY_ROLE is defined and OPENSTACK_READONLY_ROLE|bool
+
+
+- name: Configure Keystone LDAP Identity driver
+  include: keystone_ldap_config.yaml
+  when: LDAP is defined
+
+- name: Create service project if it does not exist
+  command: >
+           docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+           /usr/bin/ansible localhost -m vim_keystone -a
+           "action=project_create
+            project_to_create={{ SERVICE_TENANT_NAME }}
+            os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+            os_username={{ ADMIN_USER }}
+            os_password={{ ADMIN_USER_PASSWORD }}
+            os_tenant_name={{ ADMIN_TENANT_NAME }}"
+  run_once: true
+  delegate_to: localhost
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"

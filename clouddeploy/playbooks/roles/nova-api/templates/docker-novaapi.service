@@ -1,0 +1,16 @@
+[Unit]
+Description=Nova API Docker
+Wants=docker-novasch.service
+After=docker-novasch.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a novaapi_{{ docker.nova_api.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 novaapi_{{ docker.nova_api.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

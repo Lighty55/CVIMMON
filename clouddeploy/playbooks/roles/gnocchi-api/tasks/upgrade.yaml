@@ -1,0 +1,40 @@
+#######################################################
+# Preparing Gnocchi API upgrade
+#######################################################
+- name: Shut off gnocchi api docker service
+  service:
+    name: docker-gnocchi-api
+    enabled: no
+    state: stopped
+
+- name: Remove gnocchi api service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gnocchi-api.service"
+    state: absent
+
+- name: Systemctl daemon-reload
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove gnocchi api docker container
+  docker_container:
+    image: ""
+    name: "gnocchiapi_{{ GNOCCHI_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ GNOCCHI_API_PREVIOUS_NAME }}"
+    tag: "{{ GNOCCHI_API_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove gnocchi api Directory
+  file:
+    path: "{{ docker.gnocchi_api.host_data_dir }}"
+    state: absent
+
+#######################################################
+# Installing new Gnocchi API
+#######################################################
+- include: deploy.yaml

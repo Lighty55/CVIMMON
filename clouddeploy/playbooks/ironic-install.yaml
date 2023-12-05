@@ -1,0 +1,84 @@
+- name: Install Ironic API Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-api", tags: [ "ironic", "ironic-api" ], when: "optional_service_ironic is defined" }
+
+- name: Create Ironic artifacts
+  hosts: localhost
+  max_fail_percentage: 0
+  connection: local
+  gather_facts: False
+  roles:
+    - { role: "ironic-artifacts", tags: [ "ironic", "ironic-artifacts" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic-Conductor Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-conductor", tags: [ "ironic", "ironic-conductor" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic PXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-pxe", tags: [ "ironic", "ironic-pxe" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic iPXE Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-ipxe", tags: [ "ironic", "ironic-ipxe" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic Nova Compute Containerized service
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-nova-compute", tags: [ "ironic", "ironic-nova-compute" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic-Inspector Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  roles:
+    - { role: "ironic-inspector", tags: [ "ironic", "ironic-inspector" ], when: "optional_service_ironic is defined" }
+
+- name: Install Ironic DNSMASQ Containerized service.
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  vars:
+    ironic_host_index: "{{ groups['ironic_all'].index(inventory_hostname) }}"
+  roles:
+    - { role: "ironic-dnsmasq", tags: [ "ironic", "ironic-dnsmasq" ], when: "optional_service_ironic is defined" }
+
+# If –by-service is specified, this command will look in the appropriate
+# cell(s) for any nova-compute services and ensure there are host mappings
+# for them. This is less efficient and is only necessary when using compute
+# drivers that may manage zero or more actual compute nodes at any given
+# time (currently only ironic).
+# https://docs.openstack.org/nova/latest/cli/nova-manage.html#nova-cells-v2
+- name: Discover the ironic compute hosts
+  hosts: ironic_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Discover the hosts
+      command: docker exec -t ironic_novacompute_{{ docker.ironic_nova_compute.image_tag }} nova-manage cell_v2 discover_hosts --by-service
+      run_once: True
+  tags:
+    - ironic
+    - ironic-nova-compute

@@ -1,0 +1,16 @@
+[Unit]
+Description=Horizon Docker
+Wants=docker-keystone.service
+After=docker-keystone.service
+
+[Service]
+Restart={{ RESTART_OPTION }}
+RestartSec=5
+StartLimitInterval={{ RESTART_INTERVAL }}
+StartLimitBurst={{ RESTART_LIMIT }}
+KillMode={{ KILLMODE }}
+ExecStart=/usr/bin/docker start -a horizon_{{ docker.horizon.image_tag }}
+ExecStop=/usr/bin/docker stop -t 8 horizon_{{ docker.horizon.image_tag }}
+
+[Install]
+WantedBy=multi-user.target

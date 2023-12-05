@@ -1,0 +1,6 @@
+# Execute the rollback play only if the preinstall of update began
+- stat: path={{ docker.ironic_dnsmasq.host_data_dir }}_{{ IRONIC_DNSMASQ_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: ironic_dnsmasq_service_rollback_start.yaml
+  when: dir_check.stat.exists

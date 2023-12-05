@@ -1,0 +1,109 @@
+---
+- shell: python /opt/cisco/scripts/get_mgmtip.py | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+- name: Stop and remove current http data containers
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items: "{{ PREVIOUS_REPO_CONTAINERS | list }}"
+
+- name: Shut off repo mirror
+  service:
+    name: docker-cobbler-web
+    enabled: no
+    state: stopped
+  ignore_errors: yes
+
+- name: Remove repo mirror service file
+  file:
+    path: "/usr/lib/systemd/system/docker-cobbler-web.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Remove repo_mirror container
+  docker_container:
+    image: "{{ docker.common.registry }}/{{ docker.repo_mirror.name }}/dockbler-web:{{ REPO_MIRROR_PREVIOUS_TAG }}"
+    name: "repo_mirror_{{ REPO_MIRROR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Start the http data containers
+  docker_container:
+    name: "{{ item.name }}"
+    image: "{{ docker.common.registry }}/{{ item.image }}"
+    state: present
+    timeout: 420
+  with_items: "{{ CURRENT_REPO_CONTAINERS | list }}"
+
+- name: Start repo mirror with updated volumes
+  docker_container:
+    name: "repo_mirror_{{ docker.repo_mirror.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.repo_mirror.name }}:{{ docker.repo_mirror.image_tag }}"
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    state: started
+    env:
+      COBBLER_IP: "{{ MGMT_IP.stdout }}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    volumes_from: "{{ CURRENT_REPO_VOLUMES | list }}"
+
+- name: Wait for repo mirror container to be alive
+  wait_for:
+    host: "{{ MGMT_IP.stdout }}"
+    port: 80
+
+- name: Copy Containers restart-on-boot files.
+  template:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "docker-cobbler-web.service",
+        dest: "/usr/lib/systemd/system/docker-cobbler-web.service" }
+  tags:
+    - reboot-on-failure
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Enable Docker Services
+  service:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - docker-cobbler-web
+
+- name: Check if repo mirror  container has started running
+  shell: docker ps -a | grep Up | grep repo_mirror_{{ docker.repo_mirror.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Fail if repo mirror container is not UP.
+  fail: msg="repo mirror container is not running"
+  when: command_result.stdout == ""
+
+- name: Remove old repo images
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ item.name }}"
+    tag: "{{ item.tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    force: yes
+  with_items: "{{ PREVIOUS_REPO_IMAGES | list }}"
+  when: item.tag != ""
+
+- name: Remove old repo mirror image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.repo_mirror.name }}"
+    tag: "{{ REPO_MIRROR_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    force: yes

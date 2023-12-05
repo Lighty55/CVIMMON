@@ -1,0 +1,8 @@
+- name: Uninstall CVIM-MON-HA Utilities
+  hosts: localhost
+  connection: local
+  max_fail_percentage: 0
+  user: "root"
+  any_errors_fatal: True
+  roles:
+    - { role: "uninstall", tags: [ "base", "uninstall" ] }

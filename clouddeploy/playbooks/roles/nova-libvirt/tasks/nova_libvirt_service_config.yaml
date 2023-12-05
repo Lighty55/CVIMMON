@@ -1,0 +1,22 @@
+- name: Copy nova libvirt config file to Docker staging folder.
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  with_items:
+    - { src: "nova_libvirt_config.j2",
+        dest: "{{ docker.nova_libvirt.host_data_dir }}/nova_libvirt_config" }
+
+- name: Check if libvirt container is running
+  shell: docker ps -a | grep Up | grep novalibvirt_{{ docker.nova_libvirt.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Copy Ceph secret XML.
+  copy:
+     src: "{{ item.src }}"
+     dest: "{{ item.dest }}"
+     mode: "0644"
+  with_items:
+    - { src: "secret.xml",
+        dest: "{{ docker.nova_libvirt.host_data_dir}}/secret.xml" }
+  when: command_result.stdout == "" and NETAPP is not defined and ZADARA is not defined

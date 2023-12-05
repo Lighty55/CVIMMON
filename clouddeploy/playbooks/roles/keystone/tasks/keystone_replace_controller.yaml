@@ -1,0 +1,69 @@
+#
+# These tasks are executed when we need to bring up a new controller node while at least, another
+# controller has keystone container running.
+#
+# All the work need it here is about getting the fernet keys from one of the existing keystone
+# container in anther controllers and put it in the /docker/keystone directory of the new node.
+# Hence, when the container in the new node comes up, it'll use the same keys that are used by
+# the other controller(s).
+#
+# Only one controller at a time can be brought up!
+#
+# Facts used in this file (which are defined earlier):
+#    _other_hosts: list of the controllers except from the one we want to replace
+#    _ip_source_node: indicates the keystone where we'll pick up the keys from
+#
+- debug: msg="Replace Ctrler | Server:{{ inventory_hostname }}, other_hosts:{{ _other_hosts }}, keys from:{{ _ip_source_node }}"
+
+- name: Replace Ctrler | Get the list of fernet keys that need to be copied from the container
+  shell: docker exec keystone_{{ docker.keystone.image_tag }} bash -c "cd {{ KEYSTONE_FERNET_KEYS_REPO }} && ls"
+  register: _list_fernet_keys
+  failed_when: not _list_fernet_keys
+  any_errors_fatal: true
+  run_once: true
+  delegate_to: "{{ _ip_source_node }}"
+
+- name: Replace Ctrler | Get the fernet keys from each keystone container to its own controller node
+  shell: >
+    docker cp keystone_{{ docker.keystone.image_tag }}:{{ KEYSTONE_FERNET_KEYS_REPO }}/{{ item }} \
+           {{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+  delegate_to: "{{ _ip_source_node }}"
+
+# We need to copy the keys temporarily in the management node because the direct copy from controller to
+# controller is not allowed without a password (hence we cannot use synchronize between the two nodes)
+- name: Replace Ctrler | Pick keys from container & put in the management node temporarily
+  fetch:
+    src:  "{{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}"
+    dest: "{{ KEYSTONE_FERNET_BUILD_DIR }}/fernet-key_{{ item }}"
+    flat: yes
+    validate_checksum: yes
+    fail_on_missing: yes
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+  delegate_to: "{{ _ip_source_node }}"
+
+# We copy the keys from the management node to the controller node we want to replace.
+- name: Replace Ctrler | Put the fernet keys into the new controller node
+  copy:
+    src:  "{{ KEYSTONE_FERNET_BUILD_DIR }}/fernet-key_{{ item }}"
+    dest: "{{ docker.keystone.host_data_dir }}"
+    force: yes
+    owner: root
+    group: root
+    mode: "u=rw,g=r,o=r"
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+
+# Now remove the bits and pieces that you created due to ansible limitations
+- name: Replace Ctrler | Delete the keys from the controller where it took the keys from
+  file:
+    path: "{{ docker.keystone.host_data_dir }}/fernet-key_{{ item }}"
+    state: absent
+  with_items: "{{ _list_fernet_keys.stdout_lines | default([]) }}"
+  delegate_to: "{{ _ip_source_node }}"
+
+- name: Replace Ctrler | Delete the keys from management node
+  file:
+    path: "{{ KEYSTONE_FERNET_BUILD_DIR  }}"
+    state: absent
+  delegate_to: "127.0.0.1"
+

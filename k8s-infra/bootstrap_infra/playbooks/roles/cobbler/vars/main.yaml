@@ -1,0 +1,49 @@
+CURRENT_REPO_CONTAINERS:
+  - { name: "mercury-repofiles_{{ docker.repo_repofiles.image_tag }}",
+      image: "{{ docker.repo_repofiles.name }}:{{ docker.repo_repofiles.image_tag }}" }
+  - { name: "mercury-common-rpms_{{ docker.repo_mercury_common_rpms.image_tag }}",
+      image: "{{ docker.repo_mercury_common_rpms.name }}:{{ docker.repo_mercury_common_rpms.image_tag }}" }
+  - { name: "mercury-buildnode-rpms_{{ docker.repo_mercury_buildnode_rpms.image_tag }}",
+      image: "{{ docker.repo_mercury_buildnode_rpms.name }}:{{ docker.repo_mercury_buildnode_rpms.image_tag }}" }
+  - { name: "rhel-server-rpms_{{ docker.repo_rhel_server_rpms.image_tag }}",
+      image: "{{ docker.repo_rhel_server_rpms.name }}:{{ docker.repo_rhel_server_rpms.image_tag }}" }
+  - { name: "rhel-server-optional-rpms_{{ docker.repo_rhel_server_optional_rpms.image_tag }}",
+      image: "{{ docker.repo_rhel_server_optional_rpms.name }}:{{ docker.repo_rhel_server_optional_rpms.image_tag }}" }
+  - { name: "rhel-server-extras-rpms_{{ docker.repo_rhel_server_extras_rpms.image_tag }}",
+      image: "{{ docker.repo_rhel_server_extras_rpms.name }}:{{ docker.repo_rhel_server_extras_rpms.image_tag }}" }
+  - { name: "rhel-server-rh-common-rpms_{{ docker.repo_rhel_server_rh_common_rpms.image_tag }}",
+      image: "{{ docker.repo_rhel_server_rh_common_rpms.name }}:{{ docker.repo_rhel_server_rh_common_rpms.image_tag }}" }
+  - { name: "rhel-ha-for-rhel-server-rpms_{{ docker.repo_rhel_ha_for_rhel_server_rpms.image_tag }}",
+      image: "{{ docker.repo_rhel_ha_for_rhel_server_rpms.name }}:{{ docker.repo_rhel_ha_for_rhel_server_rpms.image_tag }}" }
+  - { name: "cisco-rhel-server-openstack-hotfix-rpms_{{ docker.repo_cisco_rhel_server_openstack_hostfix_rpms.image_tag }}",
+      image: "{{ docker.repo_cisco_rhel_server_openstack_hostfix_rpms.name }}:{{ docker.repo_cisco_rhel_server_openstack_hostfix_rpms.image_tag }}" }
+  - { name: "repo_mercury_cvim_k8s_rpms_{{ docker.repo_mercury_cvim_k8s_rpms.image_tag }}",
+      image: "{{ docker.repo_mercury_cvim_k8s_rpms.name }}:{{ docker.repo_mercury_cvim_k8s_rpms.image_tag }}" }
+  - { name: "repo_mercury_calipso_rpms_{{ docker.repo_mercury_calipso_rpms.image_tag }}",
+      image: "{{ docker.repo_mercury_calipso_rpms.name }}:{{ docker.repo_mercury_calipso_rpms.image_tag }}" }
+CURRENT_REPO_IMAGES: "[ {% for container in CURRENT_REPO_CONTAINERS %}{% set list = container.image.split(':') %}{% if list | length == 2 %}{ 'name': '{{ list[0] }}', 'tag': '{{ list[1] }}' }{% if not loop.last %},{% endif %}{% endif %}{% endfor %} ]"
+CURRENT_REPO_VOLUMES: "[ {% for container in CURRENT_REPO_CONTAINERS %}'{{ container.name }}'{% if not loop.last %},{% endif %}{% endfor %} ]"
+PREVIOUS_REPO_CONTAINERS:
+  - { name: "mercury-repofiles_{{ REPOFILES_PREVIOUS_TAG|default('') }}",
+      image: "{{ REPOFILES_PREVIOUS_NAME|default(docker.repo_repofiles.name) }}:{{ REPOFILES_PREVIOUS_TAG|default('') }}" }
+  - { name: "mercury-common-rpms_{{ COMMON_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ COMMON_RPMS_PREVIOUS_NAME|default(docker.repo_mercury_common_rpms.name) }}:{{ COMMON_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "mercury-buildnode-rpms_{{ BUILDNODE_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ BUILDNODE_RPMS_PREVIOUS_NAME|default(docker.repo_mercury_buildnode_rpms.name) }}:{{ BUILDNODE_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "rhel-server-rpms_{{ RHEL_SERVER_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_SERVER_RPMS_PREVIOUS_NAME|default(docker.repo_rhel_server_rpms.name) }}:{{ RHEL_SERVER_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "rhel-server-optional-rpms_{{ RHEL_OPTIONAL_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_OPTIONAL_RPMS_PREVIOUS_NAME|default(docker.repo_rhel_server_optional_rpms.name) }}:{{ RHEL_OPTIONAL_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "rhel-server-extras-rpms_{{ RHEL_EXTRA_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_EXTRA_RPMS_PREVIOUS_NAME|default(docker.repo_rhel_server_extras_rpms.name) }}:{{ RHEL_EXTRA_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "rhel-server-rh-common-rpms_{{ RHEL_COMMON_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_COMMON_RPMS_PREVIOUS_NAME|default(docker.repo_rhel_server_rh_common_rpms.name) }}:{{ RHEL_COMMON_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "repo_mercury_cvim_k8s_rpms_{{ CVIM_K8S_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ CVIM_K8S_RPMS_PREVIOUS_NAME|default(docker.repo_mercury_cvim_k8s_rpms.name) }}:{{ CVIM_K8S_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "rhel-ha-for-rhel-server-rpms_{{ RHEL_HA_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_HA_RPMS_PREVIOUS_NAME|default(docker.repo_rhel_ha_for_rhel_server_rpms.name) }}:{{ RHEL_HA_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "cisco-rhel-server-openstack-hotfix-rpms_{{ RHEL_HOSTFIX_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ RHEL_HOSTFIX_RPMS_PREVIOUS_NAME|default(docker.repo_cisco_rhel_server_openstack_hostfix_rpms.name) }}:{{ RHEL_HOSTFIX_RPMS_PREVIOUS_TAG|default('') }}" }
+  - { name: "repo_mercury_calipso_rpms_{{ CALIPSO_RPMS_PREVIOUS_TAG|default('') }}",
+      image: "{{ CALIPSO_RPMS_PREVIOUS_NAME|default(docker.repo_mercury_calipso_rpms.name) }}:{{ CALIPSO_RPMS_PREVIOUS_TAG|default('') }}" }
+PREVIOUS_REPO_IMAGES: "[ {% for container in PREVIOUS_REPO_CONTAINERS %}{% set list = container.image.split(':') %}{% if list | length == 2 %}{ 'name': '{{ list[0] }}', 'tag': '{{ list[1] }}' }{% if not loop.last %},{% endif %}{% endif %}{% endfor %} ]"

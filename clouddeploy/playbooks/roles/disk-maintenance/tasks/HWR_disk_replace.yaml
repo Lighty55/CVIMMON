@@ -1,0 +1,55 @@
+###############################################################################
+# Disk replace playbook
+#
+# This playbook will look for any new disk(s) that have been added to the
+# server as replacements and will add them to the Disk Group as spares.
+###############################################################################
+
+- name: Get disk details
+  include: HWR_disk_check.yaml
+
+- wait_for:
+    path: "{{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+    timeout: 30
+  delegate_to: localhost
+
+- include_vars: "{{ RAID_STATUS_FILE }}_{{ inventory_hostname }}"
+  name: Include vars - replace
+  delegate_to: localhost
+
+- name: Check if there are disks to be added as spares
+  stat:
+    path: "{{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+  register: disks_to_add
+  delegate_to: localhost
+
+- name: Get list of slots for the disks
+  shell:
+    cmd: cat {{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }} | awk '/disk/{print $2}' | cut -d ":" -f 2
+  register: Slot_ID
+  when: '("{{ RAID_status }}" == "Success") and (disks_to_add.stat.exists)'
+  delegate_to: localhost
+
+- name: Save list of slot ids being replaces
+  shell: "echo 'Slot - {{ item }}' >> {{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ Slot_ID.stdout_lines }}"
+  when: '("{{ RAID_status }}" == "Success") and (disks_to_add.stat.exists)'
+  delegate_to: localhost
+
+- name: Add disk as hotspare
+  shell: "/opt/MegaRAID/storcli/storcli64 /c{{ controller_num }}/e{{ Enclosure_ID }}/s{{ item }} add hotsparedrive dg={{ Disk_Group }} J"
+  with_items: "{{ Slot_ID.stdout_lines }}"
+  register: res
+  when: '("{{ RAID_status }}" == "Success") and (disks_to_add.stat.exists)'
+  ignore_errors: true
+
+- name: Save res
+  set_fact:
+    res_json_list: "[{% for result in res.results %} {{ result.stdout | from_json }}, {% endfor %}]"
+  when: '("{{ RAID_status }}" == "Success") and (disks_to_add.stat.exists)'
+
+- name: Write to file
+  shell: "echo 'Status - {{ item.Controllers[0]['Command Status']['Status'] }}' >> {{ ADD_AS_SPARES_FILE }}_{{ inventory_hostname }}"
+  with_items: "{{ res_json_list }}"
+  when: '("{{ RAID_status }}" == "Success") and (disks_to_add.stat.exists)'
+  delegate_to: localhost

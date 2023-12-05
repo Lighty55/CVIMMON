@@ -1,0 +1,16 @@
+#jinja2: trim_blocks: "True", lstrip_blocks: "True"
+# {{ ansible_managed }}
+
+{# Add external servers as stratum n+1 on controllers #}
+{%- for n in range(0, ntp_servers | length) %}
+server {{ ntp_servers[n] }} iburst
+{% endfor -%}
+
+{# Make k8s node proof to disconnections #}
+tos orphan 5
+{# Disable monlist command to prevent reconnaissance or DDoS attacks #}
+disable monitor
+
+{# Prevent Network Time Protocol (NTP) Mode 6 Scanner #}
+restrict default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1

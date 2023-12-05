@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create gobgp Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - /docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}
+
+# Back up the gobgp volume
+- name: back up the gobgp volume
+  shell: cp /docker/gobgp/* /docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}/.
+
+# Backup the systemd file
+- name: back up the gobgp systemd file
+  command: cp /usr/lib/systemd/system/docker-gobgp.service /docker/gobgp_{{ GOBGP_PREVIOUS_TAG }}/docker-gobgp.service
+
+#####################################################
+# Shut down the old gobgp containers
+####################################################
+- name: Shut off gobgp docker service
+  service:
+    name: docker-gobgp
+    enabled: no
+    state: stopped
+
+- name: Remove gobgp service file
+  file:
+    path: "/usr/lib/systemd/system/docker-gobgp.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove the contents of gobgp volume
+- name: List the contents of gobgp volume
+  shell: ls -A1 /docker/gobgp/
+  register: contents
+
+- name: Remove the contents of gobgp volume
+  file:
+    path: /docker/gobgp/{{ item }}
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

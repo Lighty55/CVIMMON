@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove neutron opflex agent directory
+  file:
+    path: "/docker/neutron_opflex_agent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove neutron opflex agent docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_opflexagent_{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron opflex agent docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.neutron_opflex_agent.name }}"
+    tag: "{{ NEUTRON_OPFLEX_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

@@ -1,0 +1,13 @@
+- name: Update configs for provider network for aci.
+  hosts: neutron_server_all{{server|default('')}}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{ sudo_required }}"
+  tasks:
+    - name: Update the provider physical domain info
+      shell: docker exec aimaid_{{ docker.aim_aid.image_tag }} aimctl manager endpoint-group-update prj_{{ TENANT_ID }} OpenStack net_{{ NET_ID }} --physical_domain_names {{ PHYSDOM_NAME }}
+      run_once: True
+
+    - name: Now update the static path
+      shell: docker exec aimaid_{{ docker.aim_aid.image_tag }} aimctl manager endpoint-group-update prj_{{ TENANT_ID }} OpenStack net_{{ NET_ID }} --static_paths path={{ STATIC_PATH }},encap=vlan-{{ SEGMENTATIONID }}
+      run_once: True

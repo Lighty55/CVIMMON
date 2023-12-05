@@ -1,0 +1,3 @@
+- include: cinder_backup_service_install.yaml
+- include: cinder_backup_service_config.yaml
+- include: cinder_backup_service_start.yaml

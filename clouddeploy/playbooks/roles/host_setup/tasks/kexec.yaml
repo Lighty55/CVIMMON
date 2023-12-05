@@ -1,0 +1,14 @@
+- name: Install kexec loader
+  copy: src=kexec-prepare dest=/usr/sbin/ owner=root mode=755
+
+- name: Install kexec unit file
+  copy: src=kexec-prepare.service dest=/lib/systemd/system/ owner=root mode=644
+
+- name: Set up kexec kernel load for restart
+  service: name=kexec-prepare enabled=yes
+
+- name: Default to a kexec restart
+  file: src=/lib/systemd/system/kexec.target dest=/lib/systemd/system/reboot.target state=link force=yes
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload

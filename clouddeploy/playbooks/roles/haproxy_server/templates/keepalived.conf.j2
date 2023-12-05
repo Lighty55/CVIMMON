@@ -1,0 +1,56 @@
+global_defs {
+    enable_script_security
+    vrrp_higher_prio_send_advert true
+    vrrp_garp_master_delay 5
+    vrrp_garp_master_repeat 5
+    vrrp_garp_lower_prio_delay 5
+    vrrp_garp_lower_prio_repeat 5
+    script_user root
+}
+
+vrrp_script chk_haproxy {
+    script "/usr/bin/pkill -0 haproxy"     # check the haproxy process
+    interval 2                    # every 2 seconds
+    fall 2
+    rise 10
+}
+
+vrrp_instance VI_1 {
+    interface @MGMT_VIP_INTERFACE@           # interface to monitor
+    state BACKUP
+    virtual_router_id @VIRTUAL_ROUTER_ID@
+    priority @HAPROXY_PRIORITY@
+    nopreempt
+    higher_prio_send_advert true
+    virtual_ipaddress {
+        @VIP_IP_ADDRESS@ dev @VIP_INTERFACE@
+        @MGMT_VIP_IP_ADDRESS@ dev @MGMT_VIP_INTERFACE@
+    }
+{% set _self_priority = (VRRP_PRIORITY_INDEX - groups['haproxy_mgmt_ip'].index(inventory_hostname)) %}
+    unicast_src_ip {{ VRRP_INTERNAL_SUBNET | ipaddr(_self_priority) | ipaddr('address') }}
+    unicast_peer {
+{% for server in groups['haproxy_mgmt_ip'] %}
+{% set _peer_priority = (VRRP_PRIORITY_INDEX - groups['haproxy_mgmt_ip'].index(server)) %}
+{% if _peer_priority != _self_priority %}
+        {{ VRRP_INTERNAL_SUBNET | ipaddr(_peer_priority) | ipaddr('address') }}
+{% endif %}
+{% endfor %}
+    }
+{% if (external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "") or (internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "") %}
+    virtual_ipaddress_excluded {
+{% if external_lb_vip_ipv6_address is defined and external_lb_vip_ipv6_address != "" %}
+        @VIP_IPV6_ADDRESS@ dev @VIP_INTERFACE@
+{% endif %}
+{% if internal_lb_vip_ipv6_address is defined and internal_lb_vip_ipv6_address != "" %}
+        @MGMT_VIP_IPV6_ADDRESS@ dev @MGMT_VIP_INTERFACE@
+{% endif %}
+    }
+{% endif %}
+    track_script {
+        chk_haproxy
+    }
+    track_interface {
+        @VIP_INTERFACE@
+    }
+    notify /docker/haproxy/haproxy_route.sh
+}

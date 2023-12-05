@@ -1,0 +1,16 @@
+- hosts: all-servers
+  become: yes
+  vars:
+    upgrade_version: v1.12.3
+    kubeadm_version: 1.12.3
+  ignore_errors: yes
+  roles:
+    - kubeadm-upgrade
+
+- hosts: all-servers
+  serial: 1
+  become: yes
+  vars:
+    kubelet_version: 1.12.3
+  roles:
+    - update-kubelet

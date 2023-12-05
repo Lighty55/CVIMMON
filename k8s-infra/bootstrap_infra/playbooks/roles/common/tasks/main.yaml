@@ -1,0 +1,99 @@
+- name: Create scripts dir
+  file:
+    path: /opt/cisco/scripts
+    state: directory
+    mode: 0755
+
+- name: Copy script
+  copy:
+    src: get_mgmtip.py
+    dest: /opt/cisco/scripts/get_mgmtip.py
+    owner: root
+    mode: 0544
+
+- shell: python /opt/cisco/scripts/get_mgmtip.py  | head -1
+  register: MGMT_IP
+  failed_when: MGMT_IP.stdout == ""
+
+- name: Render cvim_mon template file
+  template:
+    src: cvim_mon_ha.yaml.template
+    dest: "{{ playbook_dir }}/../../../../openstack-configs/cvim_mon_ha.yaml"
+    mode: 0644
+
+- name: Disable firewall service
+  service:
+    name: firewalld
+    enabled: no
+    state: stopped
+  ignore_errors: True
+  failed_when: false
+  tags:
+    - reboot-on-failure
+
+- include_vars: "{{ playbook_dir }}/../../../../openstack-configs/cvim_mon_ha.yaml"
+
+- set_fact:
+    docker_bip: "169.254.99.99/24"
+
+- name: "delete docker0 and recreate with link local ip"
+  shell: ip link del docker0
+  ignore_errors: True
+  failed_when: false
+
+- name: Modify docker0 ip
+  replace: dest=/etc/sysconfig/docker-network regexp="^DOCKER_NETWORK_OPTIONS=$" replace="DOCKER_NETWORK_OPTIONS='--bip={{ docker_bip }}'"
+  register: status_docker0
+
+- name: Update the insecure registry
+  lineinfile:
+    dest: /etc/sysconfig/docker
+    line: "INSECURE_REGISTRY='--insecure-registry {{ management_node_ip }}:5000'"
+    state: present
+  register: status_insecure
+
+- name: Update the registry
+  lineinfile:
+    dest: /etc/sysconfig/docker
+    line: "ADD_REGISTRY='--add-registry {{ registry }}'"
+    state: present
+  register: status_registry
+
+- name: Update to block docker registry direct pulls
+  lineinfile:
+    dest: /etc/sysconfig/docker
+    line: "BLOCK_REGISTRY='--block-registry docker.io'"
+    state: present
+  register: status_block
+
+- name: Fix up docker selinux labelling
+  shell: restorecon -R -v /usr/bin/docker*
+
+# Make sure to remove oci register machine before any docker upgrade
+- name: Remove oci-register-machine hook
+  file:
+    path: "/usr/libexec/oci/hooks.d/oci-register-machine"
+    state: absent
+
+- name: Restart docker when there is a change
+  shell: systemctl restart docker
+  when: status_registry.changed or status_block.changed or status_insecure.changed or status_docker0.changed
+  ignore_errors: True
+  failed_when: False
+
+# systemctl restart docker fails with timeout and the subsequent restart works
+- action: shell docker ps
+  register: result
+  until: result.stderr.find("Is your docker daemon up and running?") == -1
+  ignore_errors: True
+  retries: 10
+  delay: 15
+
+- name: Make sure docker service is started
+  service: name=docker state=started
+
+- name: Exclude python-docker from being updated
+  lineinfile:
+    dest: /etc/yum.conf
+    line: "exclude=python-docker* docker-python* python-websocket-client"
+    state: present

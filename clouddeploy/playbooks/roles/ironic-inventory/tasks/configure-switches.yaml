@@ -1,0 +1,49 @@
+- block:
+    - name: Looking for ironic network in setup-data.yaml
+      set_fact:
+          ironic_network: "{{ NETWORKING | json_query(\"networks[?contains(segments,'ironic')] | [0]\") }}"
+
+    - set_fact:
+        ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-secrets/ADMIN_USER_PASSWORD:data
+      token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      when: VAULT is defined and VAULT.enabled == True
+
+    # If nodes were added to database need provision_state of them. Will ignore active/available nodes.
+    # No need to configure switchports of already active/available nodes.
+    # There are ignored in the most outer loop in installer/clouddeploy/playbooks/roles/ironic-inventory/templates/interfaces.cfg.jinja2
+    - name: List ironic nodes
+      command: >
+              docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+              openstack
+              --os-interface internal
+              --os-auth-url {{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+              --os-identity-api-version {{ KEYSTONE_API_VERSION }}
+              --os-user-domain-name default
+              --os-project-domain-name default
+              --os-username {{ ADMIN_USER }}
+              --os-password {{ ADMIN_USER_PASSWORD }}
+              --os-project-name {{ ADMIN_TENANT_NAME }}
+              baremetal node list --fields name provision_state -f json
+      ignore_errors: True
+      no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+      failed_when: false
+      register: EXISTING_IRONIC_NODES
+
+    - name: Parse nodes list
+      set_fact:
+        EXISTING_IRONIC_NODES: "{{ EXISTING_IRONIC_NODES.stdout |from_json }}"
+        EXISTING_IRONIC_NODES_STATE: {}
+
+    - name: Convert nodes list to <node>:<provision state> dictionary
+      set_fact:
+        EXISTING_IRONIC_NODES_STATE: "{{ EXISTING_IRONIC_NODES_STATE | combine({item['Name']: item['Provisioning State'] }) }}"
+      with_items: "{{ EXISTING_IRONIC_NODES }}"
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: Configure Ironic switch
+  include: configure-interfaces.yaml
+  loop_control:
+    loop_var: ironic_switch
+  with_items: "{{ IRONIC.IRONIC_SWITCHDETAILS }}"

@@ -1,0 +1,39 @@
+#####################################################
+# Shut down the old neutron l3 containers
+####################################################
+# Neutron L3 Agent.
+- name: Shut off neutron l3 docker service
+  service:
+    name: docker-neutronl3
+    enabled: no
+    state: stopped
+  when: SKIP_UPGRADE is not defined
+
+- name: Remove neutron l3 service file
+  file:
+    path: "/usr/lib/systemd/system/docker-neutronl3.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove neutron l3 docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "neutron_l3_agent_{{ L3_AGENT_PREVIOUS_TAG }}" }
+
+- name: Remove neutron l3 docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ L3_AGENT_PREVIOUS_NAME }}"
+    tag: "{{ L3_AGENT_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove Neutron l3 Directory
+  file:
+    path: "{{ docker.neutron_l3_agent.host_data_dir  }}"
+    state: absent

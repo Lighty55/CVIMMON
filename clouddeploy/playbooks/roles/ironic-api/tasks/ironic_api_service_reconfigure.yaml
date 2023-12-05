@@ -1,0 +1,170 @@
+- name: Copy the new Ironic API configuration file
+  include: ironic_api_service_config.yaml
+  vars:
+    IRONIC_API_CONFIG_FILE: ironic_api_config_reconfigure
+
+- name: Compare old and new rendered template
+  command: "diff {{ docker.ironic_api.host_data_dir }}/ironic_api_config {{ docker.ironic_api.host_data_dir }}/ironic_api_config_reconfigure"
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: false
+  register: command_result
+
+- name: Generate the reconfig credentials
+  command: docker exec ironic_api_{{ docker.ironic_api.image_tag }} python /opt/kolla/lookup_secrets.py -t {{ TOKEN }} -m {{ build_node_ip | ipwrap }} -o reconfig -c {{ PASSWORD_VARS }}
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Compare the credentials
+  command: docker exec ironic_api_{{ docker.ironic_api.image_tag }} diff /opt/kolla/install_secrets.yaml /opt/kolla/reconfig_secrets.yaml
+  no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+  ignore_errors: True
+  failed_when: False
+  register: secrets_result
+  when: VAULT is defined and VAULT.enabled == True
+
+- name: Copy reconfig secrets file
+  command: docker exec ironic_api_{{ docker.ironic_api.image_tag }} mv /opt/kolla/reconfig_secrets.yaml /opt/kolla/install_secrets.yaml
+  when: secrets_result|changed and secrets_result.stdout != ""
+
+- block:
+      # Now if there is a diff there is a need to reconfigure
+      - name: Copy the new render config
+        command: "mv {{ docker.ironic_api.host_data_dir }}/ironic_api_config_reconfigure {{ docker.ironic_api.host_data_dir }}/ironic_api_config"
+
+      # Remove the reconfigure file when there is no diff
+      - name: Remove reconfigure file
+        file:
+          path: "{{ docker.ironic_api.host_data_dir }}/ironic_api_config_reconfigure"
+          state: absent
+
+      - set_fact:
+          DB_ROOT_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/DB_ROOT_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+          ADMIN_USER_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/ADMIN_USER_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+          IRONIC_DB_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/IRONIC_DB_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+          IRONIC_KEYSTONE_PASSWORD: '{{ lookup("hashi_vault", "secret=secret/data/cvim-regen-secrets/IRONIC_KEYSTONE_PASSWORD:data
+        token={{ TOKEN }} url=http://{{ build_node_ip | ipwrap }}:8200")["value"]}}'
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: secrets_result|changed
+
+      # Now update the SQL password if the IRONIC_DB_PASSWORD is part of update
+      - name: Update the SQL password
+        command: docker exec mariadb_{{ docker.mariadb.image_tag }} mysql -u root -p{{ DB_ROOT_PASSWORD }} -e "SET PASSWORD FOR '{{ IRONIC_DB_USER }}'@'%' = PASSWORD('{{ IRONIC_DB_PASSWORD }}');flush privileges"
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: "(secrets_result|changed and 'IRONIC_DB_PASSWORD' in secrets_result.stdout ) or 'IRONIC_DB_PASSWORD' in command_result.stdout "
+
+      - pause: seconds=15 prompt="Waiting for sometime"
+        when: "(secrets_result|changed and 'IRONIC_DB_PASSWORD' in secrets_result.stdout ) or 'IRONIC_DB_PASSWORD' in command_result.stdout "
+
+      # Now update the ironic keystone password if it is part of update
+      - name: Update the Ironic keystone password
+        command: >
+                 docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+                 /usr/bin/ansible localhost -m vim_keystone -a
+                 "action=user_update
+                 os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+                 os_username={{ ADMIN_USER }}
+                 os_password={{ ADMIN_USER_PASSWORD }}
+                 os_tenant_name={{ ADMIN_TENANT_NAME }}
+                 username={{ IRONIC_KEYSTONE_USER }}
+                 password={{ IRONIC_KEYSTONE_PASSWORD }}
+                 project={{ SERVICE_TENANT_NAME }}
+                 role=admin"
+        delegate_to: localhost
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: "(secrets_result|changed and 'IRONIC_KEYSTONE_PASSWORD' in secrets_result.stdout ) or 'IRONIC_KEYSTONE_PASSWORD' in command_result.stdout "
+
+      - name: Updating the Ironic endpoints
+        command: >
+                 docker exec -t vimconfig_{{ docker.vimconfig.image_tag }}
+                 /usr/bin/ansible localhost -m vim_keystone -a
+                 "action=endpoint_create
+                 os_auth_url={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ KEYSTONE_ADMIN_SERVICE_PORT }}/v{{ KEYSTONE_API_VERSION }}
+                 os_username={{ ADMIN_USER }}
+                 os_password={{ ADMIN_USER_PASSWORD }}
+                 os_tenant_name={{ ADMIN_TENANT_NAME }}
+                 service_name=ironic
+                 endpoint_region=RegionOne
+                 endpoint_internal={{ INTERNAL_PROTOCOL }}://{{ IRONIC_API_SERVICE_HOST }}:{{ IRONIC_API_PORT }}
+                 endpoint_admin={{ INTERNAL_PROTOCOL }}://{{ KEYSTONE_ADMIN_SERVICE_HOST }}:{{ IRONIC_API_PORT }}
+                 endpoint_public={{ PUBLIC_PROTOCOL }}://{{ KEYSTONE_PUBLIC_SERVICE_HOST }}:{{ IRONIC_API_PORT }}"
+        run_once: True
+        delegate_to: localhost
+        no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+        when: " 'PUBLIC_PROTOCOL' in command_result.stdout or 'KEYSTONE_PUBLIC_SERVICE_HOST' in command_result.stdout "
+
+      # Now delete the template file inside the container
+      - name: Copy the Ironic API config file inside container to force a reconfigure
+        command: "docker cp {{ docker.ironic_api.host_data_dir }}/ironic_api_config ironic_api_{{ docker.ironic_api.image_tag }}:/opt/kolla/"
+
+      - name: systemctl reset-failed docker-ironicapi
+        command: systemctl reset-failed docker-ironicapi
+
+      # Now restart the service
+      - name: Restart Ironic API service
+        service:
+          name: "{{ item }}"
+          enabled: yes
+          state: restarted
+        with_items:
+          - docker-ironicapi
+
+      - name: Wait for Ironic API to be alive
+        wait_for: host={{ IRONIC_HOST }} port={{ IRONIC_API_PORT }}
+
+      - block:
+          - name: Check whether staging_secrets exist
+            stat: path="{{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml"
+            register: staging_exists
+
+          - name: Find if the IRONIC_DB_PASSWORD has changed
+            shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep IRONIC_DB_PASSWORD
+            register: ironic_db_password
+            ignore_errors: True
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+            failed_when: false
+            when: staging_exists.stat.exists == True
+
+          - name: Modify the secrets yaml file
+            lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^IRONIC_DB_PASSWORD" line="IRONIC_DB_PASSWORD{{ ":" }} {{ IRONIC_DB_PASSWORD }}"
+            when:  staging_exists.stat.exists == True and ironic_db_password.stdout != ""
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+
+          - name: Find if the IRONIC_KEYSTONE_PASSWORD  has changed
+            shell: diff {{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml {{ lookup('env', 'HOME') }}/openstack-configs/staging_secrets.yaml | grep IRONIC_KEYSTONE_PASSWORD
+            register: ironic_keystone_password
+            ignore_errors: True
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+            failed_when: false
+            when: staging_exists.stat.exists == True
+
+          - name: Modify the secrets yaml file
+            lineinfile: dest={{ lookup('env', 'HOME') }}/openstack-configs/secrets.yaml regexp="^IRONIC_KEYSTONE_PASSWORD" line="IRONIC_KEYSTONE_PASSWORD{{ ":" }} {{ IRONIC_KEYSTONE_PASSWORD }}"
+            when:  staging_exists.stat.exists == True and ironic_keystone_password.stdout != ""
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE | default(True) }}"
+
+          - name: Write new password to engine
+            environment:
+              VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+            shell: vault kv put secret/cvim-secrets/IRONIC_DB_PASSWORD value={{ IRONIC_DB_PASSWORD }}
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+            when:
+              - inventory_hostname == "{{ groups['ironic_all'][0] }}"
+              - secrets_result|changed and 'IRONIC_DB_PASSWORD' in secrets_result.stdout
+
+          - name: Write new password to engine
+            environment:
+              VAULT_ADDR: http://{{ build_node_ip | ipwrap }}:8200
+            shell: vault kv put secret/cvim-secrets/IRONIC_KEYSTONE_PASSWORD value={{ IRONIC_KEYSTONE_PASSWORD }}
+            no_log: "{{ ANSIBLE_SAFE_LOG_OVERRIDE|default(True) }}"
+            when:
+              - inventory_hostname == "{{ groups['ironic_all'][0] }}"
+              - secrets_result|changed and 'IRONIC_KEYSTONE_PASSWORD' in secrets_result.stdout
+
+        delegate_to: localhost
+        run_once: True
+
+  when: (command_result.stdout != "" or (secrets_result|changed and secrets_result.stdout != ""))

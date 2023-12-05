@@ -1,0 +1,29 @@
+all:
+    vars:
+        heketi_admin_key: "11elfeinhundertundelf"
+        heketi_user_key: "!!einseinseins"
+    children:
+        k8s-cluster:
+            vars:
+                kubelet_fail_swap_on: false
+            children:
+                kube-master:
+                    hosts:
+                        cvim-k1:
+                        cvim-k2:
+                        cvim-k3:
+                etcd:
+                    hosts:
+                        cvim-k1:
+                        cvim-k2:
+                        cvim-k3:
+                kube-node:
+                    hosts: &kube_nodes
+                        cvim-k1:
+                        cvim-k2:
+                        cvim-k3:
+                heketi-node:
+                    vars:
+                        disk_volume_device_1: "/dev/sdb"
+                    hosts:
+                        <<: *kube_nodes

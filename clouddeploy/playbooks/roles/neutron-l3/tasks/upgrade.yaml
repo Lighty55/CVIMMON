@@ -1,0 +1,6 @@
+- include: neutron_l3_agent_service_upgrade_prepare.yaml
+
+- include: neutron_l3_agent_service_install.yaml
+
+- include: neutron_l3_agent_service_start.yaml
+

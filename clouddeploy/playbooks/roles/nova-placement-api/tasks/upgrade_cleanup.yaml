@@ -1,0 +1,34 @@
+- name: Shut off nova placement api docker service
+  service:
+    name: docker-novaplacementapi
+    enabled: no
+    state: stopped
+
+- name: Remove novaplacementapi service file
+  file:
+    path: "/usr/lib/systemd/system/docker-novaplacementapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+- name: Stop and remove nova-placement-api docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novaplacementapi_{{ docker.nova_placement_api.image_tag }}" }
+
+- name: Remove nova-placement-api docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_placement_api.name }}"
+    tag: "{{ docker.nova_placement_api.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Remove the nova placement API volume
+  file:
+    path: /docker/nova_placement_api
+    state: absent

@@ -1,0 +1,21 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Commit | Remove gnocchi statsd Directory
+  file:
+    path: "/docker/gnocchi_statsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Commit | Stop and remove old gnocchi-statsd docker container
+  docker_container:
+    image: ""
+    name: "gnocchistatsd_{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Commit | Remove gnocchi statsd image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_statsd.name }}"
+    tag: "{{ GNOCCHI_STATSD_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

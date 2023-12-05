@@ -1,0 +1,7 @@
+# Execute the rollback play only if the preinstall of update began
+#- debug: msg="stat: path=/docker/neutron_vpp_<vpp previous tag>"
+- stat: path=/docker/neutron_vpp_{{ VPP_PREVIOUS_TAG }}
+  register: dir_check
+
+- include: rollback_start.yaml
+  when: dir_check.stat.exists

@@ -1,0 +1,73 @@
+- name: Check if aim event polling is already running
+  shell: docker ps -a | grep Up | grep aimeventpolling_{{ docker.aim_event_polling.image_tag }} | cut -f1 -d " "
+  register: command_result
+
+- name: Bootstrap the aim polling container
+  docker_container:
+    name: "aim_bootstrap"
+    image: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}:{{ docker.aim_event_polling.image_tag }}"
+    volumes:
+      - "{{ docker.aim_event_polling.host_data_dir }}:{{ docker.aim_event_polling.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/aim:/var/log/aim:z
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    network_mode: "host"
+    env:
+      BOOTSTRAP:
+  run_once: True
+  when: command_result.stdout == ""
+
+- name: Waiting for aim bootstrap container to exit
+  command: docker wait aim_bootstrap
+  failed_when: bootstrap_result.stdout != "0"
+  register: bootstrap_result
+  run_once: True
+  when: command_result.stdout == ""
+
+- name: Cleaning up aim bootstrap container
+  docker_container:
+    name: aim_bootstrap
+    image: "{{ docker.common.registry }}/{{ docker.aim_event_polling.name }}:{{ docker.aim_event_polling.image_tag }}"
+    state: absent
+  run_once: True
+  when: command_result.stdout == ""
+
+# The neutron-server service attempts to initialize the
+# apic_aim driver and in the process creates AIM records
+# for the Common Any Filter (openstack secgroup)
+# In an HA cluster, where all 3 neutron-servers attempt to
+# start at the same time, this can result in a DBDuplicateEntry
+# exception.  The exception is not gracefully handled and
+# results in the neutron service exiting with an error
+# Hence the following workaround until it is addressed
+- name: Bootstrap Neutron Service
+  docker_container:
+    name: "neutron_server_bootstrap_{{ docker.neutron_server.image_tag }}"
+    image: "{{ docker.common.registry }}/{{ docker.neutron_server.name }}:{{ docker.neutron_server.image_tag }}"
+    volumes:
+      - "{{ docker.neutron_server.host_data_dir }}:{{ docker.neutron_server.host_data_dir }}:ro,z"
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log/neutron:/var/log/neutron:z
+    volumes_from:
+      - neutron_common_{{ docker.neutron_common.image_tag }}
+    interactive: yes
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+    ports: "9696:9696"
+    privileged: yes
+    network_mode: "host"
+  run_once: True
+  when: command_result.stdout == ""
+
+- name: Wait for Neutron server to be alive
+  wait_for: host={{ NEUTRON_NODE_ADDRESS }} port={{ NEUTRON_SERVER_PORT }} delay=10 timeout=120
+  run_once: True
+
+- name: Cleaning up Neutron bootstrap container
+  docker_container:
+    name: neutron_server_bootstrap_{{ docker.neutron_server.image_tag }}
+    image: "{{ docker.common.registry }}/{{ docker.neutron_server.name }}:{{ docker.neutron_server.image_tag }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  run_once: True
+  when: command_result.stdout == ""

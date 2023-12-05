@@ -1,0 +1,23 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Remove nova common Directory
+  file:
+    path: "/docker/nova_common_{{ NOVA_COMMON_PREVIOUS_TAG }}"
+    state: absent
+
+- name: Stop and remove old nova-common docker container.
+  docker_container:
+    image: "{{ item.image }}"
+    name: "{{ item.name }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+  with_items:
+    - { image: "", name: "novacommon_{{ NOVA_COMMON_PREVIOUS_TAG }}" }
+
+- name: Remove nova common docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.nova_common.name }}"
+    tag: "{{ NOVA_COMMON_PREVIOUS_TAG }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

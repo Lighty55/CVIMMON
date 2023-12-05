@@ -1,0 +1,36 @@
+- name: "Wait for portworx to be up in all nodes"
+  changed_when: false
+  register: "pwx_state"
+  ignore_errors: true
+  failed_when: false
+  vars:
+    pwx_state: { stdout: "{}" }
+    pwx_query: "cluster.Nodes[?Status==`2`]"
+  command: "/opt/pwx/bin/pxctl status --json"
+  until:
+    - "pwx_state.stdout|from_json|json_query(pwx_query)|length == {{ groups['all-servers'] | length }}"
+  retries: 50
+  delay: 5
+
+- name: "Wait for portworx to stabilize"
+  pause:
+    minutes: 2
+
+- name: "Get the list of volumes"
+  register: pwx_volume_list
+  ignore_errors: true
+  failed_when: false
+  command: "/opt/pwx/bin/pxctl volume list -v --json"
+
+- name: "Get the list of volume id"
+  vars: { volume_query: "[].id" }
+  set_fact:
+    pwx_volume_names: "{{ pwx_volume_list.stdout|from_json|json_query(volume_query)}}"
+  when: pwx_volume_list.rc == 0
+
+- name: "Change the ha replica to 3 for all the volumes"
+  ignore_errors: true
+  failed_when: false
+  command: "/opt/pwx/bin/pxctl volume ha-update --repl=3 {{ item }}"
+  with_items: "{{ pwx_volume_names }}"
+  when: pwx_volume_list.rc == 0

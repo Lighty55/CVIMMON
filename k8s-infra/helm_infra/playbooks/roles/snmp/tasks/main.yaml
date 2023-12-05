@@ -1,0 +1,15 @@
+- include: uninstall.yaml
+  when: (SNMP is defined and SNMP.enabled and
+         ((ACTION is defined and ACTION == 'reconfigure-stack') or
+          (ACTION is defined and ACTION == 'delete-stack') or
+          (ACTION is defined and ACTION == 'uninstall')))
+- include: deploy.yaml
+  when: (SNMP is defined and SNMP.enabled and
+         ((ACTION is undefined) or
+          (ACTION is defined and (ACTION == 'add-stack') or (ACTION == 'reconfigure-stack'))))
+- include: update.yaml
+  when:  SNMP is defined and SNMP.enabled and ACTION is defined and ACTION == 'update'
+- include: rollback.yaml
+  when:  SNMP is defined and SNMP.enabled and ACTION is defined and ACTION == 'rollback'
+- include: commit.yaml
+  when:  SNMP is defined and SNMP.enabled and ACTION is defined and ACTION == 'commit'

@@ -1,0 +1,8 @@
+- name: Executes Cloud Sanity
+  hosts: mariadb_all:ceph_mon_all:!{{ replace_controller_ip | default('') }}
+  max_fail_percentage: 0
+  user: "{{ remote_user }}"
+  become: "{{sudo_required }}"
+  roles:
+    - { role: "cloud-sanity", tags: [ "base", "update", "upgrade", "cloud-sanity", "central-ceph"]}
+

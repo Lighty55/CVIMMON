@@ -1,0 +1,7 @@
+PERIODIC_INTERVAL: 240
+CLOUDPULSE_STAGING_DIR: /docker/cloudpulse
+CLOUDPULSE_PREVIOUS_TAG:
+CLOUDPULSE_PREVIOUS_NAME:
+PASSWORD_VARS: ADMIN_USER_PASSWORD,CPULSE_DB_PASSWORD,DB_ROOT_PASSWORD,CLOUDPULSE_KEYSTONE_PASSWORD
+# Replace below variable with RABBITMQ_HOSTS when cloudpulse config file issue is solved.
+RABBITMQ_CPULSE_HOSTS: "{% for host in groups['rabbitmq_mgmt_ip'] %}{{ RABBITMQ_USER }}:{{ RABBITMQ_PASSWORD }}@{{ host }}:{{ RABBITMQ_PORT }}{% if not loop.last %},{% endif %}{% endfor %}"

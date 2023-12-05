@@ -1,0 +1,21 @@
+#######################################
+# Remove the old volume
+#######################################
+- name: Commit | Remove gnocchi api Directory
+  file:
+    path: "/docker/gnocchi_api_{{ GNOCCHI_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+
+- name: Commit | Stop and remove old gnocchi-api docker container
+  docker_container:
+    image: ""
+    name: "gnocchiapi_{{ GNOCCHI_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"
+
+- name: Commit | Remove gnocchi docker image
+  docker_image:
+    name: "{{ docker.common.registry }}/{{ docker.gnocchi_api.name }}"
+    tag: "{{ GNOCCHI_API_PREVIOUS_TAG | default('') }}"
+    state: absent
+    timeout: "{{ DOCKER_API_TIMEOUT }}"

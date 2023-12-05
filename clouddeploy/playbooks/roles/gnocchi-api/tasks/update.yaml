@@ -1,0 +1,2 @@
+- include: gnocchi_api_update_prepare.yaml
+- include: deploy.yaml

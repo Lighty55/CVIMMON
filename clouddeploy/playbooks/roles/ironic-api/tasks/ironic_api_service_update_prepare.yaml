@@ -1,0 +1,46 @@
+##############################################
+# Create the backup staging folder for old volume
+##############################################
+- name: Create Ironic API Docker staging folder.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  with_items:
+    - "{{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}"
+
+# Back up the ironic api volume contents
+- name: Back up the Ironic API volume contents
+  shell: "cp -r {{ docker.ironic_api.host_data_dir }}/. {{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}/"
+
+# Backup the systemd file
+- name: Back up the Ironic API systemd file
+  command: "cp /usr/lib/systemd/system/docker-ironicapi.service {{ docker.ironic_api.host_data_dir }}_{{ IRONIC_API_PREVIOUS_TAG }}/"
+
+#####################################################
+# Shut down the old ironic api containers
+####################################################
+- name: Shut off Ironic API docker service
+  service:
+    name: docker-ironicapi
+    enabled: no
+    state: stopped
+
+- name: Remove Ironic API service file
+  file:
+    path: "/usr/lib/systemd/system/docker-ironicapi.service"
+    state: absent
+
+- name: Systemctl daemon-reload.
+  command: /usr/bin/systemctl daemon-reload
+
+# Now list and remove ironic api volume contents
+- name: List Ironic API volume contents
+  shell: ls -A1 {{ docker.ironic_api.host_data_dir }}
+  register: contents
+
+- name: Remove Ironic API volume contents
+  file:
+    path: "{{ docker.ironic_api.host_data_dir }}/{{ item }}"
+    state: absent
+  with_items: "{{ contents.stdout_lines }}"

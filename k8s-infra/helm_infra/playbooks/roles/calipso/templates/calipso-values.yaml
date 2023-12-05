@@ -1,0 +1,165 @@
+calipsoApiFiles:
+  calipso.key: |
+{{ calipso_api_key | indent(4, True) }}
+  calipso.crt: |
+{{ calipso_api_cert | indent(4, True) }}
+
+calipsoMongoFiles:
+  calipso.pem: |
+{{ calipso_mongo_key | indent(4, True) }}
+{{ calipso_mongo_cert | indent(4, True) }}
+
+calipsoApiFreeformFiles:
+  api_auth_config.json: '[{"username": "{{ calipso_api_user }}", "password": "{{ api_password }}"}]'
+
+calipsoMongoFreeformFiles: {}
+
+calipsoApi:
+  name: calipso-api
+  fullnameOverride: calipso-api
+
+  image:
+    repository: {{ management_node_ip }}:5000/{{ docker.calipso_api.name }}
+    tag: "{{ docker.calipso_api.image_tag }}"
+    pullPolicy: IfNotPresent
+
+  deploymentStrategy: Recreate
+
+  persistentVolume:
+    enabled: false
+    accessModes:
+      - {{ calipso_api_pv_accessmode }}
+    annotations: {}
+    existingClaim: ""
+    mountPath: /data
+    size: {{ calipso_api_pv_size }}
+    storageClass: "{{ calipso_api_storage_class }}"
+    subPath: ""
+
+  statefulSet:
+    enabled: false
+
+  affinity: {}
+  nodeSelector: {}
+  resources: {}
+  podAnnotations: {}
+  tolerations: []
+  replicas: 1
+  configMapOverrideName: ""
+
+  service:
+    type: ClusterIP
+    servicePort: {{ CALIPSO_API_SERVICE_BIND_PORT }}
+    protocol: TCP
+    annotations: {}
+    labels: {}
+
+  ingress:
+    enabled: true
+    path: /
+
+    annotations:
+      kubernetes.io/ingress.class: {{ ingress_class_calipso_api }}
+      #nginx.ingress.kubernetes.io/auth-type: basic
+      #nginx.ingress.kubernetes.io/auth-secret: {{ ingress_authsecret_calipso_api }}
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      #nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required For Login'
+      nginx.ingress.kubernetes.io/auth-tls-secret: "{{ ingress_cert_calipso_api }}"
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/add-base-url: "true"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+    hosts:
+      - {{ ingress_host_calipso_api }}
+    tls:
+      - secretName: {{ ingress_secret_calipso_api }}
+        hosts:
+          - {{ ingress_host_calipso_api }}
+
+    extraLabels: {}
+
+calipsoMongo:
+  name: calipso-mongo
+  fullnameOverride: calipso-mongo
+
+  image:
+    repository: {{ management_node_ip }}:5000/{{ docker.calipso_mongo.name }}
+    tag: "{{ docker.calipso_mongo.image_tag }}"
+    pullPolicy: IfNotPresent
+
+  deploymentStrategy: Recreate
+
+  persistentVolume:
+    enabled: true
+    accessModes:
+      - {{ calipso_mongo_pv_accessmode }}
+    annotations: {}
+    existingClaim: ""
+    mountPath: /data
+    size: {{ calipso_mongo_pv_size }}
+    storageClass: "{{ calipso_mongo_storage_class }}"
+    subPath: db
+
+  statefulSet:
+    enabled: false
+
+  affinity: {}
+  nodeSelector: {}
+  resources: {}
+  podAnnotations: {}
+  tolerations: []
+  replicas: 1
+  configMapOverrideName: ""
+
+  service:
+    type: ClusterIP
+    servicePort: {{ CALIPSO_MONGO_SERVICE_BIND_PORT }}
+    protocol: TCP
+    annotations: {}
+    labels: {}
+
+  ingress:
+    enabled: true
+    path: /
+
+    annotations:
+      kubernetes.io/ingress.class: {{ ingress_class_calipso_mongo }}
+      #nginx.ingress.kubernetes.io/auth-type: basic
+      #nginx.ingress.kubernetes.io/auth-secret: {{ ingress_authsecret_calipso_mongo }}
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      # nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required For Login'
+      nginx.ingress.kubernetes.io/auth-tls-secret: "{{ ingress_cert_calipso_mongo }}"
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/add-base-url: "true"
+      nginx.ingress.kubernetes.io/tcp-services-configmap: "calipso/mongo-tcp-configmap"
+
+    hosts:
+      - {{ ingress_host_calipso_mongo }}
+    tls:
+      - secretName: {{ ingress_secret_calipso_mongo }}
+        hosts:
+          - {{ ingress_host_calipso_mongo }}
+
+    extraLabels: {}
+
+calipsoApiConfig:
+  configDir: {{ CALIPSO_CONFIG_DIR }}
+  configDestination: {{ CALIPSO_API_CONFIG_DESTINATION }}
+  bind: "[::]:{{ CALIPSO_API_SERVICE_BIND_PORT }}"
+  user: {{ calipso_api_user }}
+  certFilename: calipso
+  certChecksum: "{{ calipso_api_cert_checksum.stdout }}"
+  secretName: {{ ingress_authsecret_calipso_api }}
+
+
+calipsoMongoConfig:
+  configDir: {{ CALIPSO_CONFIG_DIR }}
+  authDb: calipso
+  host: calipso-mongo.{{ calipso_namespace }}.svc.cluster.local
+  port: "{{ CALIPSO_MONGO_SERVICE_BIND_PORT }}"
+  pwd: "{{ mongo_password }}"
+  user: {{ calipso_mongo_user }}
+  authEnabled: {{ CALIPSO_MONGO_SERVICE_AUTH_ENABLED }}
+  certFilename: calipso
+  certChecksum: "{{ calipso_mongo_cert_checksum.stdout }}"
+  secretName: {{ ingress_authsecret_calipso_mongo }}
